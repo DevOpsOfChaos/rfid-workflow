@@ -2,11 +2,25 @@
 
 ## External Proxmark Process
 
-The GUI uses a user-selected external `proxmark3.exe`. The repository must not copy Proxmark3 binaries, source, scripts, or firmware.
+The GUI uses a user-selected external Proxmark3/Iceman installation. The repository must not copy Proxmark3 binaries, source, scripts, or firmware.
+
+The current target setup is rooted at `C:\Tools\proxmark3` with client files in `C:\Tools\proxmark3\client`. It starts through a Batch/MSYS flow: change into `client`, call `setup.bat`, then run `bash pm3`. With a fixed port the command is:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 -p COM16"
+```
+
+Direct `proxmark3.exe COMx` startup remains modeled for installations where it works, but it is not the reliable primary path for this setup.
 
 ## Session Layer
 
-`pm3.session` validates the configured executable and owns process execution. The current scaffold supports conservative single-command execution. A future Windows adapter may need a persistent process if Proxmark3 interactive behavior is more reliable than `-c` invocations.
+`pm3.session` owns launch configuration and conservative process execution boundaries. `Pm3LaunchConfig` models these startup modes:
+
+- `direct_exe`: direct executable startup, for example `proxmark3.exe COM16`.
+- `proxspace_bat`: existing ProxSpace/Proxmark Batch launcher in the Proxmark root.
+- `client_setup_bash`: `cmd.exe /k "cd /d <client_dir> && call setup.bat && bash pm3 -p <COM>"`.
+
+For the current installation, `client_setup_bash` is the recommended mode. The existing `ProxmarkSession` class is only a small non-interactive wrapper for direct `proxmark3.exe` execution. It should not be stretched to pretend it can robustly automate an interactive MSYS shell without a tested adapter.
 
 ## Command and Risk Layer
 
@@ -30,5 +44,4 @@ The future PySide6 UI should expose Normal Mode first. Expert Mode belongs behin
 
 ## Audit and Logs
 
-Audit logging should record executable path, command, timestamp, risk level, operator action, return code, parsed result, and verification outcome.
-
+Audit logging should record launch mode, planned start command, command, timestamp, risk level, operator action, return code, parsed result, and verification outcome.

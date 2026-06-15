@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -11,11 +12,63 @@ class CommandResult:
     stderr: str
 
 
-class ProxmarkSession:
-    """Small non-interactive wrapper around an external proxmark3.exe.
+Pm3LaunchMode = Literal["direct_exe", "proxspace_bat", "client_setup_bash"]
 
-    The real GUI should move to a persistent process adapter if the client
-    proves unreliable in single-command mode on Windows.
+
+@dataclass(frozen=True)
+class Pm3LaunchConfig:
+    """Describes how a local Proxmark3 client should be started.
+
+    This is intentionally a launch-plan model. Interactive MSYS/ProxSpace
+    automation needs a dedicated adapter with real hardware testing.
+    """
+
+    mode: Pm3LaunchMode
+    proxmark_root: Path
+    client_dir: Path
+    launcher_bat: Path | None = None
+    com_port: str | None = None
+    bash_command: str = "bash pm3"
+
+    def planned_command(self) -> list[str]:
+        if self.mode == "direct_exe":
+            args = [str(self.client_dir / "proxmark3.exe")]
+            if self.com_port:
+                args.append(self.com_port)
+            return args
+
+        if self.mode == "proxspace_bat":
+            launcher = self.require_batch_launcher()
+            return [str(launcher)]
+
+        if self.mode == "client_setup_bash":
+            command = f"cd /d {self.client_dir} && call setup.bat && {self._bash_command_with_port()}"
+            return ["cmd.exe", "/k", command]
+
+        raise ValueError(f"Unsupported Proxmark launch mode: {self.mode}")
+
+    def planned_command_display(self) -> str:
+        return " ".join(f'"{arg}"' if " " in arg else arg for arg in self.planned_command())
+
+    def require_batch_launcher(self) -> Path:
+        if self.launcher_bat is None:
+            raise ValueError("proxspace_bat mode requires launcher_bat")
+        if self.launcher_bat.suffix.lower() not in {".bat", ".cmd"}:
+            raise ValueError(f"Expected a batch launcher, got: {self.launcher_bat}")
+        return self.launcher_bat
+
+    def _bash_command_with_port(self) -> str:
+        if self.com_port and "-p" not in self.bash_command.split():
+            return f"{self.bash_command} -p {self.com_port}"
+        return self.bash_command
+
+
+class ProxmarkSession:
+    """Small non-interactive wrapper around a direct proxmark3.exe launch.
+
+    This remains available for installations where direct executable startup
+    works. ProxSpace/MSYS setups should be represented with Pm3LaunchConfig
+    first and need a separate interactive adapter before command execution.
     """
 
     def __init__(self, executable: str | Path, port: str | None = None, timeout_seconds: int = 30) -> None:
@@ -48,4 +101,3 @@ class ProxmarkSession:
             timeout=self.timeout_seconds,
         )
         return CommandResult(command, completed.returncode, completed.stdout, completed.stderr)
-

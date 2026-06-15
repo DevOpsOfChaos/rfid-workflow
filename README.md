@@ -6,7 +6,7 @@ This project is not an RFID copier and does not bundle Proxmark3. It is intended
 
 ## MVP scope
 
-- Configure a local external `proxmark3.exe` path.
+- Configure a local external Proxmark3/Iceman installation and launch mode.
 - Connect to a selected COM port.
 - Run read-only hardware and transponder discovery.
 - Read, store, plan writes for, and verify Hitag S256 profiles.
@@ -20,6 +20,31 @@ Out of scope for v1: brute force, attacks, unauthorized access workflows, clonin
 - Python 3.12+ target runtime
 - Separately installed Proxmark3/Iceman client
 
+## Proxmark launch modes
+
+This repository now models multiple Windows launch modes because local
+Proxmark installations are not all started the same way.
+
+- `client_setup_bash` (recommended for the current setup): start from
+  `C:\Tools\proxmark3\client`, run `setup.bat`, then run `bash pm3 -p COM16`
+  or `bash pm3 -p COM11`.
+- `proxspace_bat`: start an existing `.bat`/`.cmd` launcher from the
+  Proxmark root, for example from `C:\Tools\proxmark3`.
+- `direct_exe`: direct executable startup such as
+  `C:\Tools\proxmark3\client\proxmark3.exe COM16`.
+
+For the current installation, direct `proxmark3.exe` calls are not considered
+the reliable primary startup path. The supported path to test manually is the
+Batch/MSYS flow:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 -p COM16"
+```
+
+The code currently prepares launch configuration and diagnostic command
+rendering. It does not claim robust automation of the interactive Proxmark
+shell.
+
 ## Development
 
 ```powershell
@@ -29,4 +54,3 @@ python -m venv .venv
 ```
 
 No Proxmark3 source code or binaries should be committed to this repository.
-
