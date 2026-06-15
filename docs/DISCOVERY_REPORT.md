@@ -114,7 +114,26 @@ The fixture CLI is:
 python -m pm3_workflow_gui.cli fixture-summary --fixture-dir tests/fixtures/pm3
 ```
 
-This CLI is not hardware automation. It reads fixture files only and does not run Proxmark commands.
+Scenario and log CLIs are:
+
+```powershell
+python -m pm3_workflow_gui.cli scenario-summary --scenario tests/fixtures/scenarios/hitag_s256_original_discovery.json
+python -m pm3_workflow_gui.cli log-summary --log tests/fixtures/pm3/session_log_discovery_sample.txt
+python -m pm3_workflow_gui.cli latest-log-summary --log-dir "C:\Tools\proxmark3\client\.proxmark3\logs"
+```
+
+This CLI is not hardware automation. It reads fixture files, scenario files, or existing PM3 logs and does not run Proxmark commands.
+
+## Capture Providers
+
+The supported read-only sources are now:
+
+- Fixtures from `tests/fixtures/pm3`.
+- Scenario JSON bundles from `tests/fixtures/scenarios`.
+- Manual text blocks supplied by a caller.
+- Existing Proxmark session logs from `C:\Tools\proxmark3\client\.proxmark3\logs`.
+
+`InteractivePm3Provider` remains a stub. Live automation through Windows `cmd`, MSYS setup, bash, and the Proxmark interactive client is a separate engineering problem and is intentionally not forced in this phase.
 
 ## Open Questions
 
@@ -129,5 +148,6 @@ This CLI is not hardware automation. It reads fixture files only and does not ru
 1. Model launch configuration with `client_setup_bash` as the recommended mode for this setup.
 2. Capture real `hw version`, `hw tune`, `lf search`, and Hitag S output for parser fixtures.
 3. Keep future UI code behind `services.discovery_facade` instead of calling parsers directly.
-4. Build a robust interactive Proxmark process adapter only after the Batch/MSYS console behavior has been tested with connected hardware.
-5. Implement the Normal Mode UI around read-only discovery before enabling any write-gated workflow execution.
+4. Use log summaries to validate real manual discovery sessions before adding live process control.
+5. Build a robust interactive Proxmark process adapter only after the Batch/MSYS console behavior has been tested with connected hardware.
+6. Implement the Normal Mode UI around read-only discovery before enabling any write-gated workflow execution.

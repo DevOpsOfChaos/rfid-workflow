@@ -3,11 +3,14 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from pm3_workflow_gui.services.capture import (
+    FixtureCaptureProvider,
+    Pm3LogCaptureProvider,
+    latest_log_file,
+)
 from pm3_workflow_gui.services.discovery_facade import (
     DiscoveryFacade,
     default_launch_config,
-    load_default_fixture_dir,
-    load_scenario,
 )
 
 
@@ -22,9 +25,33 @@ def main(argv: list[str] | None = None) -> int:
     fixture_summary.add_argument("--fixture-dir", type=Path, help="Directory containing PM3 text fixtures.")
     fixture_summary.add_argument("--scenario", type=Path, help="Scenario JSON describing related fixtures.")
 
+    scenario_summary = subparsers.add_parser(
+        "scenario-summary",
+        help="Summarize a fixture scenario JSON without hardware access.",
+    )
+    scenario_summary.add_argument("--scenario", type=Path, required=True, help="Scenario JSON describing related fixtures.")
+
+    log_summary = subparsers.add_parser(
+        "log-summary",
+        help="Summarize an existing PM3 session log without running PM3.",
+    )
+    log_summary.add_argument("--log", type=Path, required=True, help="PM3 session log path.")
+
+    latest_log_summary = subparsers.add_parser(
+        "latest-log-summary",
+        help="Summarize the newest PM3 session log in a directory.",
+    )
+    latest_log_summary.add_argument("--log-dir", type=Path, required=True, help="Directory containing PM3 session logs.")
+
     args = parser.parse_args(argv)
     if args.command == "fixture-summary":
         return _fixture_summary(args.fixture_dir, args.scenario)
+    if args.command == "scenario-summary":
+        return _print_capture_summary("PM3 scenario summary", FixtureCaptureProvider(scenario_path=args.scenario))
+    if args.command == "log-summary":
+        return _print_capture_summary("PM3 log summary", Pm3LogCaptureProvider(args.log))
+    if args.command == "latest-log-summary":
+        return _print_capture_summary("PM3 latest log summary", Pm3LogCaptureProvider(latest_log_file(args.log_dir)))
     parser.error(f"Unsupported command: {args.command}")
     return 2
 
@@ -33,15 +60,26 @@ def _fixture_summary(fixture_dir: Path | None, scenario: Path | None) -> int:
     if not fixture_dir and not scenario:
         raise SystemExit("fixture-summary requires --fixture-dir or --scenario")
 
-    facade = DiscoveryFacade(default_launch_config())
     if scenario:
-        summary = facade.summarize_scenario(load_scenario(scenario))
+        provider = FixtureCaptureProvider(scenario_path=scenario)
     else:
-        summary = facade.summarize_texts(load_default_fixture_dir(fixture_dir))
+        provider = FixtureCaptureProvider(fixture_dir=fixture_dir)
+    return _print_capture_summary("PM3 fixture summary", provider)
 
-    print("PM3 fixture summary")
+def _print_capture_summary(title: str, provider) -> int:
+    facade = DiscoveryFacade(default_launch_config())
+    capture = provider.capture()
+    summary = capture.summarize(facade)
+    print(title)
+    print(f"Source: {capture.source}")
     for line in summary.lines():
         print(line)
+    if capture.command_outputs:
+        print("Recognized commands:")
+        for command, outputs in sorted(capture.command_outputs.items()):
+            print(f"- {command} ({len(outputs)} capture(s))")
+    if capture.missing_fields:
+        print("Missing sections: " + ", ".join(capture.missing_fields))
     return 0
 
 

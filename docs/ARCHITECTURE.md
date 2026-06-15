@@ -36,6 +36,19 @@ The first read-only discovery foundation is parser-first. The project stores cap
 
 The future PySide6 GUI should call this service layer. It should not directly run parser regexes or construct Proxmark command strings.
 
+## Capture Provider Layer
+
+`services.capture` defines read-only sources that all feed `DiscoveryFacade`:
+
+- `FixtureCaptureProvider`: loads either the default fixture directory or a scenario JSON.
+- `ManualTextCaptureProvider`: accepts already pasted text blocks from a caller.
+- `Pm3LogCaptureProvider`: reads an existing Proxmark session log and extracts command outputs.
+- `InteractivePm3Provider`: stub only. It documents the future boundary for live PM3 capture but does not start processes.
+
+Log splitting is defensive. Prompt lines like `[usb] pm3 --> hw version` start a new section, the prompt line is excluded from captured output, command text is normalized for lookup, and repeated commands are stored as multiple captures with latest-output helpers. Incomplete logs are allowed; missing sections are reported instead of crashing.
+
+Interactive Windows automation is deliberately deferred. The current setup enters MSYS/bash through `setup.bat` and `bash pm3`, so a robust adapter needs explicit TTY testing. Pretending `subprocess` is enough would produce fragile behavior.
+
 ## Command and Risk Layer
 
 `pm3.commands` stores known command definitions. `pm3.risk` classifies commands into read-only, write, high-risk configuration, lock/crypto, and attack/brute-force categories.

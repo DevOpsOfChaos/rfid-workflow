@@ -79,8 +79,19 @@ and service diagnostic only; it does not communicate with the Proxmark client.
 Scenario bundles live under `tests/fixtures/scenarios/` and can be loaded with:
 
 ```powershell
-python -m pm3_workflow_gui.cli fixture-summary --scenario tests/fixtures/scenarios/hitag_s256_original_discovery.json
+python -m pm3_workflow_gui.cli scenario-summary --scenario tests/fixtures/scenarios/hitag_s256_original_discovery.json
 ```
+
+Existing PM3 session logs can be summarized without running Proxmark:
+
+```powershell
+python -m pm3_workflow_gui.cli log-summary --log tests/fixtures/pm3/session_log_discovery_sample.txt
+python -m pm3_workflow_gui.cli latest-log-summary --log-dir "C:\Tools\proxmark3\client\.proxmark3\logs"
+```
+
+Interactive PM3 automation is intentionally not implemented yet. Windows,
+MSYS, bash, and Proxmark TTY behavior need separate testing before the app
+should drive a live session.
 
 ## Development
 
