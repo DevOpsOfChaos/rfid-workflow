@@ -1,0 +1,76 @@
+# Read-only GUI MVP
+
+The GUI MVP is a display layer over existing read-only capture providers and
+`DiscoveryFacade`. It does not start PM3, does not run hardware commands, and
+does not generate write commands.
+
+## Start
+
+Install PySide6 only in a local GUI virtual environment:
+
+```powershell
+cd D:\LocalRepos\RFID-GUI
+py -3.14 -m venv .venv-gui
+.\.venv-gui\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install PySide6
+python -m pm3_workflow_gui.ui.app
+```
+
+Alternatively, after activating `.venv-gui`, install the optional GUI extra:
+
+```powershell
+python -m pip install -e .[gui]
+python -m pm3_workflow_gui.ui.app
+```
+
+If PySide6 is missing, the app exits with:
+
+```text
+PySide6 is not installed. Create and activate .venv-gui, then install PySide6.
+```
+
+## Data Sources
+
+The left panel can load:
+
+- demo scenarios: Original Hitag, blank before write, blank after write
+- demo logs: help-only, lost-device, successful blank read
+- a user-selected PM3 `.txt` log
+- the latest log from `C:\Tools\proxmark3\client\.proxmark3\logs`
+
+The demo entries are backed by repository fixtures so the UI can be exercised
+without hardware.
+
+## What It Shows
+
+The right panel shows:
+
+- session status and reconnect requirement
+- target, client, COM port, firmware, LF/HF antenna status
+- discovery data status, tag frequency, tag type, verification status
+- next step and risk notes
+- debug lists for recognized PM3 commands, ignored host commands, and missing sections
+
+`lf hitag hts reader -@` UID output is treated as Hitag/LF candidate evidence.
+`lf hitag hts rdbl -p 0 -c 8` is still required before the UI reports
+`Hitag S256 Plain`.
+
+## Operator Notes
+
+Run CLI commands in a separate PowerShell, not inside the PM3 console. If host
+commands accidentally appear in a PM3 log, the GUI shows them under ignored host
+commands and excludes them from recognized PM3 commands.
+
+If the session state is `device_lost`, stop. Reconnect USB and restart PM3 with:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3"
+```
+
+## Explicit Non-goals
+
+- no live PM3 automation
+- no PySide6 dependency in core tests
+- no write, restore, clone, simulation, brute-force, or autopwn UI
+- no hidden command execution behind buttons

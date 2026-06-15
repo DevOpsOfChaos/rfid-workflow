@@ -111,6 +111,28 @@ python -m pm3_workflow_gui.cli log-summary --log tests/fixtures/pm3/session_log_
 python -m pm3_workflow_gui.cli latest-log-summary --log-dir "C:\Tools\proxmark3\client\.proxmark3\logs"
 ```
 
+## Read-only GUI MVP
+
+The GUI is a read-only viewer over the same capture providers and facade:
+
+```powershell
+python -m pm3_workflow_gui.ui.app
+```
+
+Install PySide6 only in a local GUI venv, not globally:
+
+```powershell
+py -3.14 -m venv .venv-gui
+.\.venv-gui\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install PySide6
+python -m pm3_workflow_gui.ui.app
+```
+
+The GUI can load demo scenarios, open an existing PM3 log, or load the latest
+PM3 log. It does not start PM3, does not automate live sessions, and has no
+write functions.
+
 Run these CLI commands from a separate PowerShell, not inside the interactive
 PM3 console. If host commands such as `cd ...`, `py ...`, `python ...`,
 `powershell ...`, or `cmd ...` accidentally appear after a PM3 prompt, the log

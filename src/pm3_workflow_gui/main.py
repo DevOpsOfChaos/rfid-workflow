@@ -1,11 +1,8 @@
-"""CLI placeholder for the future GUI entry point."""
-
-
 def main() -> int:
-    print("PM3 Workflow GUI scaffold. GUI implementation is not part of this phase.")
-    return 0
+    from pm3_workflow_gui.ui.app import main as app_main
+
+    return app_main()
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

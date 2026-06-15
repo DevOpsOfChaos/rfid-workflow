@@ -135,9 +135,19 @@ Verification rules:
 
 ## UI Layer
 
-The future PySide6 UI should expose Normal Mode first. Expert Mode belongs behind a later explicit scope decision. PySide6 was not installed or tested as part of the parser/discovery fixture work; with Python 3.14.5 on this machine, UI dependency work should be isolated in a virtual environment instead of checked globally.
+The read-only GUI MVP lives under `pm3_workflow_gui.ui`.
 
-No PySide6 dependency is installed by this phase. Installing GUI dependencies against global Python 3.14.5 would be premature; the facade gives the GUI a stable target for the next isolated venv step.
+- `ui.viewmodel` converts `CaptureResult` and `UiDiscoverySummary` into display fields and demo source loaders. It has no PySide6 dependency and is covered by normal tests.
+- `ui.main_window` is the PySide6 window. It renders the view model and calls capture providers; it does not parse PM3 text directly.
+- `ui.app` is the launch entry point and prints a clear message when PySide6 is missing.
+
+The GUI can load demo scenarios, open an existing log, or load the latest log
+from the configured PM3 log directory. It does not start PM3, automate a live
+session, or expose write functionality. PySide6 must be installed only in a
+separate `.venv-gui`, not as a required core dependency.
+
+Expert/write flows remain out of scope. If future buttons are added for write
+workflows, they must remain disabled until a separate write-gated design exists.
 
 ## Audit and Logs
 
