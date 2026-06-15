@@ -97,6 +97,25 @@ Blank after the manual workflow:
 
 Conclusion for this one workflow: page 0 UID is read-only and was not copied. The successful test despite UID mismatch indicates this specific cabinet did not rely exclusively on the UID. That is not a universal claim about other locks.
 
+## Read-only Facade and CLI
+
+The repository now includes a read-only discovery facade for UI and CLI callers. It parses fixture or future session text consistently and emits a UI-shaped summary with:
+
+- connected state, launch mode, COM port, target, client version, and firmware
+- LF/HF antenna status
+- tag frequency and type guesses
+- risk notes
+- recommended next manual step
+- optional profile verification status
+
+The fixture CLI is:
+
+```powershell
+python -m pm3_workflow_gui.cli fixture-summary --fixture-dir tests/fixtures/pm3
+```
+
+This CLI is not hardware automation. It reads fixture files only and does not run Proxmark commands.
+
 ## Open Questions
 
 - Is the Proxmark currently connected and visible in Device Manager?
@@ -109,5 +128,6 @@ Conclusion for this one workflow: page 0 UID is read-only and was not copied. Th
 
 1. Model launch configuration with `client_setup_bash` as the recommended mode for this setup.
 2. Capture real `hw version`, `hw tune`, `lf search`, and Hitag S output for parser fixtures.
-3. Build a robust interactive Proxmark process adapter only after the Batch/MSYS console behavior has been tested with connected hardware.
-4. Implement the Normal Mode UI around read-only discovery before enabling any write-gated workflow execution.
+3. Keep future UI code behind `services.discovery_facade` instead of calling parsers directly.
+4. Build a robust interactive Proxmark process adapter only after the Batch/MSYS console behavior has been tested with connected hardware.
+5. Implement the Normal Mode UI around read-only discovery before enabling any write-gated workflow execution.

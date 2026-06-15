@@ -64,6 +64,24 @@ that other systems behave the same way.
 
 No hardware write operation is implemented or executed by the test suite.
 
+## Fixture CLI
+
+The read-only facade can be exercised from fixtures without touching hardware:
+
+```powershell
+python -m pm3_workflow_gui.cli fixture-summary --fixture-dir tests/fixtures/pm3
+```
+
+The CLI reports launch mode, COM port, PM3 target/client, antenna status, tag
+guess, verification state, and the recommended next manual step. It is a parser
+and service diagnostic only; it does not communicate with the Proxmark client.
+
+Scenario bundles live under `tests/fixtures/scenarios/` and can be loaded with:
+
+```powershell
+python -m pm3_workflow_gui.cli fixture-summary --scenario tests/fixtures/scenarios/hitag_s256_original_discovery.json
+```
+
 ## Development
 
 ```powershell

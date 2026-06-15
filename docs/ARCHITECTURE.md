@@ -24,6 +24,18 @@ For the current installation, `client_setup_bash` is the recommended mode. The e
 
 The first read-only discovery foundation is parser-first. The project stores captured command output under `tests/fixtures/pm3/` and parses it into structured values. This avoids claiming a stable interactive automation layer before the Batch/MSYS console behavior has been tested directly.
 
+## Service Facade Layer
+
+`services.discovery_facade` is the stable boundary for future UI code. It accepts raw text from fixtures now and can accept captured session output later. The facade owns the orchestration across parser, profile, and workflow modules and returns `UiDiscoverySummary` fields that are already shaped for display:
+
+- connection state, launch mode, COM port, target, client, and firmware
+- LF/HF antenna status
+- tag frequency/type guesses
+- verification status when a reference profile is supplied
+- short risk notes and the recommended next manual step
+
+The future PySide6 GUI should call this service layer. It should not directly run parser regexes or construct Proxmark command strings.
+
 ## Command and Risk Layer
 
 `pm3.commands` stores known command definitions. `pm3.risk` classifies commands into read-only, write, high-risk configuration, lock/crypto, and attack/brute-force categories.
@@ -63,6 +75,8 @@ Verification rules:
 ## UI Layer
 
 The future PySide6 UI should expose Normal Mode first. Expert Mode belongs behind a later explicit scope decision. PySide6 was not installed or tested as part of the parser/discovery fixture work; with Python 3.14.5 on this machine, UI dependency work should be isolated in a virtual environment instead of checked globally.
+
+No PySide6 dependency is installed by this phase. Installing GUI dependencies against global Python 3.14.5 would be premature; the facade gives the GUI a stable target for the next isolated venv step.
 
 ## Audit and Logs
 
