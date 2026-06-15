@@ -1,0 +1,11 @@
+[=] Note: False Positives ARE possible
+[=]
+[=] Checking for known tags...
+[=]
+[|]Searching for COTAG tag......
+
+[=] Searching for auth LF and special cases...
+[+] UID....... D2DFE494
+[+] TYPE...... PCF 7945
+[+] Chipset... Hitag 1/S / 82xx
+[?] Hint: Try `lf hitag hts` commands

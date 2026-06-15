@@ -21,6 +21,8 @@ def load_hitag_s256_profile(path: str | Path) -> HitagS256Profile:
         mode=payload.get("mode", "plain_no_auth"),
         ttf_pages=tuple(payload.get("ttf_pages", (4, 5, 6, 7))),
         ttf_data_rate=payload.get("ttf_data_rate", "2 kBit"),
+        write_uid=payload.get("write_uid", False),
+        write_config_last=payload.get("write_config_last", True),
+        write_order=tuple(payload.get("write_order", (4, 5, 6, 7, 1))),
         created_at=payload.get("created_at"),
     )
-

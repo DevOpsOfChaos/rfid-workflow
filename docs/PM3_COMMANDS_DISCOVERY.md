@@ -61,6 +61,19 @@ Captured `hw tune` output:
 - `lf hitag hts dump`
 - Help commands ending in `-h`, such as `lf hitag hts -h`
 
+Captured `lf search` can include unrelated false-positive lines, such as Indala output, before the stable Hitag details. The parser treats false-positive notes separately and classifies the tag as a Hitag candidate when UID, TYPE/Chipset, and the `lf hitag hts` hint are present.
+
+Captured Hitag S256 Plain workflow values:
+
+- Original UID: `FA F9 91 79`.
+- Blank UID: `D2 DF E4 94`.
+- UID page 0 is read-only and must not be written in Normal Mode.
+- Original config page 1: `C9 28 00 AA`.
+- Blank-before config page 1: `C9 00 00 AA`.
+- Written blank config page 1: `C9 28 00 AA`.
+- Original/written pages 4-7 match: `FF F8 06 97`, `8C 66 C1 80`, `03 6E F7 00`, `00 00 00 00`.
+- Manual cabinet test succeeded despite UID mismatch, so this specific cabinet apparently did not check only UID.
+
 ## Write Commands Requiring Workflow Gates
 
 - `lf hitag hts wrbl`
@@ -70,6 +83,8 @@ Captured `hw tune` output:
 - Config writes, especially page 1.
 - Lock, crypto, password, authentication changes.
 - Brute-force, attack, sniff, simulation, clone, and restore workflows.
+- Do not enable crypto/authentication/password/lock options when the original is Plain/No Auth.
+- Page 1 config belongs last in the planned write order after pages 4-7.
 
 ## Manual Startup for Discovery
 

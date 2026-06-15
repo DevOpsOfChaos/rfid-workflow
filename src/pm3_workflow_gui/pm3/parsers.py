@@ -58,6 +58,61 @@ class CommandHelp:
     risk: RiskLevel
 
 
+@dataclass(frozen=True)
+class HfSearchResult:
+    status: str
+    message: str | None = None
+
+
+@dataclass(frozen=True)
+class LfSearchResult:
+    classification: str
+    uid: str | None
+    tag_type: str | None
+    chipset: str | None
+    hint: str | None
+    false_positive_notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class HitagSPage:
+    page: int
+    data: str
+    permission: str
+    info: str
+
+
+@dataclass(frozen=True)
+class HitagSRead:
+    memory_type: str | None
+    authentication: str | None
+    ttf_coding: str | None
+    ttf_data_rate: str | None
+    ttf_mode: str | None
+    config_locked: str | None
+    key_pwd_locked: str | None
+    pages: dict[int, HitagSPage]
+    access_mode: str | None = None
+
+    @property
+    def uid(self) -> str | None:
+        page = self.pages.get(0)
+        return page.data if page else None
+
+    @property
+    def config_page(self) -> str | None:
+        page = self.pages.get(1)
+        return page.data if page else None
+
+    @property
+    def is_hitag_s256_plain_no_auth(self) -> bool:
+        return (
+            self.memory_type == "Hitag S 256"
+            and (self.authentication or "").lower() == "no"
+            and (self.access_mode or "").lower() == "plain"
+        )
+
+
 def normalize_hex_bytes(value: str) -> str:
     parts = re.findall(r"[0-9A-Fa-f]{2}", value)
     return " ".join(part.upper() for part in parts)
@@ -139,6 +194,67 @@ def parse_command_help(command_name: str, output: str) -> CommandHelp:
     )
 
 
+def parse_hf_search(output: str) -> HfSearchResult:
+    normalized = output.lower()
+    if "no known/supported 13.56 mhz tags found" in normalized:
+        return HfSearchResult(status="no_tag_found", message="No known/supported 13.56 MHz tags found")
+    if "unsupported" in normalized:
+        return HfSearchResult(status="unsupported", message=_first_nonempty_line(output))
+    return HfSearchResult(status="unknown", message=_first_nonempty_line(output))
+
+
+def parse_lf_search(output: str) -> LfSearchResult:
+    uid = _compact_hex(_label_value(output, "UID"))
+    tag_type = _label_value(output, "TYPE")
+    chipset = _label_value(output, "Chipset")
+    hint = _hint_value(output)
+    false_positive_notes = tuple(
+        line.strip()
+        for line in output.splitlines()
+        if "false positive" in line.lower() or "indala" in line.lower()
+    )
+    has_hitag_hint = any(
+        value and "hitag" in value.lower()
+        for value in (tag_type, chipset, hint)
+    )
+    classification = "hitag_candidate" if uid and has_hitag_hint else "unknown"
+    return LfSearchResult(
+        classification=classification,
+        uid=uid,
+        tag_type=tag_type,
+        chipset=chipset,
+        hint=hint,
+        false_positive_notes=false_positive_notes,
+    )
+
+
+def parse_hitag_s_rdbl(output: str) -> HitagSRead:
+    pages: dict[int, HitagSPage] = {}
+    page_re = re.compile(
+        r"^\[\+\]\s*(?P<page>\d+)\s*\|\s*(?P<data>(?:[0-9A-Fa-f]{2}\s+){3}[0-9A-Fa-f]{2})\s*\|.*?\|\s*(?P<perm>[^|]+?)\s*\|\s*(?P<info>.+?)\s*$",
+        re.MULTILINE,
+    )
+    for match in page_re.finditer(output):
+        page = int(match.group("page"))
+        pages[page] = HitagSPage(
+            page=page,
+            data=_compact_hex(match.group("data")) or "",
+            permission=match.group("perm").strip(),
+            info=match.group("info").strip(),
+        )
+    return HitagSRead(
+        access_mode="plain" if "Access Hitag S in Plain mode" in output else None,
+        memory_type=_label_value(output, "Memory type"),
+        authentication=_label_value(output, "Authenticaion") or _label_value(output, "Authentication"),
+        ttf_coding=_label_value(output, "TTF coding"),
+        ttf_data_rate=_label_value(output, "TTF data rate"),
+        ttf_mode=_label_value(output, "TTF mode"),
+        config_locked=_label_value(output, "Config locked"),
+        key_pwd_locked=_label_value(output, "Key/PWD locked"),
+        pages=pages,
+    )
+
+
 def _first_match(output: str, pattern: str, flags: int = 0) -> str | None:
     match = re.search(pattern, output, flags)
     if not match:
@@ -147,13 +263,33 @@ def _first_match(output: str, pattern: str, flags: int = 0) -> str | None:
     return value.strip()
 
 
+def _first_nonempty_line(output: str) -> str | None:
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return None
+
+
+def _compact_hex(value: str | None) -> str | None:
+    if value is None:
+        return None
+    parts = re.findall(r"[0-9A-Fa-f]{2}", value)
+    return "".join(part.upper() for part in parts) if parts else None
+
+
+def _hint_value(output: str) -> str | None:
+    match = re.search(r"^\[\?\]\s*Hint:\s*(?P<hint>.+)$", output, re.MULTILINE)
+    return match.group("hint").strip() if match else None
+
+
 def _float_match(output: str, pattern: str) -> float | None:
     value = _first_match(output, pattern)
     return float(value) if value is not None else None
 
 
 def _label_value(output: str, label: str) -> str | None:
-    pattern = rf"^\s*{re.escape(label)}\.*\s+(?P<status>.+)$"
+    pattern = rf"^\s*(?:\[[+=?!| -]\]\s*)?{re.escape(label)}\.*\s+(?P<status>.+)$"
     return _first_match(output, pattern, flags=re.MULTILINE)
 
 

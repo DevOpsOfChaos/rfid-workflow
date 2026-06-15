@@ -67,6 +67,36 @@ The repository now contains fixtures from real local Proxmark output supplied fo
 - HF 13.56 MHz: `36.28 V`, status `ok`.
 - Parser rating: `OK`.
 
+## Captured Hitag S256 Workflow Fixtures
+
+Additional supplied fixtures document a successful manual workflow on an owned cabinet tag and blank. These are captured outputs and notes, not commands executed by this change.
+
+Original tag:
+
+- Type: `Hitag S 256`.
+- UID: `FA F9 91 79`.
+- Plain/No Auth, config unlocked, key/PWD unlocked.
+- TTF: Manchester, `2 kBit`, pages 4-7.
+- Config page 1: `C9 28 00 AA`.
+- Data pages 4-7: `FF F8 06 97`, `8C 66 C1 80`, `03 6E F7 00`, `00 00 00 00`.
+
+Blank before writing:
+
+- UID: `D2 DF E4 94`.
+- Config page 1: `C9 00 00 AA`.
+- TTF mode disabled / RTF mode, `4 kBit`.
+- Page 7 marker: `57 5F 4F 4B`.
+
+Blank after the manual workflow:
+
+- UID remained `D2 DF E4 94`.
+- Config page 1 matched original: `C9 28 00 AA`.
+- Pages 4-7 matched original.
+- TTF mode matched original: pages 4-7 at `2 kBit`.
+- The blank was manually tested successfully at the owned cabinet.
+
+Conclusion for this one workflow: page 0 UID is read-only and was not copied. The successful test despite UID mismatch indicates this specific cabinet did not rely exclusively on the UID. That is not a universal claim about other locks.
+
 ## Open Questions
 
 - Is the Proxmark currently connected and visible in Device Manager?

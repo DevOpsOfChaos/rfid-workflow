@@ -53,6 +53,14 @@ Captured discovery fixtures currently cover:
   13.56 MHz `36.28 V`; parsed antenna rating is `OK`.
 - Help output for `hf search`, `lf search`, and `lf hitag hts` read/write/dump
   command families.
+- LF Hitag S256 detection and `lf hitag hts rdbl` captures for the original
+  tag, a blank before writing, and the same blank after the manual workflow.
+
+The known manual workflow showed that the original UID `FA F9 91 79` and blank
+UID `D2 DF E4 94` differ. Page 0 is read-only and Normal Mode must not try to
+write it. The successful cabinet test despite the UID difference means this
+specific cabinet did not rely exclusively on UID matching. It does not prove
+that other systems behave the same way.
 
 No hardware write operation is implemented or executed by the test suite.
 
