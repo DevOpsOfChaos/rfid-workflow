@@ -21,6 +21,7 @@ PROMPT_RE = re.compile(r"^\[[^\]]+\]\s*pm3\s*-->\s*(?P<command>.+?)\s*$", re.IGN
 class CapturedCommandOutput:
     command: str
     normalized_command: str
+    command_context: str
     output: str
 
 
@@ -128,6 +129,7 @@ def split_pm3_log_commands(log_text: str) -> dict[str, tuple[CapturedCommandOutp
             CapturedCommandOutput(
                 command=current_command,
                 normalized_command=current_normalized,
+                command_context=classify_pm3_command_context(current_normalized),
                 output=output,
             )
         )
@@ -150,6 +152,37 @@ def normalize_pm3_command(command: str) -> str:
     return re.sub(r"\s+", " ", command.strip().lower())
 
 
+def classify_pm3_command_context(command: str) -> str:
+    normalized = normalize_pm3_command(command)
+    if normalized in {"hw version", "hw tune"}:
+        return "hardware_status"
+    if normalized in {
+        "hf search -h",
+        "hf search --help",
+        "lf search -h",
+        "lf search --help",
+        "lf hitag hts",
+        "lf hitag hts -h",
+        "lf hitag hts --help",
+        "lf hitag hts rdbl -h",
+        "lf hitag hts rdbl --help",
+        "lf hitag hts wrbl -h",
+        "lf hitag hts wrbl --help",
+        "lf hitag hts dump -h",
+        "lf hitag hts dump --help",
+    }:
+        return "help_capability"
+    if normalized in {"hf search", "lf search", "lf search -u"}:
+        return "discovery"
+    if normalized.startswith("lf hitag hts rdbl") and not _has_help_flag(normalized):
+        return "read"
+    return "other"
+
+
+def _has_help_flag(command: str) -> bool:
+    return bool(re.search(r"(^|\s)(-h|--help)(\s|$)", command))
+
+
 def latest_command_output(
     command_outputs: dict[str, tuple[CapturedCommandOutput, ...]],
     command_prefix: str,
@@ -163,6 +196,30 @@ def latest_command_output(
     return matches[-1].output if matches else None
 
 
+def latest_command_output_by_context(
+    command_outputs: dict[str, tuple[CapturedCommandOutput, ...]],
+    allowed_commands: set[str],
+    context: str,
+) -> str | None:
+    matches = [
+        outputs[-1]
+        for command, outputs in command_outputs.items()
+        if command in allowed_commands and outputs and outputs[-1].command_context == context
+    ]
+    return matches[-1].output if matches else None
+
+
+def latest_hitag_read_output(
+    command_outputs: dict[str, tuple[CapturedCommandOutput, ...]],
+) -> str | None:
+    matches = [
+        outputs[-1]
+        for command, outputs in command_outputs.items()
+        if command.startswith("lf hitag hts rdbl") and outputs and outputs[-1].command_context == "read"
+    ]
+    return matches[-1].output if matches else None
+
+
 def discovery_inputs_from_log(
     log_text: str,
     command_outputs: dict[str, tuple[CapturedCommandOutput, ...]],
@@ -171,9 +228,9 @@ def discovery_inputs_from_log(
         startup_banner=_startup_banner_from_log(log_text),
         hw_version=latest_command_output(command_outputs, "hw version"),
         hw_tune=latest_command_output(command_outputs, "hw tune"),
-        hf_search=latest_command_output(command_outputs, "hf search"),
-        lf_search=latest_command_output(command_outputs, "lf search"),
-        hitag_rdbl=latest_command_output(command_outputs, "lf hitag hts rdbl"),
+        hf_search=latest_command_output_by_context(command_outputs, {"hf search"}, "discovery"),
+        lf_search=latest_command_output_by_context(command_outputs, {"lf search", "lf search -u"}, "discovery"),
+        hitag_rdbl=latest_hitag_read_output(command_outputs),
     )
 
 

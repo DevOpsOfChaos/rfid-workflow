@@ -47,6 +47,8 @@ The future PySide6 GUI should call this service layer. It should not directly ru
 
 Log splitting is defensive. Prompt lines like `[usb] pm3 --> hw version` start a new section, the prompt line is excluded from captured output, command text is normalized for lookup, and repeated commands are stored as multiple captures with latest-output helpers. Incomplete logs are allowed; missing sections are reported instead of crashing.
 
+Capture also classifies command context. Hardware/status commands (`hw version`, `hw tune`) are separate from Help/Capability commands (`hf search -h`, `lf search -h`, `lf hitag hts`, and Hitag help variants), real Discovery commands (`hf search`, `lf search`, `lf search -u`), and real Read commands such as `lf hitag hts rdbl -p 0 -c 8`. This prevents a help-only log from being treated as evidence that an LF tag was found.
+
 Interactive Windows automation is deliberately deferred. The current setup enters MSYS/bash through `setup.bat` and `bash pm3`, so a robust adapter needs explicit TTY testing. Pretending `subprocess` is enough would produce fragile behavior.
 
 ## Command and Risk Layer
@@ -66,6 +68,8 @@ Current parser coverage:
 - `hf search`: no-tag/unsupported/unknown status.
 - `lf search`: UID, type, chipset, hint, and false-positive notes. Hitag hints are preserved even when Indala false-positive lines are present.
 - `lf hitag hts rdbl`: Hitag S tag information, compact page data, UID page, config page, permissions, and Plain/No Auth Hitag S256 detection.
+
+Help output is parsed only as capability information. Hardware OK means antenna health, not tag detection. Tag frequency and type guesses require real `hf search`/`lf search` discovery output or a real read output.
 
 ## Workflow Layer
 

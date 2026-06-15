@@ -62,6 +62,7 @@ class UiDiscoverySummary:
     firmware: str | None
     lf_antenna_status: str
     hf_antenna_status: str
+    discovery_data_status: str
     tag_frequency_guess: str
     tag_type_guess: str
     risk_notes: tuple[str, ...] = ()
@@ -77,6 +78,7 @@ class UiDiscoverySummary:
             f"Firmware: {self.firmware or 'unknown'}",
             f"LF antenna: {self.lf_antenna_status}",
             f"HF antenna: {self.hf_antenna_status}",
+            f"Discovery data: {self.discovery_data_status}",
             f"Tag frequency: {self.tag_frequency_guess}",
             f"Tag type: {_display_tag_type(self.tag_type_guess)}",
             f"Verification: {self.verification_status or 'not_run'}",
@@ -116,6 +118,7 @@ class DiscoveryFacade:
     def summarize_bundle(self, bundle: DiscoveryParseBundle) -> UiDiscoverySummary:
         verification = _verify_if_possible(bundle.hitag_read, bundle.reference_profile)
         tag_type_guess = _tag_type_guess(bundle.lf_search, bundle.hitag_read)
+        discovery_data_status = _discovery_data_status(bundle)
         risk_notes = tuple(_risk_notes(bundle, verification))
         return UiDiscoverySummary(
             connected=_connected(bundle.startup_banner),
@@ -132,10 +135,11 @@ class DiscoveryFacade:
             firmware=bundle.hw_version.firmware if bundle.hw_version else None,
             lf_antenna_status=_antenna_status(bundle.hw_tune.lf_antenna_status if bundle.hw_tune else None),
             hf_antenna_status=_antenna_status(bundle.hw_tune.hf_antenna_status if bundle.hw_tune else None),
+            discovery_data_status=discovery_data_status,
             tag_frequency_guess=_tag_frequency_guess(bundle.hf_search, bundle.lf_search, bundle.hitag_read),
             tag_type_guess=tag_type_guess,
             risk_notes=risk_notes,
-            recommended_next_step=_recommended_next_step(tag_type_guess, verification),
+            recommended_next_step=_recommended_next_step(tag_type_guess, verification, discovery_data_status),
             verification_status=verification.status if verification else None,
         )
 
@@ -231,6 +235,14 @@ def _tag_type_guess(lf_search: LfSearchResult | None, hitag_read: HitagSRead | N
     return "unknown"
 
 
+def _discovery_data_status(bundle: DiscoveryParseBundle) -> str:
+    if bundle.hf_search or bundle.lf_search or bundle.hitag_read:
+        return "captured"
+    if bundle.hw_version and bundle.hw_tune:
+        return "not captured"
+    return "unknown"
+
+
 def _verify_if_possible(
     hitag_read: HitagSRead | None,
     reference_profile: HitagS256Profile | None,
@@ -254,7 +266,11 @@ def _risk_notes(bundle: DiscoveryParseBundle, verification: VerificationResult |
     return notes
 
 
-def _recommended_next_step(tag_type_guess: str, verification: VerificationResult | None) -> str:
+def _recommended_next_step(
+    tag_type_guess: str,
+    verification: VerificationResult | None,
+    discovery_data_status: str,
+) -> str:
     if verification and verification.status == "verified_with_uid_mismatch":
         return "Record verification result and keep UID mismatch noted"
     if verification and verification.status == "failed":
@@ -263,6 +279,8 @@ def _recommended_next_step(tag_type_guess: str, verification: VerificationResult
         return "Read/save profile or verify blank compatibility"
     if tag_type_guess == "hitag_candidate":
         return "Run lf hitag hts rdbl -p 0 -c 8"
+    if discovery_data_status == "not captured":
+        return "Run hf search and lf search with the tag present"
     return "Run read-only discovery"
 
 

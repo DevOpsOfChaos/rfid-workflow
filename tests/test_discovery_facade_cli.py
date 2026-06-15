@@ -26,6 +26,7 @@ def test_facade_original_scenario_builds_ui_summary():
     assert summary.firmware == "PM3 GENERIC"
     assert summary.lf_antenna_status == "ok"
     assert summary.hf_antenna_status == "ok"
+    assert summary.discovery_data_status == "captured"
     assert summary.tag_frequency_guess == "lf"
     assert summary.tag_type_guess == "hitag_s256_plain"
     assert "profile" in summary.recommended_next_step.lower()

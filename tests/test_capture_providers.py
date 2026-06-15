@@ -16,6 +16,7 @@ from pm3_workflow_gui.services.discovery_facade import DiscoveryFacade, default_
 PM3_FIXTURES = Path(__file__).parent / "fixtures" / "pm3"
 SCENARIOS = Path(__file__).parent / "fixtures" / "scenarios"
 SAMPLE_LOG = PM3_FIXTURES / "session_log_discovery_sample.txt"
+HELP_ONLY_LOG = PM3_FIXTURES / "session_log_help_only_real.txt"
 
 
 def test_log_splitting_recognizes_commands_and_keeps_latest_outputs():
@@ -26,6 +27,9 @@ def test_log_splitting_recognizes_commands_and_keeps_latest_outputs():
     assert "hf search -h" in outputs
     assert "lf search -h" in outputs
     assert "lf hitag hts rdbl -p 0 -c 8" in outputs
+    assert outputs["hf search -h"][0].command_context == "help_capability"
+    assert outputs["lf search"][0].command_context == "discovery"
+    assert outputs["lf hitag hts rdbl -p 0 -c 8"][0].command_context == "read"
     assert outputs["hw version"][0].command == "hw version"
     assert "[usb] pm3 -->" not in outputs["hw version"][0].output
 
@@ -43,6 +47,27 @@ def test_pm3_log_capture_provider_feeds_discovery_facade():
     assert summary.com_port == "COM16"
     assert summary.tag_type_guess == "hitag_s256_plain"
     assert summary.lf_antenna_status == "ok"
+
+
+def test_help_only_log_does_not_infer_lf_tag_or_hitag_candidate():
+    capture = Pm3LogCaptureProvider(HELP_ONLY_LOG).capture()
+    summary = capture.summarize(DiscoveryFacade(default_launch_config()))
+
+    assert capture.inputs.startup_banner is not None
+    assert capture.inputs.hw_version is not None
+    assert capture.inputs.hw_tune is not None
+    assert capture.inputs.hf_search is None
+    assert capture.inputs.lf_search is None
+    assert capture.inputs.hitag_rdbl is None
+    assert summary.com_port == "COM16"
+    assert summary.lf_antenna_status == "ok"
+    assert summary.hf_antenna_status == "ok"
+    assert summary.discovery_data_status == "not captured"
+    assert summary.tag_frequency_guess != "lf"
+    assert summary.tag_frequency_guess == "unknown"
+    assert summary.tag_type_guess != "hitag_candidate"
+    assert summary.tag_type_guess == "unknown"
+    assert summary.recommended_next_step == "Run hf search and lf search with the tag present"
 
 
 def test_incomplete_log_does_not_crash(tmp_path):
@@ -123,6 +148,30 @@ def test_cli_log_summary_runs_on_sample_log():
     assert "Recognized commands:" in completed.stdout
     assert "lf hitag hts rdbl -p 0 -c 8" in completed.stdout
     assert "Hitag S256" in completed.stdout
+
+
+def test_cli_log_summary_reports_help_only_discovery_gap():
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pm3_workflow_gui.cli",
+            "log-summary",
+            "--log",
+            str(HELP_ONLY_LOG),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    assert "Discovery data: not captured" in completed.stdout
+    assert "Tag frequency: unknown" in completed.stdout
+    assert "Tag type: unknown" in completed.stdout
+    assert "Next step: Run hf search and lf search with the tag present" in completed.stdout
+    assert "lf search -h" in completed.stdout
+    assert "lf hitag hts rdbl -p 0 -c 8" not in completed.stdout
 
 
 def test_cli_latest_log_summary_selects_newest_log(tmp_path):

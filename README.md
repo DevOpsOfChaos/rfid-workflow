@@ -73,8 +73,15 @@ python -m pm3_workflow_gui.cli fixture-summary --fixture-dir tests/fixtures/pm3
 ```
 
 The CLI reports launch mode, COM port, PM3 target/client, antenna status, tag
-guess, verification state, and the recommended next manual step. It is a parser
-and service diagnostic only; it does not communicate with the Proxmark client.
+guess, discovery-data status, verification state, and the recommended next
+manual step. It is a parser and service diagnostic only; it does not communicate
+with the Proxmark client.
+
+Hardware and help output are not tag detection. `hw tune` can show that the
+antennas look OK, and `hf search -h` / `lf search -h` can show command
+availability, but only real `hf search`, `lf search`, `lf search -u`, or
+read output such as `lf hitag hts rdbl -p 0 -c 8` can support tag frequency or
+tag type guesses.
 
 Scenario bundles live under `tests/fixtures/scenarios/` and can be loaded with:
 

@@ -103,10 +103,15 @@ The repository now includes a read-only discovery facade for UI and CLI callers.
 
 - connected state, launch mode, COM port, target, client version, and firmware
 - LF/HF antenna status
+- discovery data status
 - tag frequency and type guesses
 - risk notes
 - recommended next manual step
 - optional profile verification status
+
+Hardware and Help/Capability output are deliberately not treated as tag discovery. `hw tune` can prove antenna status, and `hf search -h`/`lf search -h`/`lf hitag hts` can prove command availability, but those outputs do not prove that an HF or LF tag was present. A help-only hardware log must remain `Discovery data: not captured`, `Tag frequency: unknown`, and `Tag type: unknown`.
+
+Tag-type statements require real discovery or read evidence: `hf search`, `lf search`, `lf search -u`, or read output such as `lf hitag hts rdbl -p 0 -c 8`.
 
 The fixture CLI is:
 

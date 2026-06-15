@@ -70,4 +70,17 @@ C:\Tools\proxmark3\client\.proxmark3\logs
 
 The log parser looks for prompt lines like `[usb] pm3 --> hw version`, excludes those prompt lines from output, stores repeated commands, and reports missing sections instead of failing.
 
+Help and hardware logs are not tag discovery. `hw version` can show that the client is reachable, and `hw tune` can show LF/HF antenna status, but neither means a tag was present or detected. Capability commands such as `hf search -h`, `lf search -h`, `lf hitag hts`, `lf hitag hts rdbl -h`, `lf hitag hts wrbl -h`, and `lf hitag hts dump -h` are kept separate from real discovery commands.
+
+If a log contains only hardware and help output, the CLI reports:
+
+```text
+Discovery data: not captured
+Tag frequency: unknown
+Tag type: unknown
+Next step: Run hf search and lf search with the tag present
+```
+
+Only real `hf search`, `lf search`, `lf search -u`, or read output such as `lf hitag hts rdbl -p 0 -c 8` can support tag frequency/type guesses.
+
 The CLI does not start `bash pm3`, does not open a live interactive session, and does not execute write commands. Write execution remains deliberately blocked.
