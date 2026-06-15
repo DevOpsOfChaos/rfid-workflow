@@ -9,7 +9,23 @@ PROXMARK_ROOT = Path(r"C:\Tools\proxmark3")
 CLIENT_DIR = PROXMARK_ROOT / "client"
 
 
-def test_client_setup_bash_builds_windows_start_command_with_com_port():
+def test_client_setup_bash_auto_builds_windows_start_command_without_com_port():
+    config = Pm3LaunchConfig(
+        mode="client_setup_bash",
+        proxmark_root=PROXMARK_ROOT,
+        client_dir=CLIENT_DIR,
+        launcher_bat=PROXMARK_ROOT / "pm3.bat",
+        com_port=None,
+    )
+
+    assert config.planned_command() == [
+        "cmd.exe",
+        "/k",
+        r"cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3",
+    ]
+
+
+def test_client_setup_bash_forced_port_builds_windows_start_command_with_com_port():
     config = Pm3LaunchConfig(
         mode="client_setup_bash",
         proxmark_root=PROXMARK_ROOT,
@@ -65,5 +81,6 @@ def test_discovery_docs_keep_client_setup_bash_as_system_path():
     docs = Path("docs/PM3_COMMANDS_DISCOVERY.md").read_text(encoding="utf-8")
 
     assert "client_setup_bash" in docs
+    assert 'cmd /k "cd /d C:\\Tools\\proxmark3\\client && call setup.bat && bash pm3"' in docs
     assert 'cmd /k "cd /d C:\\Tools\\proxmark3\\client && call setup.bat && bash pm3 -p COM16"' in docs
     assert "direct `proxmark3.exe` calls" in docs.lower()

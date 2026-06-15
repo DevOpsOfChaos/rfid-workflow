@@ -80,7 +80,9 @@ def test_incomplete_log_does_not_crash(tmp_path):
     assert capture.inputs.hw_version == "partial output only"
     assert "hw_tune" in capture.missing_fields
     assert summary.connected == "unknown"
-    assert summary.recommended_next_step == "Run read-only discovery"
+    assert summary.com_port is None
+    assert summary.lines()[1] == "COM port: unknown/auto"
+    assert summary.recommended_next_step == "Start Proxmark with auto-detect"
 
 
 def test_latest_log_file_selects_newest_file(tmp_path):

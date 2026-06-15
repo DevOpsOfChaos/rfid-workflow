@@ -72,7 +72,7 @@ class UiDiscoverySummary:
     def lines(self) -> list[str]:
         return [
             f"Launch mode: {self.launch_mode}",
-            f"COM port: {self.com_port or 'unknown'}",
+            f"COM port: {self.com_port or 'unknown/auto'}",
             f"Target: {self.target or 'unknown'}",
             f"Client: {self.client_version or 'unknown'}",
             f"Firmware: {self.firmware or 'unknown'}",
@@ -120,13 +120,15 @@ class DiscoveryFacade:
         tag_type_guess = _tag_type_guess(bundle.lf_search, bundle.hitag_read)
         discovery_data_status = _discovery_data_status(bundle)
         risk_notes = tuple(_risk_notes(bundle, verification))
+        connected = _connected(bundle.startup_banner)
+        com_port = _first_present(
+            bundle.startup_banner.com_port if bundle.startup_banner else None,
+            self.launch_config.com_port,
+        )
         return UiDiscoverySummary(
-            connected=_connected(bundle.startup_banner),
+            connected=connected,
             launch_mode=self.launch_config.mode,
-            com_port=_first_present(
-                bundle.startup_banner.com_port if bundle.startup_banner else None,
-                self.launch_config.com_port,
-            ),
+            com_port=com_port,
             target=bundle.startup_banner.target if bundle.startup_banner else None,
             client_version=_first_present(
                 bundle.hw_version.client_version if bundle.hw_version else None,
@@ -139,7 +141,13 @@ class DiscoveryFacade:
             tag_frequency_guess=_tag_frequency_guess(bundle.hf_search, bundle.lf_search, bundle.hitag_read),
             tag_type_guess=tag_type_guess,
             risk_notes=risk_notes,
-            recommended_next_step=_recommended_next_step(tag_type_guess, verification, discovery_data_status),
+            recommended_next_step=_recommended_next_step(
+                connected,
+                com_port,
+                tag_type_guess,
+                verification,
+                discovery_data_status,
+            ),
             verification_status=verification.status if verification else None,
         )
 
@@ -153,7 +161,7 @@ def default_launch_config() -> Pm3LaunchConfig:
         mode="client_setup_bash",
         proxmark_root=proxmark_root,
         client_dir=proxmark_root / "client",
-        com_port="COM16",
+        com_port=None,
     )
 
 
@@ -267,10 +275,14 @@ def _risk_notes(bundle: DiscoveryParseBundle, verification: VerificationResult |
 
 
 def _recommended_next_step(
+    connected: ConnectedState,
+    com_port: str | None,
     tag_type_guess: str,
     verification: VerificationResult | None,
     discovery_data_status: str,
 ) -> str:
+    if connected == "unknown" and com_port is None and discovery_data_status != "captured":
+        return "Start Proxmark with auto-detect"
     if verification and verification.status == "verified_with_uid_mismatch":
         return "Record verification result and keep UID mismatch noted"
     if verification and verification.status == "failed":

@@ -58,6 +58,7 @@ class Pm3LaunchConfig:
         return self.launcher_bat
 
     def _bash_command_with_port(self) -> str:
+        """Return auto-detect bash command, or append a forced COM override."""
         if self.com_port and "-p" not in self.bash_command.split():
             return f"{self.bash_command} -p {self.com_port}"
         return self.bash_command

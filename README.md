@@ -26,8 +26,11 @@ This repository now models multiple Windows launch modes because local
 Proxmark installations are not all started the same way.
 
 - `client_setup_bash` (recommended for the current setup): start from
-  `C:\Tools\proxmark3\client`, run `setup.bat`, then run `bash pm3 -p COM16`
-  or `bash pm3 -p COM11`.
+  `C:\Tools\proxmark3\client`, run `setup.bat`, then run `bash pm3` and let
+  the Proxmark script auto-detect the port. In config terms this is
+  `com_port=None`.
+- `client_setup_bash` with `com_port="COM16"`: same startup path, but forced
+  with `bash pm3 -p COM16`. This is a debug override, not the default.
 - `proxspace_bat`: start an existing `.bat`/`.cmd` launcher from the
   Proxmark root, for example from `C:\Tools\proxmark3`.
 - `direct_exe`: direct executable startup such as
@@ -35,10 +38,22 @@ Proxmark installations are not all started the same way.
 
 For the current installation, direct `proxmark3.exe` calls are not considered
 the reliable primary startup path. The supported path to test manually is the
-Batch/MSYS flow:
+Batch/MSYS flow with auto port detection:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3"
+```
+
+Optional forced-port debug startup:
 
 ```powershell
 cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 -p COM16"
+```
+
+Port diagnosis, without starting a tag workflow:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 --list"
 ```
 
 The code currently prepares launch configuration and diagnostic command

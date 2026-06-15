@@ -33,6 +33,22 @@ def test_facade_original_scenario_builds_ui_summary():
     assert "verify" in summary.recommended_next_step.lower()
 
 
+def test_default_launch_config_prefers_auto_port_but_facade_reads_banner_port():
+    config = default_launch_config()
+    summary = DiscoveryFacade(config).summarize_scenario(
+        load_scenario(SCENARIOS / "hitag_s256_original_discovery.json")
+    )
+
+    assert config.com_port is None
+    assert config.planned_command() == [
+        "cmd.exe",
+        "/k",
+        r"cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3",
+    ]
+    assert summary.launch_mode == "client_setup_bash"
+    assert summary.com_port == "COM16"
+
+
 def test_facade_blank_before_write_reports_write_plan_required():
     summary = facade().summarize_scenario(load_scenario(SCENARIOS / "hitag_s256_blank_before_write.json"))
 

@@ -12,6 +12,7 @@ class CommandDefinition:
 
 
 COMMANDS = {
+    "pm3_list": CommandDefinition("PM3 port list", "bash pm3 --list", RiskLevel.READ_ONLY, "List possible Proxmark serial ports."),
     "hw_version": CommandDefinition("Hardware version", "hw version", RiskLevel.READ_ONLY, "Read firmware and hardware information."),
     "hw_tune": CommandDefinition("Hardware tune", "hw tune", RiskLevel.READ_ONLY, "Read antenna tuning values."),
     "hf_search": CommandDefinition("HF search", "hf search", RiskLevel.READ_ONLY, "Search for HF transponders."),

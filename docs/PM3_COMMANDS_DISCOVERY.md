@@ -14,14 +14,26 @@ Local command help attempts:
 - `proxmark3.exe --help`: exit code 1, no captured output.
 - `proxmark3.exe COM1 -c "hw version"`: exit code 1, no captured output.
 
-Current command discovery is incomplete because only `COM1` was visible through Windows serial-port enumeration. The expected Proxmark COM ports, previously COM16 or COM11, were not visible during this run.
+Current command discovery is incomplete because only `COM1` was visible through Windows serial-port enumeration. The expected Proxmark COM ports, previously COM16 or COM11, were not visible during this run. A later fixed `COM16` startup also failed when the device enumerated differently, so the default startup model must not force a port.
 
 The corrected local startup model is Batch/MSYS based. The recommended mode for this system is `client_setup_bash`. Direct `proxmark3.exe` calls are still modeled as `direct_exe`, but for this installation they are not the reliable primary launch path.
 
-Working fixed-port startup:
+Recommended auto-port startup:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3"
+```
+
+Optional fixed-port debug startup:
 
 ```powershell
 cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 -p COM16"
+```
+
+Port diagnosis:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 --list"
 ```
 
 ## Captured Read-only Values
@@ -55,6 +67,7 @@ Captured `hw tune` output:
 
 - `hw version`
 - `hw tune`
+- `bash pm3 --list` for port diagnosis before an interactive session
 - `hf search`
 - `lf search`
 - `lf hitag hts rdbl`
@@ -95,10 +108,22 @@ cd C:\Tools\proxmark3
 .\<NameDerStartdatei>.bat
 ```
 
-Variant with a fixed COM port through the client folder:
+Recommended variant through the client folder, using auto port detection:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3"
+```
+
+Forced COM port through the client folder, for debug only:
 
 ```powershell
 cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 -p COM16"
+```
+
+List possible serial ports:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 --list"
 ```
 
 After the Proxmark menu opens, run these discovery/help commands manually:

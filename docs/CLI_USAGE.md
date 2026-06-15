@@ -44,10 +44,22 @@ Summarize the newest `.txt` log in a directory:
 python -m pm3_workflow_gui.cli latest-log-summary --log-dir "C:\Tools\proxmark3\client\.proxmark3\logs"
 ```
 
-To create a useful manual log, start Proxmark with the supported local path:
+To create a useful manual log, start Proxmark with the supported local path. The default is auto port detection:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3"
+```
+
+Use a forced port only as an expert/debug override:
 
 ```powershell
 cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 -p COM16"
+```
+
+If the port is unclear or a forced port fails, list possible serial ports:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 --list"
 ```
 
 Then run read-only discovery commands such as:

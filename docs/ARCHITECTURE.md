@@ -4,10 +4,22 @@
 
 The GUI uses a user-selected external Proxmark3/Iceman installation. The repository must not copy Proxmark3 binaries, source, scripts, or firmware.
 
-The current target setup is rooted at `C:\Tools\proxmark3` with client files in `C:\Tools\proxmark3\client`. It starts through a Batch/MSYS flow: change into `client`, call `setup.bat`, then run `bash pm3`. With a fixed port the command is:
+The current target setup is rooted at `C:\Tools\proxmark3` with client files in `C:\Tools\proxmark3\client`. It starts through a Batch/MSYS flow: change into `client`, call `setup.bat`, then run `bash pm3`. Auto port detection is the recommended default:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3"
+```
+
+A forced port remains a debug override only:
 
 ```powershell
 cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 -p COM16"
+```
+
+Port diagnosis is modeled as read-only:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 --list"
 ```
 
 Direct `proxmark3.exe COMx` startup remains modeled for installations where it works, but it is not the reliable primary path for this setup.
@@ -18,7 +30,8 @@ Direct `proxmark3.exe COMx` startup remains modeled for installations where it w
 
 - `direct_exe`: direct executable startup, for example `proxmark3.exe COM16`.
 - `proxspace_bat`: existing ProxSpace/Proxmark Batch launcher in the Proxmark root.
-- `client_setup_bash`: `cmd.exe /k "cd /d <client_dir> && call setup.bat && bash pm3 -p <COM>"`.
+- `client_setup_bash`: `cmd.exe /k "cd /d <client_dir> && call setup.bat && bash pm3"` when `com_port=None`, letting the Proxmark script auto-detect the port.
+- `client_setup_bash` with `com_port="COMx"`: `cmd.exe /k "cd /d <client_dir> && call setup.bat && bash pm3 -p <COMx>"`, a forced-port debug override.
 
 For the current installation, `client_setup_bash` is the recommended mode. The existing `ProxmarkSession` class is only a small non-interactive wrapper for direct `proxmark3.exe` execution. It should not be stretched to pretend it can robustly automate an interactive MSYS shell without a tested adapter.
 

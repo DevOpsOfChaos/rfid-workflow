@@ -22,7 +22,7 @@ Windows serial-port enumeration returned:
 
 - `COM1` - Kommunikationsanschluss
 
-Expected previous Proxmark ports `COM16` or `COM11` were not visible during the original automated enumeration. The current user-provided working Proxmark port is `COM16`.
+Expected previous Proxmark ports `COM16` or `COM11` were not visible during the original automated enumeration. Later manual use showed that a fixed `COM16` startup can fail when the device enumerates differently, so the recommended path no longer forces a COM port.
 
 ## Proxmark Client Discovery
 
@@ -34,10 +34,22 @@ call setup.bat
 bash pm3
 ```
 
-With a fixed port, the equivalent manual startup from PowerShell is:
+The recommended manual startup from PowerShell lets the Proxmark script auto-detect the port:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3"
+```
+
+Forced-port startup remains useful only as a debug override:
 
 ```powershell
 cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 -p COM16"
+```
+
+For port diagnosis, use the client script list mode:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 --list"
 ```
 
 The previous direct `proxmark3.exe` help/version attempts returned exit code 1 with no captured output. For this setup, those results should be treated as evidence that direct executable invocation is not a reliable primary launch path, not as proof that the Proxmark installation itself is broken.
@@ -150,7 +162,7 @@ The supported read-only sources are now:
 
 ## Recommended Implementation Steps
 
-1. Model launch configuration with `client_setup_bash` as the recommended mode for this setup.
+1. Model launch configuration with `client_setup_bash` and `com_port=None` as the recommended auto-detect mode for this setup.
 2. Capture real `hw version`, `hw tune`, `lf search`, and Hitag S output for parser fixtures.
 3. Keep future UI code behind `services.discovery_facade` instead of calling parsers directly.
 4. Use log summaries to validate real manual discovery sessions before adding live process control.

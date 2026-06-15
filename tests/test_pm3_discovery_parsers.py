@@ -82,6 +82,7 @@ def test_parse_hitag_family_help_without_usage_keeps_registry_risk():
 
 
 def test_hitag_command_registry_risk_levels_are_hardened():
+    assert get_command("pm3_list").risk == RiskLevel.READ_ONLY
     assert get_command("hitag_s256_write_block").risk == RiskLevel.WRITE
     assert get_command("hitag_s256_read_block").risk == RiskLevel.READ_ONLY
     assert get_command("hitag_s256_dump").risk == RiskLevel.READ_ONLY_WITH_FILE_OUTPUT
