@@ -18,6 +18,7 @@ SCENARIOS = Path(__file__).parent / "fixtures" / "scenarios"
 SAMPLE_LOG = PM3_FIXTURES / "session_log_discovery_sample.txt"
 HELP_ONLY_LOG = PM3_FIXTURES / "session_log_help_only_real.txt"
 LOST_DEVICE_LOG = PM3_FIXTURES / "session_log_device_lost_after_failed_discovery.txt"
+BLANK_READ_SUCCESS_LOG = PM3_FIXTURES / "session_log_hitag_s256_blank_read_success_real.txt"
 
 
 def test_log_splitting_recognizes_commands_and_keeps_latest_outputs():
@@ -87,6 +88,47 @@ def test_lost_device_log_reports_reconnect_required_and_failed_commands():
     assert summary.tag_type_guess == "unknown"
     assert summary.recommended_next_step == "Reconnect USB and restart PM3 session"
     assert any("LF search did not identify a supported chipset" in note for note in summary.risk_notes)
+
+
+def test_successful_blank_read_log_ignores_host_commands_and_detects_hitag_s256():
+    capture = Pm3LogCaptureProvider(BLANK_READ_SUCCESS_LOG).capture()
+    facade = DiscoveryFacade(default_launch_config())
+    summary = capture.summarize(facade)
+    bundle = facade.parse_texts(capture.inputs)
+
+    assert summary.session_status == "ok"
+    assert summary.device_reconnect_required is False
+    assert summary.tag_frequency_guess == "lf"
+    assert summary.tag_type_guess == "hitag_s256_plain"
+    assert bundle.hitag_reader is not None
+    assert bundle.hitag_reader.uids == ("83F5E494",)
+    assert bundle.hitag_read is not None
+    assert bundle.hitag_read.uid == "83F5E494"
+    assert bundle.hitag_read.config_page == "C90000AA"
+    assert bundle.hitag_read.pages[7].data == "575F4F4B"
+    assert capture.ignored_host_commands == (
+        r"cd d:\localrepos\rfid-gui",
+        r'py -3.14 -m pm3_workflow_gui.cli latest-log-summary --log-dir "c:\tools\proxmark3\client\.proxmark3\logs"',
+    )
+    assert "cd d:\\localrepos\\rfid-gui" not in capture.command_outputs
+    assert "py -3.14 -m pm3_workflow_gui.cli latest-log-summary --log-dir \"c:\\tools\\proxmark3\\client\\.proxmark3\\logs\"" not in capture.command_outputs
+
+
+def test_hitag_reader_without_rdbl_is_only_candidate(tmp_path):
+    log = tmp_path / "reader_only.txt"
+    log.write_text(
+        "[+] Using UART port COM16\n"
+        "[usb] pm3 --> lf hitag hts reader -@\n"
+        "[=] Press <Enter> to exit\n"
+        "[+] UID.... 83F5E494\n",
+        encoding="utf-8",
+    )
+
+    summary = Pm3LogCaptureProvider(log).capture().summarize()
+
+    assert summary.tag_frequency_guess == "lf"
+    assert summary.tag_type_guess == "hitag_candidate"
+    assert summary.recommended_next_step == "Run lf hitag hts rdbl -p 0 -c 8"
 
 
 def test_uid_request_failed_without_disconnect_is_command_failed(tmp_path):
@@ -235,6 +277,35 @@ def test_cli_log_summary_reports_lost_device_state():
     assert "Tag frequency: unknown" in completed.stdout
     assert "Tag type: unknown" in completed.stdout
     assert "Next step: Reconnect USB and restart PM3 session" in completed.stdout
+
+
+def test_cli_log_summary_reports_ignored_host_commands_for_success_log():
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pm3_workflow_gui.cli",
+            "log-summary",
+            "--log",
+            str(BLANK_READ_SUCCESS_LOG),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    assert "Session status: ok" in completed.stdout
+    assert "Reconnect required: no" in completed.stdout
+    assert "Tag frequency: lf" in completed.stdout
+    assert "Tag type: Hitag S256 Plain" in completed.stdout
+    assert "Next step: Read/save profile or verify blank compatibility" in completed.stdout
+    assert "Ignored host commands: 2" in completed.stdout
+    recognized = completed.stdout.split("Recognized commands:", 1)[1].split("Ignored host commands:", 1)[0]
+    assert "lf hitag hts reader -@" in recognized
+    assert "lf hitag hts rdbl -p 0 -c 8" in recognized
+    assert "cd d:\\localrepos\\rfid-gui" not in recognized.lower()
+    assert "py -3.14 -m pm3_workflow_gui.cli" not in recognized.lower()
 
 
 def test_cli_latest_log_summary_selects_newest_log(tmp_path):

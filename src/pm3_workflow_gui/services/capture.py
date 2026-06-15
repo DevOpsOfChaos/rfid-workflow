@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 import re
 from typing import Protocol
@@ -38,6 +38,7 @@ class CaptureResult:
     source: str
     inputs: DiscoveryTextInputs
     command_outputs: dict[str, tuple[CapturedCommandOutput, ...]] = field(default_factory=dict)
+    ignored_host_commands: tuple[str, ...] = ()
     missing_fields: tuple[str, ...] = ()
 
     def summarize(self, facade: DiscoveryFacade | None = None) -> UiDiscoverySummary:
@@ -83,6 +84,7 @@ class ManualTextCaptureProvider:
             hw_tune=self.text_blocks.get("hw_tune"),
             hf_search=self.text_blocks.get("hf_search"),
             lf_search=self.text_blocks.get("lf_search"),
+            hitag_reader=self.text_blocks.get("hitag_reader"),
             hitag_rdbl=self.text_blocks.get("hitag_rdbl"),
             reference_hitag_rdbl=self.text_blocks.get("reference_hitag_rdbl"),
         )
@@ -95,12 +97,20 @@ class Pm3LogCaptureProvider:
 
     def capture(self) -> CaptureResult:
         text = self.log_path.read_text(encoding="utf-8", errors="replace")
-        command_outputs = split_pm3_log_commands(text)
+        all_command_outputs = split_pm3_log_commands(text)
+        ignored_host_commands = ignored_host_commands_from_outputs(all_command_outputs)
+        command_outputs = pm3_relevant_command_outputs(all_command_outputs)
         inputs = discovery_inputs_from_log(text, command_outputs)
+        inputs = replace(
+            inputs,
+            ignored_host_commands=ignored_host_commands,
+            log_pollution_detected=bool(ignored_host_commands),
+        )
         return CaptureResult(
             source=f"log:{self.log_path}",
             inputs=inputs,
             command_outputs=command_outputs,
+            ignored_host_commands=ignored_host_commands,
             missing_fields=_missing_fields(inputs),
         )
 
@@ -162,6 +172,8 @@ def normalize_pm3_command(command: str) -> str:
 
 def classify_pm3_command_context(command: str) -> str:
     normalized = normalize_pm3_command(command)
+    if is_host_shell_command(normalized):
+        return "host_shell"
     if normalized in {"hw version", "hw tune"}:
         return "hardware_status"
     if normalized in {
@@ -182,9 +194,19 @@ def classify_pm3_command_context(command: str) -> str:
         return "help_capability"
     if normalized in {"hf search", "lf search", "lf search -u"}:
         return "discovery"
+    if normalized.startswith("lf hitag hts reader"):
+        return "reader"
     if normalized.startswith("lf hitag hts rdbl") and not _has_help_flag(normalized):
         return "read"
     return "other"
+
+
+def is_host_shell_command(command: str) -> bool:
+    normalized = normalize_pm3_command(command)
+    if re.match(r"^[a-z]:\\", normalized):
+        return True
+    first = normalized.split(" ", 1)[0]
+    return first in {"cd", "dir", "ls", "python", "py", "powershell", "cmd"}
 
 
 def _has_help_flag(command: str) -> bool:
@@ -228,6 +250,36 @@ def latest_hitag_read_output(
     return matches[-1].output if matches else None
 
 
+def latest_hitag_reader_output(
+    command_outputs: dict[str, tuple[CapturedCommandOutput, ...]],
+) -> str | None:
+    matches = [
+        outputs[-1]
+        for command, outputs in command_outputs.items()
+        if command.startswith("lf hitag hts reader") and outputs and outputs[-1].command_context == "reader"
+    ]
+    return matches[-1].output if matches else None
+
+
+def ignored_host_commands_from_outputs(
+    command_outputs: dict[str, tuple[CapturedCommandOutput, ...]],
+) -> tuple[str, ...]:
+    ignored: list[str] = []
+    for outputs in command_outputs.values():
+        ignored.extend(output.normalized_command for output in outputs if output.command_context == "host_shell")
+    return tuple(_dedupe(ignored))
+
+
+def pm3_relevant_command_outputs(
+    command_outputs: dict[str, tuple[CapturedCommandOutput, ...]],
+) -> dict[str, tuple[CapturedCommandOutput, ...]]:
+    return {
+        command: tuple(output for output in outputs if output.command_context != "host_shell")
+        for command, outputs in command_outputs.items()
+        if any(output.command_context != "host_shell" for output in outputs)
+    }
+
+
 def discovery_inputs_from_log(
     log_text: str,
     command_outputs: dict[str, tuple[CapturedCommandOutput, ...]],
@@ -239,6 +291,7 @@ def discovery_inputs_from_log(
         hw_tune=latest_command_output(command_outputs, "hw tune"),
         hf_search=latest_command_output_by_context(command_outputs, {"hf search"}, "discovery"),
         lf_search=latest_command_output_by_context(command_outputs, {"lf search", "lf search -u"}, "discovery"),
+        hitag_reader=latest_hitag_reader_output(command_outputs),
         hitag_rdbl=latest_hitag_read_output(command_outputs),
         session_errors=diagnostics["session_errors"],
         failed_commands=diagnostics["failed_commands"],

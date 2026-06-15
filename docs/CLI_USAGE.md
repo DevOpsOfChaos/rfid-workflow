@@ -44,6 +44,19 @@ Summarize the newest `.txt` log in a directory:
 python -m pm3_workflow_gui.cli latest-log-summary --log-dir "C:\Tools\proxmark3\client\.proxmark3\logs"
 ```
 
+Run CLI commands in a separate PowerShell window. Do not type them into the
+interactive PM3 prompt. If host commands accidentally land in a PM3 log, the
+capture layer reports them separately:
+
+```text
+Ignored host commands: 2
+- cd d:\localrepos\rfid-gui
+- py -3.14 -m pm3_workflow_gui.cli latest-log-summary ...
+```
+
+Ignored host commands are excluded from the normal `Recognized commands` list
+and do not count as discovery input.
+
 To create a useful manual log, start Proxmark with the supported local path. The default is auto port detection:
 
 ```powershell
@@ -108,5 +121,11 @@ Next step: Run hf search and lf search with the tag present
 ```
 
 Only real `hf search`, `lf search`, `lf search -u`, or read output such as `lf hitag hts rdbl -p 0 -c 8` can support tag frequency/type guesses.
+
+A targeted Hitag read log can still be useful when it lacks `hw tune`,
+`hf search`, or `lf search`. `lf hitag hts reader -@` UID output supports an
+LF/Hitag candidate, and a successful `lf hitag hts rdbl -p 0 -c 8` promotes the
+summary to `Hitag S256 Plain`. In that targeted workflow, missing hardware or
+search sections are optional context, not proof that the read failed.
 
 The CLI does not start `bash pm3`, does not open a live interactive session, and does not execute write commands. Write execution remains deliberately blocked.

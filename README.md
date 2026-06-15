@@ -111,6 +111,17 @@ python -m pm3_workflow_gui.cli log-summary --log tests/fixtures/pm3/session_log_
 python -m pm3_workflow_gui.cli latest-log-summary --log-dir "C:\Tools\proxmark3\client\.proxmark3\logs"
 ```
 
+Run these CLI commands from a separate PowerShell, not inside the interactive
+PM3 console. If host commands such as `cd ...`, `py ...`, `python ...`,
+`powershell ...`, or `cmd ...` accidentally appear after a PM3 prompt, the log
+capture marks them as ignored host commands and keeps them out of PM3 discovery
+results.
+
+Targeted Hitag reads can be valid without a full `hw tune` / `hf search` /
+`lf search` sequence. `lf hitag hts reader -@` with UID lines is treated as
+Hitag/LF candidate evidence; `lf hitag hts rdbl -p 0 -c 8` is still required
+before the summary reports `Hitag S256 Plain`.
+
 The log summary also models unstable Windows/MSYS/USB-CDC sessions. If a log
 contains errors such as `UID Request failed!`, `timeout while waiting for
 reply`, `Failed to get current device debug level`, or `Communicating with

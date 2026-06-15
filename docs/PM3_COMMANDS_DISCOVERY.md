@@ -70,6 +70,7 @@ Captured `hw tune` output:
 - `bash pm3 --list` for port diagnosis before an interactive session
 - `hf search`
 - `lf search`
+- `lf hitag hts reader -@`
 - `lf hitag hts rdbl`
 - `lf hitag hts dump`
 - Help commands ending in `-h`, such as `lf hitag hts -h`
@@ -85,6 +86,15 @@ Failed discovery output is not a tag classification:
 
 If the log drops back to `C:\Tools\proxmark3\client>`, the GUI must treat the
 PM3 session as lost and require USB reconnect plus PM3 restart before continuing.
+
+`lf hitag hts reader -@` can show repeated UID lines and is useful as
+supporting Hitag/LF evidence. It is not enough to call the tag Hitag S256 Plain;
+that requires successful `lf hitag hts rdbl -p 0 -c 8` output.
+
+Host commands are not PM3 commands. CLI commands such as `py -3.14 -m
+pm3_workflow_gui.cli ...` must be run from a separate PowerShell. If they are
+mistyped into the PM3 console, log capture marks them as ignored host commands
+and excludes them from recognized PM3 commands.
 
 Captured Hitag S256 Plain workflow values:
 

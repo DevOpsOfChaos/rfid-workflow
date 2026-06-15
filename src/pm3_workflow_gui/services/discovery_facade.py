@@ -7,12 +7,14 @@ from typing import Literal
 
 from pm3_workflow_gui.pm3.parsers import (
     HfSearchResult,
+    HitagReaderResult,
     HitagSRead,
     HwTune,
     HwVersion,
     LfSearchResult,
     StartupBanner,
     parse_hf_search,
+    parse_hitag_reader,
     parse_hitag_s_rdbl,
     parse_hw_tune,
     parse_hw_version,
@@ -38,11 +40,14 @@ class DiscoveryTextInputs:
     hw_tune: str | None = None
     hf_search: str | None = None
     lf_search: str | None = None
+    hitag_reader: str | None = None
     hitag_rdbl: str | None = None
     reference_hitag_rdbl: str | None = None
     session_errors: tuple[str, ...] = ()
     failed_commands: tuple[str, ...] = ()
     cmd_prompt_detected: bool = False
+    ignored_host_commands: tuple[str, ...] = ()
+    log_pollution_detected: bool = False
 
 
 @dataclass(frozen=True)
@@ -52,11 +57,14 @@ class DiscoveryParseBundle:
     hw_tune: HwTune | None = None
     hf_search: HfSearchResult | None = None
     lf_search: LfSearchResult | None = None
+    hitag_reader: HitagReaderResult | None = None
     hitag_read: HitagSRead | None = None
     reference_profile: HitagS256Profile | None = None
     session_errors: tuple[str, ...] = ()
     failed_commands: tuple[str, ...] = ()
     cmd_prompt_detected: bool = False
+    ignored_host_commands: tuple[str, ...] = ()
+    log_pollution_detected: bool = False
 
 
 @dataclass(frozen=True)
@@ -66,6 +74,8 @@ class UiDiscoverySummary:
     last_error: str | None
     failed_commands: tuple[str, ...]
     missing_sections: tuple[str, ...]
+    ignored_host_commands: tuple[str, ...]
+    log_pollution_detected: bool
     connected: ConnectedState
     launch_mode: str
     com_port: str | None
@@ -87,6 +97,7 @@ class UiDiscoverySummary:
             f"Reconnect required: {'yes' if self.device_reconnect_required else 'no'}",
             f"Last error: {self.last_error or 'none'}",
             f"Failed commands: {', '.join(self.failed_commands) if self.failed_commands else 'none'}",
+            f"Ignored host commands: {len(self.ignored_host_commands)}",
             f"Launch mode: {self.launch_mode}",
             f"COM port: {self.com_port or 'unknown/auto'}",
             f"Target: {self.target or 'unknown'}",
@@ -124,11 +135,14 @@ class DiscoveryFacade:
             hw_tune=parse_hw_tune(inputs.hw_tune) if inputs.hw_tune else None,
             hf_search=parse_hf_search(inputs.hf_search) if inputs.hf_search else None,
             lf_search=parse_lf_search(inputs.lf_search) if inputs.lf_search else None,
+            hitag_reader=parse_hitag_reader(inputs.hitag_reader) if inputs.hitag_reader else None,
             hitag_read=parse_hitag_s_rdbl(inputs.hitag_rdbl) if inputs.hitag_rdbl else None,
             reference_profile=reference_profile,
             session_errors=inputs.session_errors,
             failed_commands=inputs.failed_commands,
             cmd_prompt_detected=inputs.cmd_prompt_detected,
+            ignored_host_commands=inputs.ignored_host_commands,
+            log_pollution_detected=inputs.log_pollution_detected,
         )
 
     def summarize_texts(self, inputs: DiscoveryTextInputs) -> UiDiscoverySummary:
@@ -136,7 +150,7 @@ class DiscoveryFacade:
 
     def summarize_bundle(self, bundle: DiscoveryParseBundle) -> UiDiscoverySummary:
         verification = _verify_if_possible(bundle.hitag_read, bundle.reference_profile)
-        tag_type_guess = _tag_type_guess(bundle.lf_search, bundle.hitag_read)
+        tag_type_guess = _tag_type_guess(bundle.lf_search, bundle.hitag_reader, bundle.hitag_read)
         discovery_data_status = _discovery_data_status(bundle)
         session_status = _session_status(bundle)
         last_error = _last_error(bundle)
@@ -152,6 +166,8 @@ class DiscoveryFacade:
             last_error=last_error,
             failed_commands=bundle.failed_commands,
             missing_sections=_missing_sections_from_bundle(bundle),
+            ignored_host_commands=bundle.ignored_host_commands,
+            log_pollution_detected=bundle.log_pollution_detected,
             connected=connected,
             launch_mode=self.launch_config.mode,
             com_port=com_port,
@@ -164,7 +180,7 @@ class DiscoveryFacade:
             lf_antenna_status=_antenna_status(bundle.hw_tune.lf_antenna_status if bundle.hw_tune else None),
             hf_antenna_status=_antenna_status(bundle.hw_tune.hf_antenna_status if bundle.hw_tune else None),
             discovery_data_status=discovery_data_status,
-            tag_frequency_guess=_tag_frequency_guess(bundle.hf_search, bundle.lf_search, bundle.hitag_read),
+            tag_frequency_guess=_tag_frequency_guess(bundle.hf_search, bundle.lf_search, bundle.hitag_reader, bundle.hitag_read),
             tag_type_guess=tag_type_guess,
             risk_notes=risk_notes,
             recommended_next_step=_recommended_next_step(
@@ -211,6 +227,7 @@ def load_scenario(path: str | Path) -> ScenarioDefinition:
             hw_tune=read_optional("hw_tune"),
             hf_search=read_optional("hf_search"),
             lf_search=read_optional("lf_search"),
+            hitag_reader=read_optional("hitag_reader"),
             hitag_rdbl=read_optional("hitag_rdbl"),
             reference_hitag_rdbl=read_optional("reference_hitag_rdbl"),
         ),
@@ -253,29 +270,36 @@ def _antenna_status(status: str | None) -> str:
 def _tag_frequency_guess(
     hf_search: HfSearchResult | None,
     lf_search: LfSearchResult | None,
+    hitag_reader: HitagReaderResult | None,
     hitag_read: HitagSRead | None,
 ) -> str:
     if _has_hitag_read_error(hitag_read):
         return "unknown"
-    if hitag_read or (lf_search and lf_search.classification == "hitag_candidate"):
+    if hitag_read or (hitag_reader and hitag_reader.uids) or (lf_search and lf_search.classification == "hitag_candidate"):
         return "lf"
     if hf_search and hf_search.status == "no_tag_found":
         return "none"
     return "unknown"
 
 
-def _tag_type_guess(lf_search: LfSearchResult | None, hitag_read: HitagSRead | None) -> str:
+def _tag_type_guess(
+    lf_search: LfSearchResult | None,
+    hitag_reader: HitagReaderResult | None,
+    hitag_read: HitagSRead | None,
+) -> str:
     if _has_hitag_read_error(hitag_read):
         return "unknown"
     if hitag_read and hitag_read.is_hitag_s256_plain_no_auth:
         return "hitag_s256_plain"
+    if hitag_reader and hitag_reader.uids:
+        return "hitag_candidate"
     if lf_search and lf_search.classification == "hitag_candidate":
         return "hitag_candidate"
     return "unknown"
 
 
 def _discovery_data_status(bundle: DiscoveryParseBundle) -> str:
-    if bundle.hf_search or bundle.lf_search or bundle.hitag_read:
+    if bundle.hf_search or bundle.lf_search or bundle.hitag_reader or bundle.hitag_read:
         return "captured"
     if bundle.hw_version and bundle.hw_tune:
         return "not captured"
@@ -349,7 +373,7 @@ def _session_status(bundle: DiscoveryParseBundle) -> SessionStatus:
     }
     if any(error in command_failure_errors for error in bundle.session_errors):
         return "command_failed"
-    if bundle.startup_banner or bundle.hw_version or bundle.hw_tune or bundle.hf_search or bundle.lf_search or bundle.hitag_read:
+    if bundle.startup_banner or bundle.hw_version or bundle.hw_tune or bundle.hf_search or bundle.lf_search or bundle.hitag_reader or bundle.hitag_read:
         return "ok"
     return "unknown"
 

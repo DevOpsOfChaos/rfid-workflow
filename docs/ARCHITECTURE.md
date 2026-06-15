@@ -78,6 +78,12 @@ identify a chipset`, `timeout while waiting for reply`, `Failed to get current
 device debug level`, and `Communicating with Proxmark3 device failed`. It also
 detects a fallback to a Windows `C:\...>` prompt after PM3 output.
 
+Capture also filters host-command pollution. Commands such as `cd ...`, `dir`,
+`ls`, `python ...`, `py ...`, `powershell ...`, `cmd ...`, or drive paths like
+`D:\...` may appear when the operator accidentally types shell commands into
+the PM3 console. These are classified as `host_shell`, excluded from PM3
+command outputs, and exposed as `ignored_host_commands`.
+
 Interactive Windows automation is deliberately deferred. The current setup enters MSYS/bash through `setup.bat` and `bash pm3`, so a robust adapter needs explicit TTY testing. Pretending `subprocess` is enough would produce fragile behavior.
 
 ## Command and Risk Layer
@@ -103,6 +109,11 @@ Help output is parsed only as capability information. Hardware OK means antenna 
 `Couldn't identify a chipset` is kept as a failed LF identification, not as a
 Hitag candidate. `UID Request failed!` prevents the Hitag read from being used
 as a tag-type proof.
+
+`lf hitag hts reader -@` is supporting evidence only. UID lines from that
+command can support `tag_frequency_guess=lf` and `tag_type_guess=hitag_candidate`,
+but only a successful `lf hitag hts rdbl -p 0 -c 8` can produce
+`hitag_s256_plain`.
 
 ## Workflow Layer
 

@@ -125,6 +125,12 @@ Hardware and Help/Capability output are deliberately not treated as tag discover
 
 Tag-type statements require real discovery or read evidence: `hf search`, `lf search`, `lf search -u`, or read output such as `lf hitag hts rdbl -p 0 -c 8`.
 
+Targeted Hitag read logs are allowed to omit broad search sections. A log with
+`lf hitag hts reader -@` UID output and a successful `lf hitag hts rdbl -p 0 -c
+8` is enough to report `Hitag S256 Plain`, even if `hw tune`, `hf search`, and
+`lf search` are absent. `hw tune` remains useful hardware context, not a
+mandatory part of every targeted read log.
+
 The fixture CLI is:
 
 ```powershell
@@ -156,6 +162,14 @@ states, not tag states:
 For `device_lost`, the next step is `Reconnect USB and restart PM3 session`.
 The GUI must not automatically continue discovery after this state. Auto-port
 startup remains the default; forced COM ports remain debug-only.
+
+## Log Pollution Handling
+
+CLI commands must be run in a separate PowerShell, not at the PM3 prompt. If
+host commands are accidentally entered into PM3, the capture layer classifies
+them as ignored host commands. Examples include `cd D:\LocalRepos\RFID-GUI` and
+`py -3.14 -m pm3_workflow_gui.cli latest-log-summary ...`. They are not counted
+as PM3 discovery commands and are shown separately in CLI summaries.
 
 ## Capture Providers
 

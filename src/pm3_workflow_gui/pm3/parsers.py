@@ -77,6 +77,11 @@ class LfSearchResult:
 
 
 @dataclass(frozen=True)
+class HitagReaderResult:
+    uids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class HitagSPage:
     page: int
     data: str
@@ -239,6 +244,14 @@ def parse_lf_search(output: str) -> LfSearchResult:
     )
 
 
+def parse_hitag_reader(output: str) -> HitagReaderResult:
+    uids = [
+        _compact_hex(match)
+        for match in re.findall(r"UID\.*\s*([0-9A-Fa-f]{8})", output)
+    ]
+    return HitagReaderResult(uids=tuple(uid for uid in _dedupe_present(uids) if uid))
+
+
 def parse_hitag_s_rdbl(output: str) -> HitagSRead:
     pages: dict[int, HitagSPage] = {}
     page_re = re.compile(
@@ -306,6 +319,17 @@ def _compact_hex(value: str | None) -> str | None:
         return None
     parts = re.findall(r"[0-9A-Fa-f]{2}", value)
     return "".join(part.upper() for part in parts) if parts else None
+
+
+def _dedupe_present(values: list[str | None]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 def _hint_value(output: str) -> str | None:

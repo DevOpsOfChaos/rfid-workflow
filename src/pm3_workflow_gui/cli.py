@@ -78,8 +78,13 @@ def _print_capture_summary(title: str, provider) -> int:
         print("Recognized commands:")
         for command, outputs in sorted(capture.command_outputs.items()):
             print(f"- {command} ({len(outputs)} capture(s))")
+    if capture.ignored_host_commands:
+        print("Ignored host commands:")
+        for command in capture.ignored_host_commands:
+            print(f"- {command}")
     if capture.missing_fields:
-        print("Missing sections: " + ", ".join(capture.missing_fields))
+        label = "Missing optional sections" if summary.tag_type_guess == "hitag_s256_plain" else "Missing sections"
+        print(f"{label}: " + ", ".join(capture.missing_fields))
     return 0
 
 
