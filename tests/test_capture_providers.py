@@ -17,6 +17,7 @@ PM3_FIXTURES = Path(__file__).parent / "fixtures" / "pm3"
 SCENARIOS = Path(__file__).parent / "fixtures" / "scenarios"
 SAMPLE_LOG = PM3_FIXTURES / "session_log_discovery_sample.txt"
 HELP_ONLY_LOG = PM3_FIXTURES / "session_log_help_only_real.txt"
+LOST_DEVICE_LOG = PM3_FIXTURES / "session_log_device_lost_after_failed_discovery.txt"
 
 
 def test_log_splitting_recognizes_commands_and_keeps_latest_outputs():
@@ -70,6 +71,42 @@ def test_help_only_log_does_not_infer_lf_tag_or_hitag_candidate():
     assert summary.recommended_next_step == "Run hf search and lf search with the tag present"
 
 
+def test_lost_device_log_reports_reconnect_required_and_failed_commands():
+    capture = Pm3LogCaptureProvider(LOST_DEVICE_LOG).capture()
+    summary = capture.summarize(DiscoveryFacade(default_launch_config()))
+
+    assert capture.inputs.hf_search is not None
+    assert capture.inputs.lf_search is not None
+    assert capture.inputs.hitag_rdbl is not None
+    assert summary.session_status == "device_lost"
+    assert summary.device_reconnect_required is True
+    assert summary.last_error == "Communicating with Proxmark3 device failed"
+    assert "lf hitag hts rdbl -p 0 -c 8" in summary.failed_commands
+    assert "hf search" in summary.failed_commands
+    assert summary.tag_frequency_guess == "unknown"
+    assert summary.tag_type_guess == "unknown"
+    assert summary.recommended_next_step == "Reconnect USB and restart PM3 session"
+    assert any("LF search did not identify a supported chipset" in note for note in summary.risk_notes)
+
+
+def test_uid_request_failed_without_disconnect_is_command_failed(tmp_path):
+    log = tmp_path / "uid_failed.txt"
+    log.write_text(
+        (PM3_FIXTURES / "session_log_help_only_real.txt").read_text(encoding="utf-8")
+        + "\n[usb] pm3 --> lf hitag hts rdbl -p 0 -c 8\n"
+        + "[=] Access Hitag S in Plain mode\n"
+        + "[-] UID Request failed!\n",
+        encoding="utf-8",
+    )
+
+    summary = Pm3LogCaptureProvider(log).capture().summarize()
+
+    assert summary.session_status == "command_failed"
+    assert summary.device_reconnect_required is False
+    assert summary.last_error == "UID Request failed!"
+    assert summary.recommended_next_step == "Check tag placement and run lf search again"
+
+
 def test_incomplete_log_does_not_crash(tmp_path):
     log = tmp_path / "incomplete.txt"
     log.write_text("[usb] pm3 --> hw version\npartial output only\n", encoding="utf-8")
@@ -81,7 +118,7 @@ def test_incomplete_log_does_not_crash(tmp_path):
     assert "hw_tune" in capture.missing_fields
     assert summary.connected == "unknown"
     assert summary.com_port is None
-    assert summary.lines()[1] == "COM port: unknown/auto"
+    assert "COM port: unknown/auto" in summary.lines()
     assert summary.recommended_next_step == "Start Proxmark with auto-detect"
 
 
@@ -174,6 +211,30 @@ def test_cli_log_summary_reports_help_only_discovery_gap():
     assert "Next step: Run hf search and lf search with the tag present" in completed.stdout
     assert "lf search -h" in completed.stdout
     assert "lf hitag hts rdbl -p 0 -c 8" not in completed.stdout
+
+
+def test_cli_log_summary_reports_lost_device_state():
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pm3_workflow_gui.cli",
+            "log-summary",
+            "--log",
+            str(LOST_DEVICE_LOG),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    assert "Session status: device_lost" in completed.stdout
+    assert "Reconnect required: yes" in completed.stdout
+    assert "Last error: Communicating with Proxmark3 device failed" in completed.stdout
+    assert "Tag frequency: unknown" in completed.stdout
+    assert "Tag type: unknown" in completed.stdout
+    assert "Next step: Reconnect USB and restart PM3 session" in completed.stdout
 
 
 def test_cli_latest_log_summary_selects_newest_log(tmp_path):

@@ -82,6 +82,20 @@ C:\Tools\proxmark3\client\.proxmark3\logs
 
 The log parser looks for prompt lines like `[usb] pm3 --> hw version`, excludes those prompt lines from output, stores repeated commands, and reports missing sections instead of failing.
 
+The CLI reports session health before tag guesses. A lost Windows/MSYS/USB-CDC
+session is surfaced as:
+
+```text
+Session status: device_lost
+Reconnect required: yes
+Last error: Communicating with Proxmark3 device failed
+Next step: Reconnect USB and restart PM3 session
+```
+
+After `device_lost`, callers must not continue discovery or read workflows in
+the same session. The practical recovery is to unplug/replug USB briefly and
+restart PM3 with the auto-port command.
+
 Help and hardware logs are not tag discovery. `hw version` can show that the client is reachable, and `hw tune` can show LF/HF antenna status, but neither means a tag was present or detected. Capability commands such as `hf search -h`, `lf search -h`, `lf hitag hts`, `lf hitag hts rdbl -h`, `lf hitag hts wrbl -h`, and `lf hitag hts dump -h` are kept separate from real discovery commands.
 
 If a log contains only hardware and help output, the CLI reports:

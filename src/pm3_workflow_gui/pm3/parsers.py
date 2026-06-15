@@ -62,6 +62,7 @@ class CommandHelp:
 class HfSearchResult:
     status: str
     message: str | None = None
+    errors: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,7 @@ class LfSearchResult:
     chipset: str | None
     hint: str | None
     false_positive_notes: tuple[str, ...] = ()
+    identification_status: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -93,6 +95,7 @@ class HitagSRead:
     key_pwd_locked: str | None
     pages: dict[int, HitagSPage]
     access_mode: str | None = None
+    errors: tuple[str, ...] = ()
 
     @property
     def uid(self) -> str | None:
@@ -196,14 +199,20 @@ def parse_command_help(command_name: str, output: str) -> CommandHelp:
 
 def parse_hf_search(output: str) -> HfSearchResult:
     normalized = output.lower()
+    errors = tuple(_known_error_lines(output))
+    if any("communicating with proxmark3 device failed" in error.lower() for error in errors):
+        return HfSearchResult(status="device_lost", message="Communicating with Proxmark3 device failed", errors=errors)
+    if any("timeout while waiting for reply" in error.lower() for error in errors):
+        return HfSearchResult(status="command_failed", message="timeout while waiting for reply", errors=errors)
     if "no known/supported 13.56 mhz tags found" in normalized:
-        return HfSearchResult(status="no_tag_found", message="No known/supported 13.56 MHz tags found")
+        return HfSearchResult(status="no_tag_found", message="No known/supported 13.56 MHz tags found", errors=errors)
     if "unsupported" in normalized:
-        return HfSearchResult(status="unsupported", message=_first_nonempty_line(output))
-    return HfSearchResult(status="unknown", message=_first_nonempty_line(output))
+        return HfSearchResult(status="unsupported", message=_first_nonempty_line(output), errors=errors)
+    return HfSearchResult(status="unknown", message=_first_nonempty_line(output), errors=errors)
 
 
 def parse_lf_search(output: str) -> LfSearchResult:
+    normalized = output.lower()
     uid = _compact_hex(_label_value(output, "UID"))
     tag_type = _label_value(output, "TYPE")
     chipset = _label_value(output, "Chipset")
@@ -218,6 +227,7 @@ def parse_lf_search(output: str) -> LfSearchResult:
         for value in (tag_type, chipset, hint)
     )
     classification = "hitag_candidate" if uid and has_hitag_hint else "unknown"
+    identification_status = "no_chipset" if "couldn't identify a chipset" in normalized else "unknown"
     return LfSearchResult(
         classification=classification,
         uid=uid,
@@ -225,6 +235,7 @@ def parse_lf_search(output: str) -> LfSearchResult:
         chipset=chipset,
         hint=hint,
         false_positive_notes=false_positive_notes,
+        identification_status=identification_status,
     )
 
 
@@ -252,7 +263,26 @@ def parse_hitag_s_rdbl(output: str) -> HitagSRead:
         config_locked=_label_value(output, "Config locked"),
         key_pwd_locked=_label_value(output, "Key/PWD locked"),
         pages=pages,
+        errors=tuple(_known_error_lines(output)),
     )
+
+
+def _known_error_lines(output: str) -> list[str]:
+    markers = (
+        "UID Request failed!",
+        "Couldn't identify a chipset",
+        "timeout while waiting for reply",
+        "Failed to get current device debug level",
+        "Communicating with Proxmark3 device failed",
+    )
+    errors: list[str] = []
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        for marker in markers:
+            if marker.lower() in line.lower():
+                errors.append(marker)
+                break
+    return errors
 
 
 def _first_match(output: str, pattern: str, flags: int = 0) -> str | None:

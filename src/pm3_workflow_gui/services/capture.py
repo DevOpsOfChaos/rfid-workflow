@@ -16,6 +16,14 @@ from pm3_workflow_gui.services.discovery_facade import (
 )
 
 PROMPT_RE = re.compile(r"^\[[^\]]+\]\s*pm3\s*-->\s*(?P<command>.+?)\s*$", re.IGNORECASE)
+WINDOWS_CMD_PROMPT_RE = re.compile(r"^[A-Za-z]:\\.*>\s*$")
+ERROR_MARKERS = (
+    "UID Request failed!",
+    "Couldn't identify a chipset",
+    "timeout while waiting for reply",
+    "Failed to get current device debug level",
+    "Communicating with Proxmark3 device failed",
+)
 
 @dataclass(frozen=True)
 class CapturedCommandOutput:
@@ -224,6 +232,7 @@ def discovery_inputs_from_log(
     log_text: str,
     command_outputs: dict[str, tuple[CapturedCommandOutput, ...]],
 ) -> DiscoveryTextInputs:
+    diagnostics = _session_diagnostics_from_log(log_text, command_outputs)
     return DiscoveryTextInputs(
         startup_banner=_startup_banner_from_log(log_text),
         hw_version=latest_command_output(command_outputs, "hw version"),
@@ -231,6 +240,9 @@ def discovery_inputs_from_log(
         hf_search=latest_command_output_by_context(command_outputs, {"hf search"}, "discovery"),
         lf_search=latest_command_output_by_context(command_outputs, {"lf search", "lf search -u"}, "discovery"),
         hitag_rdbl=latest_hitag_read_output(command_outputs),
+        session_errors=diagnostics["session_errors"],
+        failed_commands=diagnostics["failed_commands"],
+        cmd_prompt_detected=diagnostics["cmd_prompt_detected"],
     )
 
 
@@ -252,3 +264,50 @@ def _missing_fields(inputs: DiscoveryTextInputs) -> tuple[str, ...]:
         "hitag_rdbl",
     )
     return tuple(field for field in fields if getattr(inputs, field) is None)
+
+
+def _session_diagnostics_from_log(
+    log_text: str,
+    command_outputs: dict[str, tuple[CapturedCommandOutput, ...]],
+) -> dict[str, tuple[str, ...] | bool]:
+    session_errors: list[str] = []
+    failed_commands: list[str] = []
+    for outputs in command_outputs.values():
+        for output in outputs:
+            errors = _known_errors(output.output)
+            if not errors:
+                continue
+            session_errors.extend(errors)
+            failed_commands.append(output.normalized_command)
+
+    return {
+        "session_errors": tuple(_dedupe(session_errors)),
+        "failed_commands": tuple(_dedupe(failed_commands)),
+        "cmd_prompt_detected": _has_windows_cmd_prompt_fallback(log_text),
+    }
+
+
+def _known_errors(output: str) -> list[str]:
+    errors: list[str] = []
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        for marker in ERROR_MARKERS:
+            if marker.lower() in line.lower():
+                errors.append(marker)
+                break
+    return errors
+
+
+def _has_windows_cmd_prompt_fallback(log_text: str) -> bool:
+    return any(WINDOWS_CMD_PROMPT_RE.match(line.strip()) for line in log_text.splitlines())
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result

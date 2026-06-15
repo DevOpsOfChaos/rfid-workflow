@@ -49,6 +49,17 @@ The first read-only discovery foundation is parser-first. The project stores cap
 
 The future PySide6 GUI should call this service layer. It should not directly run parser regexes or construct Proxmark command strings.
 
+The facade also owns session-health state for captured logs:
+
+- `ok`: parsed output does not show a session-level failure.
+- `command_failed`: a read/search command failed, for example `UID Request failed!`, but the client did not clearly drop.
+- `device_lost`: communication failed or the log fell back to the Windows command prompt after a PM3 prompt.
+- `unknown`: no useful PM3 session evidence is present.
+
+When `device_lost` is detected, the UI must stop workflow progress. It should
+tell the operator to reconnect USB and restart PM3; it must not keep issuing
+read/discovery steps in that session.
+
 ## Capture Provider Layer
 
 `services.capture` defines read-only sources that all feed `DiscoveryFacade`:
@@ -61,6 +72,11 @@ The future PySide6 GUI should call this service layer. It should not directly ru
 Log splitting is defensive. Prompt lines like `[usb] pm3 --> hw version` start a new section, the prompt line is excluded from captured output, command text is normalized for lookup, and repeated commands are stored as multiple captures with latest-output helpers. Incomplete logs are allowed; missing sections are reported instead of crashing.
 
 Capture also classifies command context. Hardware/status commands (`hw version`, `hw tune`) are separate from Help/Capability commands (`hf search -h`, `lf search -h`, `lf hitag hts`, and Hitag help variants), real Discovery commands (`hf search`, `lf search`, `lf search -u`), and real Read commands such as `lf hitag hts rdbl -p 0 -c 8`. This prevents a help-only log from being treated as evidence that an LF tag was found.
+
+Capture records known failure lines such as `UID Request failed!`, `Couldn't
+identify a chipset`, `timeout while waiting for reply`, `Failed to get current
+device debug level`, and `Communicating with Proxmark3 device failed`. It also
+detects a fallback to a Windows `C:\...>` prompt after PM3 output.
 
 Interactive Windows automation is deliberately deferred. The current setup enters MSYS/bash through `setup.bat` and `bash pm3`, so a robust adapter needs explicit TTY testing. Pretending `subprocess` is enough would produce fragile behavior.
 
@@ -83,6 +99,10 @@ Current parser coverage:
 - `lf hitag hts rdbl`: Hitag S tag information, compact page data, UID page, config page, permissions, and Plain/No Auth Hitag S256 detection.
 
 Help output is parsed only as capability information. Hardware OK means antenna health, not tag detection. Tag frequency and type guesses require real `hf search`/`lf search` discovery output or a real read output.
+
+`Couldn't identify a chipset` is kept as a failed LF identification, not as a
+Hitag candidate. `UID Request failed!` prevents the Hitag read from being used
+as a tag-type proof.
 
 ## Workflow Layer
 

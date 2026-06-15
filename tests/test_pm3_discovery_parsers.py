@@ -3,8 +3,11 @@ from pathlib import Path
 from pm3_workflow_gui.pm3.commands import get_command
 from pm3_workflow_gui.pm3.parsers import (
     parse_command_help,
+    parse_hf_search,
+    parse_hitag_s_rdbl,
     parse_hw_tune,
     parse_hw_version,
+    parse_lf_search,
     parse_startup_banner,
 )
 from pm3_workflow_gui.pm3.risk import RiskLevel, classify_command
@@ -95,3 +98,19 @@ def test_advanced_auth_flags_are_not_auto_released_as_basic_read_only():
     assert classify_command("lf hitag hts rdbl -k 4F4E4D494B52") == RiskLevel.ADVANCED_AUTH
     assert classify_command("lf hitag hts rdbl --82xx") == RiskLevel.ADVANCED_AUTH
     assert classify_command("lf hitag hts rdbl --nrar 0011223344556677") == RiskLevel.ADVANCED_AUTH
+
+
+def test_failed_discovery_outputs_are_not_hitag_candidates():
+    lf_search = parse_lf_search(
+        "[=] Searching for auth LF and special cases...\n"
+        "[=] Couldn't identify a chipset\n"
+        "[?] Hint: try `hf search` - since tag might not be LF\n"
+    )
+    hitag_read = parse_hitag_s_rdbl("[=] Access Hitag S in Plain mode\n[-] UID Request failed!\n")
+    hf_search = parse_hf_search("[!] No known/supported 13.56 MHz tags found\n")
+
+    assert lf_search.classification == "unknown"
+    assert lf_search.identification_status == "no_chipset"
+    assert "UID Request failed!" in hitag_read.errors
+    assert hitag_read.is_hitag_s256_plain_no_auth is False
+    assert hf_search.status == "no_tag_found"

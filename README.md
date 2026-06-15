@@ -111,6 +111,13 @@ python -m pm3_workflow_gui.cli log-summary --log tests/fixtures/pm3/session_log_
 python -m pm3_workflow_gui.cli latest-log-summary --log-dir "C:\Tools\proxmark3\client\.proxmark3\logs"
 ```
 
+The log summary also models unstable Windows/MSYS/USB-CDC sessions. If a log
+contains errors such as `UID Request failed!`, `timeout while waiting for
+reply`, `Failed to get current device debug level`, or `Communicating with
+Proxmark3 device failed`, the facade reports a session state instead of
+pretending discovery succeeded. `device_lost` means the app must stop workflow
+progress and tell the operator to reconnect USB and restart the PM3 session.
+
 Interactive PM3 automation is intentionally not implemented yet. Windows,
 MSYS, bash, and Proxmark TTY behavior need separate testing before the app
 should drive a live session.

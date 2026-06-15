@@ -21,6 +21,8 @@ def test_facade_original_scenario_builds_ui_summary():
     summary = facade().summarize_scenario(load_scenario(SCENARIOS / "hitag_s256_original_discovery.json"))
 
     assert summary.connected != "false"
+    assert summary.session_status == "ok"
+    assert summary.device_reconnect_required is False
     assert summary.com_port == "COM16"
     assert summary.target == "PM3 GENERIC"
     assert summary.firmware == "PM3 GENERIC"

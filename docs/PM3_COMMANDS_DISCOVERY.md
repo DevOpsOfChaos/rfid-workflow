@@ -76,6 +76,16 @@ Captured `hw tune` output:
 
 Captured `lf search` can include unrelated false-positive lines, such as Indala output, before the stable Hitag details. The parser treats false-positive notes separately and classifies the tag as a Hitag candidate when UID, TYPE/Chipset, and the `lf hitag hts` hint are present.
 
+Failed discovery output is not a tag classification:
+
+- `No known/supported 13.56 MHz tags found` means HF search found no supported tag in that run.
+- `Couldn't identify a chipset` means LF search did not identify a supported chipset and must stay `unknown`.
+- `UID Request failed!` means the Hitag read command failed and cannot prove Hitag S256.
+- `timeout while waiting for reply`, `Failed to get current device debug level`, and `Communicating with Proxmark3 device failed` indicate communication/session failure.
+
+If the log drops back to `C:\Tools\proxmark3\client>`, the GUI must treat the
+PM3 session as lost and require USB reconnect plus PM3 restart before continuing.
+
 Captured Hitag S256 Plain workflow values:
 
 - Original UID: `FA F9 91 79`.
@@ -98,6 +108,7 @@ Captured Hitag S256 Plain workflow values:
 - Brute-force, attack, sniff, simulation, clone, and restore workflows.
 - Do not enable crypto/authentication/password/lock options when the original is Plain/No Auth.
 - Page 1 config belongs last in the planned write order after pages 4-7.
+- Do not continue any workflow after `device_lost`; reconnect USB and restart PM3 first.
 
 ## Manual Startup for Discovery
 

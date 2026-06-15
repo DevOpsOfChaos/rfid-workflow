@@ -28,6 +28,7 @@ from pm3_workflow_gui.workflows.hitag_s256 import (
 )
 
 ConnectedState = Literal["true", "false", "unknown"]
+SessionStatus = Literal["ok", "command_failed", "device_lost", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,9 @@ class DiscoveryTextInputs:
     lf_search: str | None = None
     hitag_rdbl: str | None = None
     reference_hitag_rdbl: str | None = None
+    session_errors: tuple[str, ...] = ()
+    failed_commands: tuple[str, ...] = ()
+    cmd_prompt_detected: bool = False
 
 
 @dataclass(frozen=True)
@@ -50,10 +54,18 @@ class DiscoveryParseBundle:
     lf_search: LfSearchResult | None = None
     hitag_read: HitagSRead | None = None
     reference_profile: HitagS256Profile | None = None
+    session_errors: tuple[str, ...] = ()
+    failed_commands: tuple[str, ...] = ()
+    cmd_prompt_detected: bool = False
 
 
 @dataclass(frozen=True)
 class UiDiscoverySummary:
+    session_status: SessionStatus
+    device_reconnect_required: bool
+    last_error: str | None
+    failed_commands: tuple[str, ...]
+    missing_sections: tuple[str, ...]
     connected: ConnectedState
     launch_mode: str
     com_port: str | None
@@ -71,6 +83,10 @@ class UiDiscoverySummary:
 
     def lines(self) -> list[str]:
         return [
+            f"Session status: {self.session_status}",
+            f"Reconnect required: {'yes' if self.device_reconnect_required else 'no'}",
+            f"Last error: {self.last_error or 'none'}",
+            f"Failed commands: {', '.join(self.failed_commands) if self.failed_commands else 'none'}",
             f"Launch mode: {self.launch_mode}",
             f"COM port: {self.com_port or 'unknown/auto'}",
             f"Target: {self.target or 'unknown'}",
@@ -110,6 +126,9 @@ class DiscoveryFacade:
             lf_search=parse_lf_search(inputs.lf_search) if inputs.lf_search else None,
             hitag_read=parse_hitag_s_rdbl(inputs.hitag_rdbl) if inputs.hitag_rdbl else None,
             reference_profile=reference_profile,
+            session_errors=inputs.session_errors,
+            failed_commands=inputs.failed_commands,
+            cmd_prompt_detected=inputs.cmd_prompt_detected,
         )
 
     def summarize_texts(self, inputs: DiscoveryTextInputs) -> UiDiscoverySummary:
@@ -119,6 +138,8 @@ class DiscoveryFacade:
         verification = _verify_if_possible(bundle.hitag_read, bundle.reference_profile)
         tag_type_guess = _tag_type_guess(bundle.lf_search, bundle.hitag_read)
         discovery_data_status = _discovery_data_status(bundle)
+        session_status = _session_status(bundle)
+        last_error = _last_error(bundle)
         risk_notes = tuple(_risk_notes(bundle, verification))
         connected = _connected(bundle.startup_banner)
         com_port = _first_present(
@@ -126,6 +147,11 @@ class DiscoveryFacade:
             self.launch_config.com_port,
         )
         return UiDiscoverySummary(
+            session_status=session_status,
+            device_reconnect_required=session_status == "device_lost",
+            last_error=last_error,
+            failed_commands=bundle.failed_commands,
+            missing_sections=_missing_sections_from_bundle(bundle),
             connected=connected,
             launch_mode=self.launch_config.mode,
             com_port=com_port,
@@ -144,6 +170,7 @@ class DiscoveryFacade:
             recommended_next_step=_recommended_next_step(
                 connected,
                 com_port,
+                session_status,
                 tag_type_guess,
                 verification,
                 discovery_data_status,
@@ -228,6 +255,8 @@ def _tag_frequency_guess(
     lf_search: LfSearchResult | None,
     hitag_read: HitagSRead | None,
 ) -> str:
+    if _has_hitag_read_error(hitag_read):
+        return "unknown"
     if hitag_read or (lf_search and lf_search.classification == "hitag_candidate"):
         return "lf"
     if hf_search and hf_search.status == "no_tag_found":
@@ -236,6 +265,8 @@ def _tag_frequency_guess(
 
 
 def _tag_type_guess(lf_search: LfSearchResult | None, hitag_read: HitagSRead | None) -> str:
+    if _has_hitag_read_error(hitag_read):
+        return "unknown"
     if hitag_read and hitag_read.is_hitag_s256_plain_no_auth:
         return "hitag_s256_plain"
     if lf_search and lf_search.classification == "hitag_candidate":
@@ -264,6 +295,8 @@ def _risk_notes(bundle: DiscoveryParseBundle, verification: VerificationResult |
     notes: list[str] = []
     if bundle.lf_search and bundle.lf_search.false_positive_notes:
         notes.append("LF search included possible false positives; Hitag hint was evaluated separately.")
+    if bundle.lf_search and bundle.lf_search.identification_status == "no_chipset":
+        notes.append("LF search did not identify a supported chipset.")
     if bundle.hitag_read and bundle.hitag_read.is_hitag_s256_plain_no_auth:
         notes.append("Plain/No Auth detected; do not enable crypto, password, or locking options.")
         notes.append("UID page 0 is read-only and must not be written.")
@@ -277,10 +310,15 @@ def _risk_notes(bundle: DiscoveryParseBundle, verification: VerificationResult |
 def _recommended_next_step(
     connected: ConnectedState,
     com_port: str | None,
+    session_status: SessionStatus,
     tag_type_guess: str,
     verification: VerificationResult | None,
     discovery_data_status: str,
 ) -> str:
+    if session_status == "device_lost":
+        return "Reconnect USB and restart PM3 session"
+    if session_status == "command_failed":
+        return "Check tag placement and run lf search again"
     if connected == "unknown" and com_port is None and discovery_data_status != "captured":
         return "Start Proxmark with auto-detect"
     if verification and verification.status == "verified_with_uid_mismatch":
@@ -293,7 +331,60 @@ def _recommended_next_step(
         return "Run lf hitag hts rdbl -p 0 -c 8"
     if discovery_data_status == "not captured":
         return "Run hf search and lf search with the tag present"
-    return "Run read-only discovery"
+    return "Place tag on antenna and run hf search / lf search"
+
+
+def _session_status(bundle: DiscoveryParseBundle) -> SessionStatus:
+    if any(error == "Communicating with Proxmark3 device failed" for error in bundle.session_errors):
+        return "device_lost"
+    if bundle.cmd_prompt_detected and any(
+        error in {"timeout while waiting for reply", "Failed to get current device debug level"}
+        for error in bundle.session_errors
+    ):
+        return "device_lost"
+    command_failure_errors = {
+        "UID Request failed!",
+        "timeout while waiting for reply",
+        "Failed to get current device debug level",
+    }
+    if any(error in command_failure_errors for error in bundle.session_errors):
+        return "command_failed"
+    if bundle.startup_banner or bundle.hw_version or bundle.hw_tune or bundle.hf_search or bundle.lf_search or bundle.hitag_read:
+        return "ok"
+    return "unknown"
+
+
+def _last_error(bundle: DiscoveryParseBundle) -> str | None:
+    if not bundle.session_errors:
+        return None
+    priority = (
+        "Communicating with Proxmark3 device failed",
+        "Failed to get current device debug level",
+        "timeout while waiting for reply",
+        "UID Request failed!",
+        "Couldn't identify a chipset",
+        "No known/supported 13.56 MHz tags found",
+    )
+    for candidate in priority:
+        if candidate in bundle.session_errors:
+            return candidate
+    return bundle.session_errors[-1]
+
+
+def _has_hitag_read_error(hitag_read: HitagSRead | None) -> bool:
+    return bool(hitag_read and hitag_read.errors)
+
+
+def _missing_sections_from_bundle(bundle: DiscoveryParseBundle) -> tuple[str, ...]:
+    fields = (
+        ("startup_banner", bundle.startup_banner),
+        ("hw_version", bundle.hw_version),
+        ("hw_tune", bundle.hw_tune),
+        ("hf_search", bundle.hf_search),
+        ("lf_search", bundle.lf_search),
+        ("hitag_rdbl", bundle.hitag_read),
+    )
+    return tuple(name for name, value in fields if value is None)
 
 
 def _display_tag_type(tag_type_guess: str) -> str:

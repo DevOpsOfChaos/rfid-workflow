@@ -141,6 +141,22 @@ python -m pm3_workflow_gui.cli latest-log-summary --log-dir "C:\Tools\proxmark3\
 
 This CLI is not hardware automation. It reads fixture files, scenario files, or existing PM3 logs and does not run Proxmark commands.
 
+## Lost Device Session Handling
+
+Captured logs can show that PM3 was connected at startup, then lost
+communication during discovery. The parser/facade now treats these as session
+states, not tag states:
+
+- `UID Request failed!` marks a failed read command.
+- `Couldn't identify a chipset` keeps LF classification unknown.
+- `timeout while waiting for reply` and `Failed to get current device debug level` are communication failures.
+- `Communicating with Proxmark3 device failed` marks `session_status=device_lost`.
+- A fallback to `C:\Tools\proxmark3\client>` after PM3 output is treated as evidence that the interactive PM3 client dropped back to Windows CMD.
+
+For `device_lost`, the next step is `Reconnect USB and restart PM3 session`.
+The GUI must not automatically continue discovery after this state. Auto-port
+startup remains the default; forced COM ports remain debug-only.
+
 ## Capture Providers
 
 The supported read-only sources are now:
