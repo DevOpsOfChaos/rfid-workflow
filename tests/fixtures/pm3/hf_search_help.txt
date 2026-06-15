@@ -1,0 +1,12 @@
+Will try to find a HF read out of the unknown tag.
+Continues to search for all different HF protocols.
+
+usage:
+    hf search [-hv]
+
+options:
+    -h, --help                     This help
+    -v, --verbose                  verbose output
+
+examples/notes:
+    hf search

@@ -22,7 +22,7 @@ Windows serial-port enumeration returned:
 
 - `COM1` - Kommunikationsanschluss
 
-Expected previous Proxmark ports `COM16` or `COM11` were not visible during this run.
+Expected previous Proxmark ports `COM16` or `COM11` were not visible during the original automated enumeration. The current user-provided working Proxmark port is `COM16`.
 
 ## Proxmark Client Discovery
 
@@ -43,6 +43,29 @@ cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 -p COM16"
 The previous direct `proxmark3.exe` help/version attempts returned exit code 1 with no captured output. For this setup, those results should be treated as evidence that direct executable invocation is not a reliable primary launch path, not as proof that the Proxmark installation itself is broken.
 
 No RFID write, clone, restore, simulation, or attack commands were executed.
+
+## Captured Read-only Output Summary
+
+The repository now contains fixtures from real local Proxmark output supplied for parser development. These are captured text outputs, not newly executed commands from this change.
+
+- Startup banner: UART port `COM16`, target `PM3 GENERIC`.
+- Client banner: `Iceman/master/v4.21611-321-gc7b95a94e 2026-05-31 00:48:46`.
+- `hw version` client: `Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:48:46 9cb15bd3b`.
+- Client compiler: `MinGW-w64 16.1.0`.
+- Platform: `Windows (64b) / x86_64`.
+- Firmware/model: `PM3 GENERIC`.
+- ARM compiler: `GCC 13.3.0`.
+- Flash usage: `73%`.
+- Lua script support: `present`.
+- Python script support: `absent`.
+
+`hw tune` captured antenna values:
+
+- LF 125.00 kHz: `20.21 V`, status `ok`.
+- LF 134.83 kHz: `13.34 V`, status `ok`.
+- LF optimal: `115.38 kHz` at `25.70 V`.
+- HF 13.56 MHz: `36.28 V`, status `ok`.
+- Parser rating: `OK`.
 
 ## Open Questions
 

@@ -22,6 +22,8 @@ Direct `proxmark3.exe COMx` startup remains modeled for installations where it w
 
 For the current installation, `client_setup_bash` is the recommended mode. The existing `ProxmarkSession` class is only a small non-interactive wrapper for direct `proxmark3.exe` execution. It should not be stretched to pretend it can robustly automate an interactive MSYS shell without a tested adapter.
 
+The first read-only discovery foundation is parser-first. The project stores captured command output under `tests/fixtures/pm3/` and parses it into structured values. This avoids claiming a stable interactive automation layer before the Batch/MSYS console behavior has been tested directly.
+
 ## Command and Risk Layer
 
 `pm3.commands` stores known command definitions. `pm3.risk` classifies commands into read-only, write, high-risk configuration, lock/crypto, and attack/brute-force categories.
@@ -29,6 +31,13 @@ For the current installation, `client_setup_bash` is the recommended mode. The e
 ## Parser Layer
 
 `pm3.parsers` extracts stable data from Proxmark output. Parsers must be tested against real captured output before being trusted in write-gated workflows.
+
+Current parser coverage:
+
+- Startup banner: COM port, target, client, bootrom, and OS versions.
+- `hw version`: client compiler/platform, firmware/model, ARM versions, flash usage, Lua support, and Python script support.
+- `hw tune`: LF/HF voltages, peak values, antenna status, and a simple `OK`/`WARN`/`FAIL` rating.
+- Command help: usage line, option lines, and registry-backed risk level.
 
 ## Workflow Layer
 
@@ -40,7 +49,7 @@ For the current installation, `client_setup_bash` is the recommended mode. The e
 
 ## UI Layer
 
-The future PySide6 UI should expose Normal Mode first. Expert Mode belongs behind a later explicit scope decision.
+The future PySide6 UI should expose Normal Mode first. Expert Mode belongs behind a later explicit scope decision. PySide6 was not installed or tested as part of the parser/discovery fixture work; with Python 3.14.5 on this machine, UI dependency work should be isolated in a virtual environment instead of checked globally.
 
 ## Audit and Logs
 

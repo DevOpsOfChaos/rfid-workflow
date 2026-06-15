@@ -59,3 +59,11 @@ def test_direct_exe_remains_supported_but_is_only_one_launch_mode():
     )
 
     assert config.planned_command() == [r"C:\Tools\proxmark3\client\proxmark3.exe", "COM16"]
+
+
+def test_discovery_docs_keep_client_setup_bash_as_system_path():
+    docs = Path("docs/PM3_COMMANDS_DISCOVERY.md").read_text(encoding="utf-8")
+
+    assert "client_setup_bash" in docs
+    assert 'cmd /k "cd /d C:\\Tools\\proxmark3\\client && call setup.bat && bash pm3 -p COM16"' in docs
+    assert "direct `proxmark3.exe` calls" in docs.lower()

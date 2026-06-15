@@ -1,0 +1,16 @@
+Read and search for valid known tag. For offline mode, you can `data load` first then search.
+
+usage:
+    lf search [-h1cu]
+
+options:
+    -h, --help                     This help
+    -1                             Use data from Graphbuffer to search (offline mode)
+    -c                             Continue searching after successful match
+    -u                             Search for unknown tags
+
+examples/notes:
+    lf search                      -> try reading data from tag & search for known tag
+    lf search -u                   -> try reading data from tag & search for known and unknown tag
+    lf search -1                   -> use data from the GraphBuffer & search for known tag
+    lf search -1uc                 -> use data from the GraphBuffer & search for known and unknown tag

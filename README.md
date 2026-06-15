@@ -42,8 +42,19 @@ cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 -p COM16"
 ```
 
 The code currently prepares launch configuration and diagnostic command
-rendering. It does not claim robust automation of the interactive Proxmark
-shell.
+rendering plus parsers for captured read-only Proxmark output. It does not
+claim robust automation of the interactive Proxmark shell.
+
+Captured discovery fixtures currently cover:
+
+- Startup banner on `COM16`, target `PM3 GENERIC`.
+- `hw version` for Iceman `v4.21611-321-gc7b95a94e-suspect`.
+- `hw tune` with LF 125 kHz `20.21 V`, LF 134.83 kHz `13.34 V`, and HF
+  13.56 MHz `36.28 V`; parsed antenna rating is `OK`.
+- Help output for `hf search`, `lf search`, and `lf hitag hts` read/write/dump
+  command families.
+
+No hardware write operation is implemented or executed by the test suite.
 
 ## Development
 
