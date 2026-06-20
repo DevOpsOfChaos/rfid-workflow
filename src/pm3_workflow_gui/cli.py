@@ -12,7 +12,7 @@ from pm3_workflow_gui.services.discovery_facade import (
     DiscoveryFacade,
     default_launch_config,
 )
-from pm3_workflow_gui.services.live_pm3_readonly import LivePm3ReadonlyService, SAFE_LIVE_COMMANDS
+from pm3_workflow_gui.services.live_pm3_readonly import LivePm3ReadonlyService, SAFE_HITAG_READ_COMMANDS, SAFE_LIVE_COMMANDS
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -61,7 +61,9 @@ def main(argv: list[str] | None = None) -> int:
         return _print_capture_summary("PM3 latest log summary", Pm3LogCaptureProvider(latest_log_file(args.log_dir)))
     if args.command == "live-scan":
         print("Live read-only commands: " + ", ".join(SAFE_LIVE_COMMANDS))
-        return _print_capture_summary("PM3 live scan summary", LivePm3ReadonlyService(), debug=args.debug)
+        print("Gated Hitag read-only commands: " + ", ".join(SAFE_HITAG_READ_COMMANDS))
+        service = LivePm3ReadonlyService()
+        return _print_capture_summary("PM3 live scan summary", service, debug=args.debug, include_hitag_debug=args.debug)
     parser.error(f"Unsupported command: {args.command}")
     return 2
 
@@ -76,7 +78,7 @@ def _fixture_summary(fixture_dir: Path | None, scenario: Path | None) -> int:
         provider = FixtureCaptureProvider(fixture_dir=fixture_dir)
     return _print_capture_summary("PM3 fixture summary", provider)
 
-def _print_capture_summary(title: str, provider, debug: bool = False) -> int:
+def _print_capture_summary(title: str, provider, debug: bool = False, include_hitag_debug: bool = False) -> int:
     facade = DiscoveryFacade(default_launch_config())
     capture = provider.capture()
     summary = capture.summarize(facade)
@@ -97,6 +99,8 @@ def _print_capture_summary(title: str, provider, debug: bool = False) -> int:
         print(f"{label}: " + ", ".join(capture.missing_fields))
     if debug:
         _print_live_debug(capture)
+    if include_hitag_debug and isinstance(provider, LivePm3ReadonlyService):
+        _print_hitag_live_debug(provider)
     return 0
 
 
@@ -125,6 +129,31 @@ def _print_live_debug(capture) -> None:
         print("  raw_excerpt:")
         for line in snippet.splitlines() or [""]:
             print(f"    {line}")
+
+
+def _print_hitag_live_debug(service: LivePm3ReadonlyService) -> None:
+    result = service.read_hitag_s256()
+    print("Hitag S256 live read:")
+    print(f"- status: {result.status}")
+    print(f"- port: {result.port or 'unknown'}")
+    print(f"- message: {result.message or 'none'}")
+    if result.lf_search:
+        print(f"- lf_uid: {result.lf_search.uid or 'unknown'}")
+        print(f"- lf_type: {result.lf_search.tag_type or 'unknown'}")
+        print(f"- lf_chipset: {result.lf_search.chipset or 'unknown'}")
+    if result.hitag_read:
+        print(f"- chip: {result.hitag_read.memory_type or 'unknown'}")
+        print(f"- uid: {result.hitag_read.uid or 'unknown'}")
+        print(f"- config: {result.hitag_read.config_page or 'unknown'}")
+        print(f"- data_rate: {result.hitag_read.ttf_data_rate or 'unknown'}")
+        print(f"- mode: {result.hitag_read.ttf_mode or 'unknown'}")
+        for page in sorted(result.hitag_read.pages):
+            if page in {4, 5, 6, 7}:
+                print(f"- block_{page}: {result.hitag_read.pages[page].data}")
+    if result.raw_results:
+        print("- gated_commands:")
+        for command_result in result.raw_results:
+            print(f"  - {command_result.command}: exit={command_result.returncode}, timeout={'yes' if command_result.timed_out else 'no'}")
 
 
 if __name__ == "__main__":

@@ -7,7 +7,16 @@ import subprocess
 import time
 from typing import Callable
 
-from pm3_workflow_gui.pm3.parsers import parse_hf_search, parse_hw_tune, parse_hw_version, parse_lf_search
+from pm3_workflow_gui.pm3.parsers import (
+    HitagSRead,
+    LfSearchResult,
+    parse_hf_search,
+    parse_hitag_reader,
+    parse_hitag_s_rdbl,
+    parse_hw_tune,
+    parse_hw_version,
+    parse_lf_search,
+)
 from pm3_workflow_gui.services.capture import (
     CapturedCommandOutput,
     CaptureResult,
@@ -19,9 +28,11 @@ from pm3_workflow_gui.services.discovery_facade import DiscoveryTextInputs, defa
 
 
 SAFE_LIVE_COMMANDS = ("hw version", "hw tune", "hf search", "lf search")
+SAFE_HITAG_READ_COMMANDS = ("lf hitag hts reader -@", "lf hitag hts rdbl -p 0 -c 8")
 DEVICE_NOT_FOUND_ERROR = "No Proxmark3 port found"
 DEVICE_RECONNECT_MESSAGE = "USB reconnect required. Reconnect the Proxmark and restart the session."
 COMMAND_EXECUTION_FAILED = "Proxmark port was found, but PM3 command execution failed."
+HITAG_POSITION_MESSAGE = "Hitag UID konnte nicht gelesen werden. Bitte Chipposition auf der LF-Antenne korrigieren und erneut scannen."
 
 
 @dataclass(frozen=True)
@@ -42,6 +53,41 @@ class Pm3ConnectionStatus:
     last_error: str | None = None
     stdout: str = ""
     stderr: str = ""
+
+
+@dataclass(frozen=True)
+class Pm3StartupCheck:
+    connected: bool
+    port: str | None = None
+    target: str | None = None
+    client_version: str | None = None
+    message: str = ""
+    raw_status: Pm3ConnectionStatus | None = None
+    hw_version: LiveCommandResult | None = None
+
+
+@dataclass(frozen=True)
+class Pm3HardwareCheck:
+    ok: bool
+    port: str | None = None
+    lf_antenna_status: str = "unknown"
+    hf_antenna_status: str = "unknown"
+    message: str = ""
+    hw_tune: LiveCommandResult | None = None
+
+
+@dataclass(frozen=True)
+class HitagS256LiveReadResult:
+    status: str
+    port: str | None = None
+    lf_search: LfSearchResult | None = None
+    hitag_read: HitagSRead | None = None
+    message: str = ""
+    raw_results: tuple[LiveCommandResult, ...] = ()
+
+    @property
+    def success(self) -> bool:
+        return self.status == "hitag_s256_plain"
 
 
 Runner = Callable[[list[str], int], LiveCommandResult]
@@ -78,6 +124,58 @@ class LivePm3ReadonlyService:
         error = "timeout while waiting for Proxmark3 port list" if result.timed_out else _first_error(result) or DEVICE_NOT_FOUND_ERROR
         return Pm3ConnectionStatus(False, (), error, result.stdout, result.stderr)
 
+    def startup_check(self) -> Pm3StartupCheck:
+        status = self.connection_status()
+        if not status.connected:
+            return Pm3StartupCheck(
+                connected=False,
+                message=status.last_error or DEVICE_NOT_FOUND_ERROR,
+                raw_status=status,
+            )
+        port = status.ports[0]
+        hw_version = self.run_safe_command("hw version", port=port)
+        output = _combined_output(hw_version)
+        if hw_version.timed_out or not _hw_version_is_meaningful(output):
+            return Pm3StartupCheck(
+                connected=False,
+                port=port,
+                message=COMMAND_EXECUTION_FAILED,
+                raw_status=status,
+                hw_version=hw_version,
+            )
+        parsed = parse_hw_version(output)
+        return Pm3StartupCheck(
+            connected=True,
+            port=port,
+            target=parsed.firmware or "PM3 Generic",
+            client_version=parsed.client_version,
+            message="Proxmark erkannt",
+            raw_status=status,
+            hw_version=hw_version,
+        )
+
+    def hardware_check(self, port: str | None = None) -> Pm3HardwareCheck:
+        selected_port = port
+        if selected_port is None:
+            status = self.connection_status()
+            if not status.connected:
+                return Pm3HardwareCheck(False, message=status.last_error or DEVICE_NOT_FOUND_ERROR)
+            selected_port = status.ports[0]
+        hw_tune = self.run_safe_command("hw tune", port=selected_port)
+        output = _combined_output(hw_tune)
+        if hw_tune.timed_out or not _hw_tune_is_meaningful(output):
+            return Pm3HardwareCheck(False, selected_port, message=COMMAND_EXECUTION_FAILED, hw_tune=hw_tune)
+        parsed = parse_hw_tune(output)
+        ok = parsed.lf_antenna_status == "ok" and parsed.hf_antenna_status == "ok"
+        return Pm3HardwareCheck(
+            ok=ok,
+            port=selected_port,
+            lf_antenna_status=parsed.lf_antenna_status or "unknown",
+            hf_antenna_status=parsed.hf_antenna_status or "unknown",
+            message="LF/HF geprüft" if ok else "Antenne prüfen: LF/HF nicht eindeutig ok",
+            hw_tune=hw_tune,
+        )
+
     def capture(self) -> CaptureResult:
         status = self.connection_status()
         if not status.connected:
@@ -111,7 +209,7 @@ class LivePm3ReadonlyService:
 
     def run_safe_command(self, command: str, port: str | None = None) -> LiveCommandResult:
         normalized = normalize_pm3_command(command)
-        if normalized not in SAFE_LIVE_COMMANDS:
+        if normalized not in SAFE_LIVE_COMMANDS and normalized not in SAFE_HITAG_READ_COMMANDS:
             raise ValueError(f"Refusing live PM3 command outside read-only allowlist: {command}")
         if port:
             result = self.runner(self._proxmark_args(port, normalized), self.timeout_seconds)
@@ -135,6 +233,83 @@ class LivePm3ReadonlyService:
             "pm3-wrapper -c",
         )
 
+    def read_hitag_s256(self, port: str | None = None) -> HitagS256LiveReadResult:
+        selected_port = port
+        if selected_port is None:
+            status = self.connection_status()
+            if not status.connected:
+                return HitagS256LiveReadResult("device_lost", message=status.last_error or DEVICE_NOT_FOUND_ERROR)
+            selected_port = status.ports[0]
+
+        lf_result = self.run_safe_command("lf search", port=selected_port)
+        lf_output = _combined_output(lf_result)
+        lf_search = parse_lf_search(lf_output) if lf_output else None
+        if _has_uid_request_failed(lf_result):
+            return HitagS256LiveReadResult(
+                "uid_request_failed",
+                selected_port,
+                lf_search,
+                message=HITAG_POSITION_MESSAGE,
+                raw_results=(lf_result,),
+            )
+        if lf_result.timed_out or lf_search is None or lf_search.classification != "hitag_candidate":
+            return HitagS256LiveReadResult(
+                "not_hitag_candidate",
+                selected_port,
+                lf_search,
+                message="Kein unterstützter Hitag-Kandidat erkannt.",
+                raw_results=(lf_result,),
+            )
+
+        reader_result = self.run_safe_command("lf hitag hts reader -@", port=selected_port)
+        if _has_uid_request_failed(reader_result):
+            return HitagS256LiveReadResult(
+                "uid_request_failed",
+                selected_port,
+                lf_search,
+                message=HITAG_POSITION_MESSAGE,
+                raw_results=(lf_result, reader_result),
+            )
+        reader = parse_hitag_reader(_combined_output(reader_result))
+        if not reader.uids:
+            return HitagS256LiveReadResult(
+                "reader_failed",
+                selected_port,
+                lf_search,
+                message="Hitag-Kandidat erkannt, aber UID-Leseprobe war nicht stabil.",
+                raw_results=(lf_result, reader_result),
+            )
+
+        rdbl_result = self.run_safe_command("lf hitag hts rdbl -p 0 -c 8", port=selected_port)
+        rdbl_output = _combined_output(rdbl_result)
+        hitag_read = parse_hitag_s_rdbl(rdbl_output) if rdbl_output else None
+        if _has_uid_request_failed(rdbl_result) or (hitag_read and hitag_read.errors):
+            return HitagS256LiveReadResult(
+                "uid_request_failed",
+                selected_port,
+                lf_search,
+                hitag_read,
+                HITAG_POSITION_MESSAGE,
+                (lf_result, reader_result, rdbl_result),
+            )
+        if rdbl_result.timed_out or hitag_read is None or not hitag_read.is_hitag_s256_plain_no_auth:
+            return HitagS256LiveReadResult(
+                "unsupported_hitag",
+                selected_port,
+                lf_search,
+                hitag_read,
+                "Dieser Chiptyp wird erkannt, aber ein vollständiger Vorlagen-Read ist in V1 noch nicht verfügbar.",
+                (lf_result, reader_result, rdbl_result),
+            )
+        return HitagS256LiveReadResult(
+            "hitag_s256_plain",
+            selected_port,
+            lf_search,
+            hitag_read,
+            "Hitag S256 gelesen",
+            (lf_result, reader_result, rdbl_result),
+        )
+
     def _pm3_args(self, *pm3_args: str) -> list[str]:
         quoted_args = " ".join(_cmd_quote(arg) for arg in pm3_args)
         command = f"cd /d {self.client_dir} && call setup.bat && bash pm3 {quoted_args}".strip()
@@ -144,6 +319,8 @@ class LivePm3ReadonlyService:
         return [str(self.proxmark_exe), port, "-c", command]
 
     def _run_subprocess(self, args: list[str], timeout_seconds: int) -> LiveCommandResult:
+        if "lf hitag hts reader -@" in " ".join(args).lower():
+            return self._run_reader_subprocess(args, timeout_seconds)
         started = time.monotonic()
         try:
             completed = subprocess.run(
@@ -167,6 +344,36 @@ class LivePm3ReadonlyService:
             )
         elapsed = time.monotonic() - started
         return LiveCommandResult(" ".join(args), completed.returncode, completed.stdout, completed.stderr, elapsed_seconds=elapsed)
+
+    def _run_reader_subprocess(self, args: list[str], timeout_seconds: int) -> LiveCommandResult:
+        started = time.monotonic()
+        process = subprocess.Popen(
+            args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=self.client_dir,
+            env=self._proxmark_env(),
+        )
+        # The reader command is read-only but interactive; sample briefly, then exit with Enter.
+        time.sleep(min(4.0, max(0.5, timeout_seconds - 1.0)))
+        try:
+            stdout, stderr = process.communicate("\n", timeout=max(1.0, timeout_seconds - (time.monotonic() - started)))
+            elapsed = time.monotonic() - started
+            return LiveCommandResult(" ".join(args), process.returncode or 0, stdout, stderr, elapsed_seconds=elapsed)
+        except subprocess.TimeoutExpired as exc:
+            process.kill()
+            stdout, stderr = process.communicate()
+            elapsed = time.monotonic() - started
+            return LiveCommandResult(
+                " ".join(args),
+                124,
+                (exc.stdout or "") + (stdout or ""),
+                (exc.stderr or "") + (stderr or ""),
+                timed_out=True,
+                elapsed_seconds=elapsed,
+            )
 
     def _proxmark_env(self) -> dict[str, str]:
         env = os.environ.copy()
@@ -221,7 +428,7 @@ def _startup_banner_from_results(results: list[LiveCommandResult]) -> str | None
 def _valid_command_outputs(results: list[LiveCommandResult]) -> dict[str, str]:
     valid: dict[str, str] = {}
     for result in results:
-        output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+        output = _combined_output(result)
         if not output or result.timed_out:
             continue
         if result.command == "hw version" and _hw_version_is_meaningful(output):
@@ -352,3 +559,11 @@ def _cmd_quote(value: str) -> str:
     if not value or any(char.isspace() for char in value):
         return '"' + value.replace('"', r'\"') + '"'
     return value
+
+
+def _combined_output(result: LiveCommandResult) -> str:
+    return "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+
+
+def _has_uid_request_failed(result: LiveCommandResult) -> bool:
+    return "uid request failed" in _combined_output(result).lower()
