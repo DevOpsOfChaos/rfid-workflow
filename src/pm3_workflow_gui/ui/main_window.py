@@ -30,6 +30,7 @@ try:
         QFrame,
         QGridLayout,
         QHBoxLayout,
+        QHeaderView,
         QLabel,
         QLineEdit,
         QListWidget,
@@ -68,7 +69,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("PM3 Workflow")
-        self.resize(1120, 760)
+        self.resize(960, 680)
+        self.setMinimumSize(860, 620)
         self.live_service = LivePm3ReadonlyService()
         self._worker_thread: QThread | None = None
         self._worker: _Worker | None = None
@@ -92,10 +94,21 @@ class MainWindow(QMainWindow):
 
     def _build_start_screen(self) -> None:
         screen = QWidget()
-        layout = QVBoxLayout(screen)
+        outer = QVBoxLayout(screen)
+        outer.setAlignment(Qt.AlignCenter)
+        panel = QFrame()
+        panel.setObjectName("centerPanel")
+        panel.setMaximumWidth(520)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(38, 34, 38, 34)
+        layout.setSpacing(12)
         layout.setAlignment(Qt.AlignCenter)
+        self.start_icon = QLabel("▣")
+        self.start_icon.setObjectName("heroIcon")
+        self.start_icon.setAlignment(Qt.AlignCenter)
         self.start_title = QLabel("PM3 Workflow")
         self.start_title.setObjectName("startTitle")
+        self.start_title.setAlignment(Qt.AlignCenter)
         self.start_message = QLabel("Proxmark wird verbunden ...")
         self.start_message.setObjectName("startMessage")
         self.start_message.setAlignment(Qt.AlignCenter)
@@ -106,29 +119,47 @@ class MainWindow(QMainWindow):
         self.start_detail = QLabel("pm3 --list")
         self.start_detail.setObjectName("muted")
         self.start_detail.setAlignment(Qt.AlignCenter)
+        self.start_state = QLabel("")
+        self.start_state.setObjectName("successText")
+        self.start_state.setAlignment(Qt.AlignCenter)
         self.retry_button = QPushButton("Erneut prüfen")
         self.retry_button.clicked.connect(self._start_startup_check)
         self.continue_button = QPushButton("Weiter")
+        self.continue_button.setObjectName("primaryButton")
         self.continue_button.clicked.connect(lambda: self.stack.setCurrentIndex(1))
         row = QHBoxLayout()
         row.setAlignment(Qt.AlignCenter)
         row.addWidget(self.retry_button)
         row.addWidget(self.continue_button)
+        layout.addWidget(self.start_icon)
         layout.addWidget(self.start_title)
         layout.addWidget(self.start_message)
-        layout.addSpacing(18)
+        layout.addSpacing(8)
         layout.addWidget(self.start_progress, alignment=Qt.AlignCenter)
         layout.addWidget(self.start_detail)
+        layout.addWidget(self.start_state)
         layout.addSpacing(20)
         layout.addLayout(row)
+        outer.addWidget(panel)
         self.stack.addWidget(screen)
 
     def _build_prep_screen(self) -> None:
         screen = QWidget()
-        layout = QVBoxLayout(screen)
+        outer = QVBoxLayout(screen)
+        outer.setAlignment(Qt.AlignCenter)
+        panel = QFrame()
+        panel.setObjectName("centerPanel")
+        panel.setMaximumWidth(560)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(38, 34, 38, 34)
+        layout.setSpacing(12)
         layout.setAlignment(Qt.AlignCenter)
+        self.prep_icon = QLabel("⌁")
+        self.prep_icon.setObjectName("heroIcon")
+        self.prep_icon.setAlignment(Qt.AlignCenter)
         self.prep_title = QLabel("Vorbereitung")
         self.prep_title.setObjectName("startTitle")
+        self.prep_title.setAlignment(Qt.AlignCenter)
         self.prep_message = QLabel()
         self.prep_message.setObjectName("startMessage")
         self.prep_message.setAlignment(Qt.AlignCenter)
@@ -136,6 +167,10 @@ class MainWindow(QMainWindow):
         self.prep_button = QPushButton("Kein Chip liegt auf · Hardware prüfen")
         self.prep_button.setObjectName("primaryButton")
         self.prep_button.clicked.connect(self._start_hardware_check)
+        self.prep_progress = QProgressBar()
+        self.prep_progress.setRange(0, 0)
+        self.prep_progress.setFixedWidth(360)
+        self.prep_progress.hide()
         self.prep_detail = QLabel("")
         self.prep_detail.setObjectName("muted")
         self.prep_detail.setAlignment(Qt.AlignCenter)
@@ -147,23 +182,31 @@ class MainWindow(QMainWindow):
         enter.setShortcut(QKeySequence(Qt.Key_Return))
         enter.triggered.connect(self.prep_button.click)
         self.addAction(enter)
+        layout.addWidget(self.prep_icon)
         layout.addWidget(self.prep_title)
         layout.addWidget(self.prep_message)
-        layout.addSpacing(22)
+        layout.addSpacing(10)
         layout.addWidget(self.prep_button, alignment=Qt.AlignCenter)
+        layout.addWidget(self.prep_progress, alignment=Qt.AlignCenter)
         layout.addWidget(self.prep_detail)
         layout.addWidget(self.prep_diagram)
+        outer.addWidget(panel)
         self.stack.addWidget(screen)
 
     def _build_main_screen(self) -> None:
         screen = QWidget()
         root = QVBoxLayout(screen)
         root.setContentsMargins(0, 0, 0, 0)
+        self.header_dot = QLabel("●")
+        self.header_dot.setObjectName("statusDot")
         self.header_label = QLabel("PM3 verbunden · unbekannt · LF/HF geprüft")
+        self.header_label.setObjectName("headerLabel")
         help_button = QPushButton("Hilfe")
+        help_button.setObjectName("smallButton")
         help_button.clicked.connect(self._show_help)
         header = QHBoxLayout()
-        header.setContentsMargins(18, 12, 18, 10)
+        header.setContentsMargins(18, 10, 18, 10)
+        header.addWidget(self.header_dot)
         header.addWidget(self.header_label)
         header.addStretch(1)
         header.addWidget(help_button)
@@ -171,8 +214,8 @@ class MainWindow(QMainWindow):
         body.setContentsMargins(0, 0, 0, 0)
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
-        self.nav.addItems(["Vorlage erstellen", "Schreiben", "Analyse"])
-        self.nav.setFixedWidth(180)
+        self.nav.addItems(["▣  Vorlage", "✎  Schreiben", "◇  Analyse"])
+        self.nav.setFixedWidth(164)
         self.nav.currentRowChanged.connect(self._change_page)
         self.pages = QStackedWidget()
         self.pages.addWidget(self._template_page())
@@ -225,6 +268,7 @@ class MainWindow(QMainWindow):
         action_row.addWidget(self.save_template_button)
         action_row.addStretch(1)
         self.template_message = QLabel("Bereit · Lege einen Chip auf den Proxmark")
+        self.template_message.setObjectName("messagePanel")
         self.template_message.setWordWrap(True)
         self.template_table = QTableWidget(0, 3)
         self.template_table.setHorizontalHeaderLabels(["Feld", "Wert", "Hinweis"])
@@ -232,12 +276,19 @@ class MainWindow(QMainWindow):
         self.template_diff_table = QTableWidget(0, 3)
         self.template_diff_table.setHorizontalHeaderLabels(["Feld", "Scan 1", "Scan 2"])
         self.template_diff_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        _polish_table(self.template_table)
+        _polish_table(self.template_diff_table)
+        scan_panel = QFrame()
+        scan_panel.setObjectName("sectionPanel")
+        scan_layout = QVBoxLayout(scan_panel)
+        scan_layout.setContentsMargins(18, 16, 18, 16)
+        scan_layout.addLayout(controls)
+        scan_layout.addLayout(action_row)
+        scan_layout.addWidget(self.template_message)
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addSpacing(12)
-        layout.addLayout(controls)
-        layout.addLayout(action_row)
-        layout.addWidget(self.template_message)
+        layout.addWidget(scan_panel)
         layout.addWidget(self.template_table, 1)
         layout.addWidget(self.template_diff_table)
         return page
@@ -248,6 +299,8 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(28, 22, 28, 18)
         title = QLabel("Schreiben")
         title.setObjectName("pageTitle")
+        subtitle = QLabel("Planungs- und Vergleichsansicht · echte Schreibausführung ist deaktiviert")
+        subtitle.setObjectName("muted")
         self.template_list = QListWidget()
         self.template_list.setMaximumHeight(92)
         self.template_list.currentRowChanged.connect(self._render_write_plan)
@@ -261,6 +314,7 @@ class MainWindow(QMainWindow):
         top.addWidget(self.scan_target_button)
         top.addStretch(1)
         self.write_message = QLabel("Keine reale Schreibausführung in dieser Version.")
+        self.write_message.setObjectName("messagePanel")
         self.write_message.setWordWrap(True)
         self.compare_table = QTableWidget(0, 5)
         self.compare_table.setHorizontalHeaderLabels(["Feld", "Aktueller Chip", "Vorlage", "Status", "Hinweis"])
@@ -269,11 +323,19 @@ class MainWindow(QMainWindow):
         self.disabled_actions = QVBoxLayout()
         disabled_box = QWidget()
         disabled_box.setLayout(self.disabled_actions)
+        _polish_table(self.compare_table)
+        top_panel = QFrame()
+        top_panel.setObjectName("sectionPanel")
+        top_panel_layout = QVBoxLayout(top_panel)
+        top_panel_layout.setContentsMargins(18, 16, 18, 16)
+        top_panel_layout.addWidget(QLabel("Template auswählen"))
+        top_panel_layout.addWidget(self.template_list)
+        top_panel_layout.addLayout(top)
+        top_panel_layout.addWidget(self.write_message)
         layout.addWidget(title)
-        layout.addWidget(QLabel("Template auswählen"))
-        layout.addWidget(self.template_list)
-        layout.addLayout(top)
-        layout.addWidget(self.write_message)
+        layout.addWidget(subtitle)
+        layout.addSpacing(10)
+        layout.addWidget(top_panel)
         layout.addWidget(self.compare_table, 1)
         layout.addWidget(QLabel("Schreibplan"))
         layout.addWidget(self.plan_list)
@@ -295,7 +357,7 @@ class MainWindow(QMainWindow):
             ("Beste Position finden", "Noch kein lokal bestätigter read-only Messweg.", False, None),
             ("Antenne prüfen", "Prüft LF/HF ohne Chip.", True, self._start_hardware_check),
             ("Frequenzdiagramm", "Noch kein bestätigter Diagramm-Befehl in dieser PM3-Installation.", False, None),
-            ("Technische Details", "Zeigt Rohdaten, Logs und Fehler.", True, self._toggle_technical_details),
+            ("Technische Details", "Zeigt Rohdaten, Logs und Fehler.", True, self._show_technical_details),
         ]
         for index, (heading, text, enabled, callback) in enumerate(cards):
             card = self._analysis_card(heading, text, enabled, callback)
@@ -341,10 +403,12 @@ class MainWindow(QMainWindow):
     def _start_hardware_check(self) -> None:
         self._set_status("Scan läuft · Hardware wird geprüft")
         self.prep_button.setEnabled(False)
+        self.prep_progress.show()
         self._run_worker(lambda: self.live_service.hardware_check(self._port), self._hardware_finished)
 
     def _hardware_finished(self, result, exc: Exception | None) -> None:
         self.prep_button.setEnabled(True)
+        self.prep_progress.hide()
         if exc:
             QMessageBox.warning(self, "Hardware prüfen", str(exc))
             self._set_status("Verbindung verloren")
@@ -360,7 +424,8 @@ class MainWindow(QMainWindow):
             self._set_status("Verbindung verloren")
 
     def _scan_template_first(self) -> None:
-        self._set_status("Scan läuft")
+        self._set_status("Scan läuft · Suche LF-Chip")
+        self.template_message.setText("Suche LF-Chip ...")
         self.scan_button.setEnabled(False)
         self._run_worker(lambda: self.live_service.read_hitag_s256(self._port), self._template_first_finished)
 
@@ -380,7 +445,8 @@ class MainWindow(QMainWindow):
     def _scan_template_second(self) -> None:
         if self._first_scan is None:
             return
-        self._set_status("Scan läuft")
+        self._set_status("Scan läuft · Lese Hitag-Details")
+        self.template_message.setText("Lese Hitag-Details ...")
         self.second_scan_button.setEnabled(False)
         self._run_worker(lambda: self.live_service.read_hitag_s256(self._port), self._template_second_finished)
 
@@ -398,7 +464,7 @@ class MainWindow(QMainWindow):
         self._render_validation(validation)
 
     def _scan_write_target(self) -> None:
-        self._set_status("Scan läuft")
+        self._set_status("Scan läuft · Zielchip wird gelesen")
         self.scan_target_button.setEnabled(False)
         self._run_worker(lambda: self.live_service.read_hitag_s256(self._port), self._write_target_finished)
 
@@ -418,9 +484,19 @@ class MainWindow(QMainWindow):
         self.nav.setCurrentRow(0)
         self._scan_template_first()
 
-    def _toggle_technical_details(self) -> None:
-        self.analysis_raw.setPlainText("\n\n".join(self._raw_log) if self._raw_log else "Noch keine technischen Details.")
-        self.analysis_raw.setVisible(not self.analysis_raw.isVisible())
+    def _show_technical_details(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Technische Details")
+        dialog.resize(760, 520)
+        layout = QVBoxLayout(dialog)
+        details = QPlainTextEdit()
+        details.setReadOnly(True)
+        details.setPlainText("\n\n".join(self._raw_log) if self._raw_log else "Noch keine technischen Details.")
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(details)
+        layout.addWidget(buttons)
+        dialog.exec()
 
     def _save_template_dialog(self) -> None:
         if self._validation is None or not self._validation.can_save:
@@ -459,6 +535,7 @@ class MainWindow(QMainWindow):
         self.start_detail.setText(model.progress_label)
         self.start_progress.setRange(0, 1 if model.can_continue or model.can_retry else 0)
         self.start_progress.setValue(1 if model.can_continue else 0)
+        self.start_state.setText("✓ Verbindung geprüft" if model.can_continue else "")
         self.retry_button.setVisible(model.can_retry)
         self.continue_button.setVisible(model.can_continue)
 
@@ -473,7 +550,12 @@ class MainWindow(QMainWindow):
         self.template_message.setText(model.message)
         self._fill_field_table(self.template_table, [(field.label, field.value, field.note) for field in model.fields])
         self.template_diff_table.setRowCount(0)
-        self._set_status("Chip erkannt" if model.is_complete_template_read else "Bereit")
+        if model.is_complete_template_read:
+            self._set_status("Chip erkannt")
+        elif model.status == "retry":
+            self._set_status("Signal schwach · bitte Chip etwas verschieben")
+        else:
+            self._set_status("Bereit")
 
     def _render_validation(self, validation: TemplateValidationViewModel) -> None:
         self.template_message.setText(("✓ " if validation.can_save else "") + validation.message)
@@ -585,20 +667,29 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(
             """
             QWidget { background: #f6f7f9; color: #1f2933; font-size: 14px; }
-            QLabel#startTitle { font-size: 34px; font-weight: 700; color: #102a43; }
-            QLabel#startMessage { font-size: 20px; color: #263849; }
-            QLabel#pageTitle { font-size: 26px; font-weight: 650; color: #102a43; }
+            QFrame#centerPanel, QFrame#sectionPanel { background: #ffffff; border: 1px solid #d8e1ea; border-radius: 8px; }
+            QLabel#heroIcon { font-size: 48px; color: #245d8f; }
+            QLabel#startTitle { font-size: 30px; font-weight: 700; color: #102a43; }
+            QLabel#startMessage { font-size: 18px; color: #263849; }
+            QLabel#pageTitle { font-size: 24px; font-weight: 650; color: #102a43; }
             QLabel#cardTitle { font-size: 17px; font-weight: 650; }
+            QLabel#headerLabel { color: #243b53; font-weight: 600; }
+            QLabel#statusDot { color: #1f9d55; font-size: 18px; }
+            QLabel#successText { color: #1f7a4d; font-weight: 650; }
             QLabel#muted { color: #5d6b78; }
-            QLabel#statusBar { padding: 8px 18px; background: #eef2f5; color: #263849; }
-            QListWidget#nav { background: #eef2f5; border: 0; padding: 12px; font-size: 16px; }
-            QListWidget#nav::item { min-height: 58px; padding: 8px; border-radius: 6px; }
-            QListWidget#nav::item:selected { background: #d8e4ef; color: #102a43; }
-            QPushButton { background: #e6edf3; border: 1px solid #bdc9d5; border-radius: 5px; padding: 8px 12px; }
+            QLabel#messagePanel { padding: 10px 12px; background: #f4f7fb; border: 1px solid #d8e1ea; border-radius: 6px; color: #263849; }
+            QLabel#statusBar { padding: 11px 18px; background: #e8eef4; color: #263849; font-weight: 600; }
+            QListWidget#nav { background: #e8eef4; border: 0; padding: 10px; font-size: 15px; }
+            QListWidget#nav::item { min-height: 50px; padding: 8px; border-radius: 7px; }
+            QListWidget#nav::item:selected { background: #ffffff; color: #102a43; border-left: 4px solid #245d8f; }
+            QPushButton { background: #eaf0f6; border: 1px solid #bdc9d5; border-radius: 6px; padding: 8px 12px; }
+            QPushButton#smallButton { padding: 6px 10px; }
             QPushButton#primaryButton { background: #245d8f; color: #ffffff; font-size: 16px; padding: 12px 18px; }
             QPushButton:disabled { color: #73808c; background: #edf0f3; }
             QLineEdit, QTextEdit, QPlainTextEdit, QTableWidget, QListWidget { background: #ffffff; border: 1px solid #c7d2df; border-radius: 5px; }
-            QFrame#toolCard { background: #ffffff; border: 1px solid #d6dee6; border-radius: 6px; padding: 8px; }
+            QFrame#toolCard { background: #ffffff; border: 1px solid #d6dee6; border-radius: 8px; padding: 8px; }
+            QProgressBar { border: 1px solid #c7d2df; border-radius: 5px; text-align: center; background: #edf2f7; min-height: 12px; }
+            QProgressBar::chunk { background: #2f80b7; border-radius: 5px; }
             """
         )
 
@@ -609,3 +700,11 @@ def _line() -> QFrame:
     frame.setFrameShadow(QFrame.Plain)
     frame.setStyleSheet("color: #d6dee6;")
     return frame
+
+
+def _polish_table(table: QTableWidget) -> None:
+    table.setAlternatingRowColors(True)
+    table.verticalHeader().setVisible(False)
+    table.horizontalHeader().setStretchLastSection(True)
+    table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+    table.setSelectionBehavior(QAbstractItemView.SelectRows)

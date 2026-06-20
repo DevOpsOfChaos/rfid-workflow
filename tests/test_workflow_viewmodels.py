@@ -8,6 +8,7 @@ from pm3_workflow_gui.profiles.storage import load_template_record
 from pm3_workflow_gui.services.live_pm3_readonly import LiveCommandResult, LivePm3ReadonlyService
 from pm3_workflow_gui.ui.viewmodel import (
     build_write_plan_view_model,
+    chip_read_view_model_from_live_result,
     chip_read_view_model_from_hitag_read,
     hardware_prep_from_check,
     save_confirmed_template,
@@ -106,6 +107,29 @@ def test_template_read_scan_1_scan_2_identical_and_save(tmp_path):
     assert record.write_config_last is True
     assert record.supported_write_plan == (4, 5, 6, 7, 1)
     assert set(record.relevant_pages) == {4, 5, 6, 7}
+
+
+def test_unstable_live_candidate_view_model_prompts_retry():
+    lf_outputs = [
+        fixture("lf_search_hitag_s256_blank.txt"),
+        "[-] Couldn't identify a chipset\n",
+        "[-] Couldn't identify a chipset\n",
+    ]
+
+    def runner(args, timeout):
+        text = " ".join(args)
+        if "--list" in text:
+            return LiveCommandResult(text, 0, "1: COM16\n", "")
+        if text.endswith(" -c lf search"):
+            return LiveCommandResult(text, 0, lf_outputs.pop(0), "")
+        return LiveCommandResult(text, 1, "", "unexpected")
+
+    result = LivePm3ReadonlyService(runner=runner).read_hitag_s256()
+    model = chip_read_view_model_from_live_result(result)
+
+    assert model.status == "retry"
+    assert "nicht stabil" in model.message
+    assert any(field.label == "UID" for field in model.fields)
 
 
 def test_template_read_second_scan_mismatch_blocks_save(tmp_path):

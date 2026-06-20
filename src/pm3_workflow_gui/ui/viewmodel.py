@@ -281,17 +281,16 @@ def chip_read_view_model_from_hitag_read(read: HitagSRead) -> ChipReadViewModel:
 def chip_read_view_model_from_live_result(result) -> ChipReadViewModel:
     if result.success and result.hitag_read:
         return chip_read_view_model_from_hitag_read(result.hitag_read)
-    if result.status == "not_hitag_candidate" and result.lf_search:
-        fields = tuple(
-            ChipFieldViewModel(label, value)
-            for label, value in (
-                ("Bereich", "LF"),
-                ("UID", result.lf_search.uid or "unknown"),
-                ("Chiptyp", result.lf_search.tag_type or "unknown"),
-                ("Chipset", result.lf_search.chipset or "unknown"),
-            )
-            if value != "unknown"
+    if result.status in {"hitag_candidate_unstable", "reader_failed", "detail_read_unstable", "uid_request_failed"}:
+        fields = _lf_search_fields(result.lf_search)
+        return ChipReadViewModel(
+            "retry",
+            "Chip erkannt",
+            result.message or "Signal schwach - bitte Chip etwas verschieben und erneut scannen.",
+            fields=fields,
         )
+    if result.status == "not_hitag_candidate" and result.lf_search:
+        fields = _lf_search_fields(result.lf_search)
         return ChipReadViewModel("unsupported", "Chip erkannt", result.message, fields=fields)
     return ChipReadViewModel("error", "Scan nicht abgeschlossen", result.message or "Scan fehlgeschlagen")
 
@@ -478,6 +477,21 @@ def _memory_ranges(pages: tuple[int, ...]) -> str:
     if ordered == tuple(range(ordered[0], ordered[-1] + 1)):
         return f"{ordered[0]}-{ordered[-1]}"
     return ", ".join(str(page) for page in ordered)
+
+
+def _lf_search_fields(lf_search) -> tuple[ChipFieldViewModel, ...]:
+    if lf_search is None:
+        return ()
+    return tuple(
+        ChipFieldViewModel(label, value)
+        for label, value in (
+            ("Bereich", "LF"),
+            ("UID", lf_search.uid or "unknown"),
+            ("Chiptyp", lf_search.tag_type or "unknown"),
+            ("Chipset", lf_search.chipset or "unknown"),
+        )
+        if value != "unknown"
+    )
 
 
 def _profile_differences(first: HitagS256Profile, second: HitagS256Profile) -> tuple[tuple[str, str, str], ...]:

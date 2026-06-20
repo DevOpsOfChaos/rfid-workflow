@@ -75,6 +75,45 @@ def test_live_capture_runs_only_safe_readonly_commands_and_feeds_facade():
     assert summary.tag_type_guess == "hitag_candidate"
 
 
+def test_live_capture_can_include_targeted_hitag_read_for_debug_summary():
+    fixture_outputs = {
+        "hw version": " [ Proxmark3 ]\n [ Client ]\n  Iceman/master/v4.20469\n [ Model ]\n  Firmware................ PM3 GENERIC\n",
+        "hw tune": "[+] LF antenna............. ok\n[+] HF antenna ( ok )\n",
+        "hf search": "[!] No known/supported 13.56 MHz tags found\n",
+        "lf search": "[+] UID.................... D2 DF E4 94\n[+] TYPE................... PCF 7945\n[+] Chipset................ Hitag 1/S / 82xx\n[?] Hint: Try `lf hitag hts` commands\n",
+        "lf hitag hts reader -@": "[+] UID.................... D2DFE494\n",
+        "lf hitag hts rdbl -p 0 -c 8": (
+            "[=] Access Hitag S in Plain mode\n"
+            "[+] Memory type............ Hitag S 256\n"
+            "[+] Authentication......... No\n"
+            "[+] TTF data rate.......... 2 kBit\n"
+            "[+] TTF mode............... Page 4, Page 5, Page 6, Page 7\n"
+            "[+]  0 | D2 DF E4 94 | . | r | UID\n"
+            "[+]  1 | C9 28 00 AA | . | rw | Config\n"
+            "[+]  4 | FF F8 06 97 | . | rw | Data\n"
+            "[+]  5 | 8C 66 C1 80 | . | rw | Data\n"
+            "[+]  6 | 03 6E F7 00 | . | rw | Data\n"
+            "[+]  7 | 00 00 00 00 | . | rw | Data\n"
+        ),
+    }
+
+    def runner(args, timeout):
+        text = " ".join(args)
+        if "--list" in text:
+            return LiveCommandResult(text, 0, "1: COM11\n", "")
+        for command, output in fixture_outputs.items():
+            if text.endswith(f" -c {command}"):
+                return LiveCommandResult(text, 0, output, "")
+        return LiveCommandResult(text, 1, "", "unexpected command")
+
+    capture = LivePm3ReadonlyService(runner=runner).capture(include_hitag_read=True)
+    summary = capture.summarize()
+
+    assert summary.tag_type_guess == "hitag_s256_plain"
+    assert capture.hitag_read_result.success is True
+    assert "lf hitag hts rdbl -p 0 -c 8" in capture.command_outputs
+
+
 def test_port_detected_alone_does_not_create_ok_session():
     def runner(args, timeout):
         text = " ".join(args)

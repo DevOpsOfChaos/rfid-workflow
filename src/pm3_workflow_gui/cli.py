@@ -80,7 +80,10 @@ def _fixture_summary(fixture_dir: Path | None, scenario: Path | None) -> int:
 
 def _print_capture_summary(title: str, provider, debug: bool = False, include_hitag_debug: bool = False) -> int:
     facade = DiscoveryFacade(default_launch_config())
-    capture = provider.capture()
+    if include_hitag_debug and isinstance(provider, LivePm3ReadonlyService):
+        capture = provider.capture(include_hitag_read=True)
+    else:
+        capture = provider.capture()
     summary = capture.summarize(facade)
     print(title)
     print(f"Source: {capture.source}")
@@ -100,7 +103,7 @@ def _print_capture_summary(title: str, provider, debug: bool = False, include_hi
     if debug:
         _print_live_debug(capture)
     if include_hitag_debug and isinstance(provider, LivePm3ReadonlyService):
-        _print_hitag_live_debug(provider)
+        _print_hitag_live_debug(provider, getattr(capture, "hitag_read_result", None))
     return 0
 
 
@@ -131,8 +134,8 @@ def _print_live_debug(capture) -> None:
             print(f"    {line}")
 
 
-def _print_hitag_live_debug(service: LivePm3ReadonlyService) -> None:
-    result = service.read_hitag_s256()
+def _print_hitag_live_debug(service: LivePm3ReadonlyService, result=None) -> None:
+    result = result or service.read_hitag_s256()
     print("Hitag S256 live read:")
     print(f"- status: {result.status}")
     print(f"- port: {result.port or 'unknown'}")

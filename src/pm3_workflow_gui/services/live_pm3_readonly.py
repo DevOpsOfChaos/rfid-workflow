@@ -33,6 +33,12 @@ DEVICE_NOT_FOUND_ERROR = "No Proxmark3 port found"
 DEVICE_RECONNECT_MESSAGE = "USB reconnect required. Reconnect the Proxmark and restart the session."
 COMMAND_EXECUTION_FAILED = "Proxmark port was found, but PM3 command execution failed."
 HITAG_POSITION_MESSAGE = "Hitag UID konnte nicht gelesen werden. Bitte Chipposition auf der LF-Antenne korrigieren und erneut scannen."
+HITAG_UNSTABLE_MESSAGE = (
+    "Chip erkannt, aber nicht stabil lesbar. Bitte Position leicht verändern und erneut scannen."
+)
+HITAG_DETAIL_UNSTABLE_MESSAGE = (
+    "Chip erkannt, aber Detaildaten konnten nicht stabil gelesen werden. Bitte Position leicht verändern und erneut scannen."
+)
 
 
 @dataclass(frozen=True)
@@ -97,6 +103,7 @@ Runner = Callable[[list[str], int], LiveCommandResult]
 class LiveCaptureResult(CaptureResult):
     debug_results: tuple[LiveCommandResult, ...] = ()
     connection_status: Pm3ConnectionStatus | None = None
+    hitag_read_result: HitagS256LiveReadResult | None = None
 
 
 class LivePm3ReadonlyService:
@@ -176,13 +183,15 @@ class LivePm3ReadonlyService:
             hw_tune=hw_tune,
         )
 
-    def capture(self) -> CaptureResult:
+    def capture(self, include_hitag_read: bool = False) -> CaptureResult:
         status = self.connection_status()
         if not status.connected:
             return _device_lost_capture(status)
 
         port = status.ports[0]
         results = [self.run_safe_command(command, port=port) for command in SAFE_LIVE_COMMANDS]
+        hitag_result = self.read_hitag_s256(port) if include_hitag_read else None
+        debug_results = results + list(hitag_result.raw_results if hitag_result else ())
         valid_outputs = _valid_command_outputs(results)
         errors = _result_errors(results)
         failed_commands = _failed_commands(results)
@@ -195,16 +204,19 @@ class LivePm3ReadonlyService:
             hw_tune=valid_outputs.get("hw tune"),
             hf_search=valid_outputs.get("hf search"),
             lf_search=valid_outputs.get("lf search"),
+            hitag_reader=_first_combined_output(hitag_result, "lf hitag hts reader -@"),
+            hitag_rdbl=_first_combined_output(hitag_result, "lf hitag hts rdbl -p 0 -c 8"),
             session_errors=tuple(_dedupe(errors)),
             failed_commands=tuple(_dedupe(failed_commands)),
         )
         return LiveCaptureResult(
             source="live-pm3:auto-port",
             inputs=inputs,
-            command_outputs=_command_outputs(results),
+            command_outputs=_command_outputs(debug_results),
             missing_fields=_missing_fields(inputs),
-            debug_results=tuple(results),
+            debug_results=tuple(debug_results),
             connection_status=status,
+            hitag_read_result=hitag_result,
         )
 
     def run_safe_command(self, command: str, port: str | None = None) -> LiveCommandResult:
@@ -241,73 +253,124 @@ class LivePm3ReadonlyService:
                 return HitagS256LiveReadResult("device_lost", message=status.last_error or DEVICE_NOT_FOUND_ERROR)
             selected_port = status.ports[0]
 
-        lf_result = self.run_safe_command("lf search", port=selected_port)
-        lf_output = _combined_output(lf_result)
-        lf_search = parse_lf_search(lf_output) if lf_output else None
-        if _has_uid_request_failed(lf_result):
-            return HitagS256LiveReadResult(
-                "uid_request_failed",
-                selected_port,
-                lf_search,
-                message=HITAG_POSITION_MESSAGE,
-                raw_results=(lf_result,),
-            )
-        if lf_result.timed_out or lf_search is None or lf_search.classification != "hitag_candidate":
+        lf_results: list[LiveCommandResult] = []
+        lf_searches: list[LfSearchResult] = []
+        stable_lf_search: LfSearchResult | None = None
+        last_candidate_search: LfSearchResult | None = None
+        candidate_counts: dict[str, int] = {}
+
+        for _ in range(3):
+            lf_result = self.run_safe_command("lf search", port=selected_port)
+            lf_results.append(lf_result)
+            lf_output = _combined_output(lf_result)
+            lf_search = parse_lf_search(lf_output) if lf_output else None
+            if lf_search:
+                lf_searches.append(lf_search)
+            if _has_uid_request_failed(lf_result):
+                return HitagS256LiveReadResult(
+                    "uid_request_failed",
+                    selected_port,
+                    lf_search,
+                    message=HITAG_POSITION_MESSAGE,
+                    raw_results=tuple(lf_results),
+                )
+            if lf_result.timed_out or lf_search is None or lf_search.classification != "hitag_candidate":
+                time.sleep(0.2)
+                continue
+            last_candidate_search = lf_search
+            candidate_key = lf_search.uid or f"{lf_search.tag_type}:{lf_search.chipset}"
+            candidate_counts[candidate_key] = candidate_counts.get(candidate_key, 0) + 1
+            if candidate_counts[candidate_key] >= 2:
+                stable_lf_search = lf_search
+                break
+            time.sleep(0.2)
+
+        lf_search = stable_lf_search or last_candidate_search or (lf_searches[-1] if lf_searches else None)
+        if stable_lf_search is None:
+            if any(_has_hitag_candidate_evidence(search) for search in lf_searches):
+                return HitagS256LiveReadResult(
+                    "hitag_candidate_unstable",
+                    selected_port,
+                    lf_search,
+                    message=HITAG_UNSTABLE_MESSAGE,
+                    raw_results=tuple(lf_results),
+                )
             return HitagS256LiveReadResult(
                 "not_hitag_candidate",
                 selected_port,
                 lf_search,
                 message="Kein unterstützter Hitag-Kandidat erkannt.",
-                raw_results=(lf_result,),
+                raw_results=tuple(lf_results),
             )
 
-        reader_result = self.run_safe_command("lf hitag hts reader -@", port=selected_port)
-        if _has_uid_request_failed(reader_result):
-            return HitagS256LiveReadResult(
-                "uid_request_failed",
-                selected_port,
-                lf_search,
-                message=HITAG_POSITION_MESSAGE,
-                raw_results=(lf_result, reader_result),
-            )
-        reader = parse_hitag_reader(_combined_output(reader_result))
-        if not reader.uids:
+        reader_results: list[LiveCommandResult] = []
+        reader_uid_failures = 0
+        for _ in range(2):
+            reader_result = self.run_safe_command("lf hitag hts reader -@", port=selected_port)
+            reader_results.append(reader_result)
+            if _has_uid_request_failed(reader_result):
+                reader_uid_failures += 1
+                time.sleep(0.2)
+                continue
+            reader = parse_hitag_reader(_combined_output(reader_result))
+            if reader.uids:
+                break
+            time.sleep(0.2)
+        else:
+            if reader_uid_failures == len(reader_results):
+                return HitagS256LiveReadResult(
+                    "uid_request_failed",
+                    selected_port,
+                    lf_search,
+                    message=HITAG_POSITION_MESSAGE,
+                    raw_results=tuple(lf_results + reader_results),
+                )
             return HitagS256LiveReadResult(
                 "reader_failed",
                 selected_port,
                 lf_search,
                 message="Hitag-Kandidat erkannt, aber UID-Leseprobe war nicht stabil.",
-                raw_results=(lf_result, reader_result),
+                raw_results=tuple(lf_results + reader_results),
             )
 
-        rdbl_result = self.run_safe_command("lf hitag hts rdbl -p 0 -c 8", port=selected_port)
-        rdbl_output = _combined_output(rdbl_result)
-        hitag_read = parse_hitag_s_rdbl(rdbl_output) if rdbl_output else None
-        if _has_uid_request_failed(rdbl_result) or (hitag_read and hitag_read.errors):
-            return HitagS256LiveReadResult(
-                "uid_request_failed",
-                selected_port,
-                lf_search,
-                hitag_read,
-                HITAG_POSITION_MESSAGE,
-                (lf_result, reader_result, rdbl_result),
-            )
-        if rdbl_result.timed_out or hitag_read is None or not hitag_read.is_hitag_s256_plain_no_auth:
+        rdbl_results: list[LiveCommandResult] = []
+        last_hitag_read: HitagSRead | None = None
+        for _ in range(2):
+            rdbl_result = self.run_safe_command("lf hitag hts rdbl -p 0 -c 8", port=selected_port)
+            rdbl_results.append(rdbl_result)
+            rdbl_output = _combined_output(rdbl_result)
+            hitag_read = parse_hitag_s_rdbl(rdbl_output) if rdbl_output else None
+            last_hitag_read = hitag_read or last_hitag_read
+            if _has_uid_request_failed(rdbl_result) or (hitag_read and hitag_read.errors):
+                time.sleep(0.2)
+                continue
+            if not rdbl_result.timed_out and hitag_read and hitag_read.is_hitag_s256_plain_no_auth:
+                return HitagS256LiveReadResult(
+                    "hitag_s256_plain",
+                    selected_port,
+                    lf_search,
+                    hitag_read,
+                    "Hitag S256 gelesen",
+                    tuple(lf_results + reader_results + rdbl_results),
+                )
+            time.sleep(0.2)
+
+        if last_hitag_read is not None and not last_hitag_read.is_hitag_s256_plain_no_auth:
             return HitagS256LiveReadResult(
                 "unsupported_hitag",
                 selected_port,
                 lf_search,
-                hitag_read,
+                last_hitag_read,
                 "Dieser Chiptyp wird erkannt, aber ein vollständiger Vorlagen-Read ist in V1 noch nicht verfügbar.",
-                (lf_result, reader_result, rdbl_result),
+                tuple(lf_results + reader_results + rdbl_results),
             )
         return HitagS256LiveReadResult(
-            "hitag_s256_plain",
+            "detail_read_unstable",
             selected_port,
             lf_search,
-            hitag_read,
-            "Hitag S256 gelesen",
-            (lf_result, reader_result, rdbl_result),
+            last_hitag_read,
+            HITAG_DETAIL_UNSTABLE_MESSAGE,
+            tuple(lf_results + reader_results + rdbl_results),
         )
 
     def _pm3_args(self, *pm3_args: str) -> list[str]:
@@ -359,7 +422,7 @@ class LivePm3ReadonlyService:
         # The reader command is read-only but interactive; sample briefly, then exit with Enter.
         time.sleep(min(4.0, max(0.5, timeout_seconds - 1.0)))
         try:
-            stdout, stderr = process.communicate("\n", timeout=max(1.0, timeout_seconds - (time.monotonic() - started)))
+            stdout, stderr = process.communicate("\n", timeout=1.5)
             elapsed = time.monotonic() - started
             return LiveCommandResult(" ".join(args), process.returncode or 0, stdout, stderr, elapsed_seconds=elapsed)
         except subprocess.TimeoutExpired as exc:
@@ -402,11 +465,11 @@ def _device_lost_capture(status: Pm3ConnectionStatus) -> CaptureResult:
 
 
 def _command_outputs(results: list[LiveCommandResult]) -> dict[str, tuple[CapturedCommandOutput, ...]]:
-    outputs: dict[str, tuple[CapturedCommandOutput, ...]] = {}
+    grouped: dict[str, list[CapturedCommandOutput]] = {}
     for result in results:
         normalized = normalize_pm3_command(result.command)
         text = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
-        outputs[normalized] = (
+        grouped.setdefault(normalized, []).append(
             CapturedCommandOutput(
                 command=result.command,
                 normalized_command=normalized,
@@ -414,7 +477,7 @@ def _command_outputs(results: list[LiveCommandResult]) -> dict[str, tuple[Captur
                 output=text,
             ),
         )
-    return outputs
+    return {command: tuple(values) for command, values in grouped.items()}
 
 
 def _startup_banner_from_results(results: list[LiveCommandResult]) -> str | None:
@@ -567,3 +630,25 @@ def _combined_output(result: LiveCommandResult) -> str:
 
 def _has_uid_request_failed(result: LiveCommandResult) -> bool:
     return "uid request failed" in _combined_output(result).lower()
+
+
+def _first_combined_output(result: HitagS256LiveReadResult | None, command: str) -> str | None:
+    if result is None:
+        return None
+    for command_result in result.raw_results:
+        if command_result.command == command:
+            output = _combined_output(command_result)
+            if output:
+                return output
+    return None
+
+
+def _has_hitag_candidate_evidence(search: LfSearchResult | None) -> bool:
+    if search is None:
+        return False
+    if search.classification == "hitag_candidate":
+        return True
+    return any(
+        value and "hitag" in value.lower()
+        for value in (search.tag_type, search.chipset, search.hint)
+    )
