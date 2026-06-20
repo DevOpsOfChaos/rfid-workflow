@@ -7,7 +7,7 @@ This project is not an RFID copier and does not bundle Proxmark3. It is intended
 ## MVP scope
 
 - Configure a local external Proxmark3/Iceman installation and launch mode.
-- Connect to a selected COM port.
+- Use the local PM3 wrapper auto-port detection; do not require COM16.
 - Run read-only hardware and transponder discovery.
 - Read, store, plan writes for, and verify Hitag S256 profiles.
 - Keep risk labels and audit-friendly logs around every workflow step.
@@ -56,9 +56,9 @@ Port diagnosis, without starting a tag workflow:
 cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 --list"
 ```
 
-The code currently prepares launch configuration and diagnostic command
-rendering plus parsers for captured read-only Proxmark output. It does not
-claim robust automation of the interactive Proxmark shell.
+The live path uses the local PM3 wrapper for auto-port detection. It does not
+force COM16. If no PM3 is found, the GUI shows a full-window USB reconnect
+message and keeps it visible until `bash pm3 --list` reports a device again.
 
 Captured discovery fixtures currently cover:
 
@@ -111,6 +111,16 @@ python -m pm3_workflow_gui.cli log-summary --log tests/fixtures/pm3/session_log_
 python -m pm3_workflow_gui.cli latest-log-summary --log-dir "C:\Tools\proxmark3\client\.proxmark3\logs"
 ```
 
+Safe live read-only scan:
+
+```powershell
+python -m pm3_workflow_gui.cli live-scan
+```
+
+The live scan runs only these allowlisted commands through the PM3 wrapper:
+`hw version`, `hw tune`, `hf search`, and `lf search`. It is not a Proxmark
+terminal and it does not accept arbitrary command text.
+
 ## Read-only GUI MVP
 
 The GUI is a read-only viewer over the same capture providers and facade:
@@ -129,9 +139,9 @@ python -m pip install PySide6
 python -m pm3_workflow_gui.ui.app
 ```
 
-The GUI can load demo scenarios, open an existing PM3 log, or load the latest
-PM3 log. It does not start PM3, does not automate live sessions, and has no
-write functions.
+The GUI can load demo scenarios, open an existing PM3 log, load the latest PM3
+log, or run `Scan NFC/RFID tag` through the safe live read-only service. It has
+no write functions and no free command input.
 
 Run these CLI commands from a separate PowerShell, not inside the interactive
 PM3 console. If host commands such as `cd ...`, `py ...`, `python ...`,
@@ -151,9 +161,8 @@ Proxmark3 device failed`, the facade reports a session state instead of
 pretending discovery succeeded. `device_lost` means the app must stop workflow
 progress and tell the operator to reconnect USB and restart the PM3 session.
 
-Interactive PM3 automation is intentionally not implemented yet. Windows,
-MSYS, bash, and Proxmark TTY behavior need separate testing before the app
-should drive a live session.
+The GUI does not automate an interactive PM3 terminal. Live scan uses short,
+separate, allowlisted read-only commands via `bash pm3 -c ...`.
 
 ## Development
 

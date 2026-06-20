@@ -35,7 +35,7 @@ Direct `proxmark3.exe COMx` startup remains modeled for installations where it w
 
 For the current installation, `client_setup_bash` is the recommended mode. The existing `ProxmarkSession` class is only a small non-interactive wrapper for direct `proxmark3.exe` execution. It should not be stretched to pretend it can robustly automate an interactive MSYS shell without a tested adapter.
 
-The first read-only discovery foundation is parser-first. The project stores captured command output under `tests/fixtures/pm3/` and parses it into structured values. This avoids claiming a stable interactive automation layer before the Batch/MSYS console behavior has been tested directly.
+The first read-only discovery foundation is parser-first. The project stores captured command output under `tests/fixtures/pm3/` and parses it into structured values. Live discovery is limited to short, separate, allowlisted PM3 commands through the wrapper and does not automate an interactive terminal.
 
 ## Service Facade Layer
 
@@ -47,7 +47,8 @@ The first read-only discovery foundation is parser-first. The project stores cap
 - verification status when a reference profile is supplied
 - short risk notes and the recommended next manual step
 
-The future PySide6 GUI should call this service layer. It should not directly run parser regexes or construct Proxmark command strings.
+The PySide6 GUI calls this service layer. It should not directly run parser
+regexes or construct Proxmark command strings.
 
 The facade also owns session-health state for captured logs:
 
@@ -67,7 +68,10 @@ read/discovery steps in that session.
 - `FixtureCaptureProvider`: loads either the default fixture directory or a scenario JSON.
 - `ManualTextCaptureProvider`: accepts already pasted text blocks from a caller.
 - `Pm3LogCaptureProvider`: reads an existing Proxmark session log and extracts command outputs.
-- `InteractivePm3Provider`: stub only. It documents the future boundary for live PM3 capture but does not start processes.
+- `LivePm3ReadonlyService`: runs the local `bash pm3` wrapper with auto-port
+  detection and a fixed read-only allowlist.
+- `InteractivePm3Provider`: stub only. It documents the future boundary for an
+  interactive PM3 session but does not start processes.
 
 Log splitting is defensive. Prompt lines like `[usb] pm3 --> hw version` start a new section, the prompt line is excluded from captured output, command text is normalized for lookup, and repeated commands are stored as multiple captures with latest-output helpers. Incomplete logs are allowed; missing sections are reported instead of crashing.
 
@@ -84,7 +88,10 @@ Capture also filters host-command pollution. Commands such as `cd ...`, `dir`,
 the PM3 console. These are classified as `host_shell`, excluded from PM3
 command outputs, and exposed as `ignored_host_commands`.
 
-Interactive Windows automation is deliberately deferred. The current setup enters MSYS/bash through `setup.bat` and `bash pm3`, so a robust adapter needs explicit TTY testing. Pretending `subprocess` is enough would produce fragile behavior.
+Interactive Windows automation is deliberately deferred. The current live path
+does not drive a TTY. It uses `bash pm3 --list` to detect the device and
+`bash pm3 -c "<command>"` for `hw version`, `hw tune`, `hf search`, and
+`lf search`. No caller can pass arbitrary PM3 text into that runner.
 
 ## Command and Risk Layer
 
@@ -141,10 +148,12 @@ The read-only GUI MVP lives under `pm3_workflow_gui.ui`.
 - `ui.main_window` is the PySide6 window. It renders the view model and calls capture providers; it does not parse PM3 text directly.
 - `ui.app` is the launch entry point and prints a clear message when PySide6 is missing.
 
-The GUI can load demo scenarios, open an existing log, or load the latest log
-from the configured PM3 log directory. It does not start PM3, automate a live
-session, or expose write functionality. PySide6 must be installed only in a
-separate `.venv-gui`, not as a required core dependency.
+The GUI can load demo scenarios, open an existing log, load the latest log
+from the configured PM3 log directory, or run the safe live scan. If live
+auto-port detection cannot find a PM3, `ui.main_window` shows a full-window
+USB reconnect overlay and polls until `bash pm3 --list` reports a port. PySide6
+must be installed only in a separate `.venv-gui`, not as a required core
+dependency.
 
 Expert/write flows remain out of scope. If future buttons are added for write
 workflows, they must remain disabled until a separate write-gated design exists.

@@ -1,8 +1,9 @@
 # Read-only GUI MVP
 
 The GUI MVP is a display layer over existing read-only capture providers and
-`DiscoveryFacade`. It does not start PM3, does not run hardware commands, and
-does not generate write commands.
+`DiscoveryFacade`. Its live scan path runs only fixed read-only PM3 commands
+through the local wrapper. It does not expose a PM3 terminal and does not
+generate write commands.
 
 ## Start
 
@@ -38,9 +39,11 @@ The left panel can load:
 - demo logs: help-only, lost-device, successful blank read
 - a user-selected PM3 `.txt` log
 - the latest log from `C:\Tools\proxmark3\client\.proxmark3\logs`
+- live scan via `Scan NFC/RFID tag`
 
 The demo entries are backed by repository fixtures so the UI can be exercised
-without hardware.
+without hardware. Live scan uses PM3 auto-port detection and does not require
+COM16.
 
 ## What It Shows
 
@@ -68,9 +71,13 @@ If the session state is `device_lost`, stop. Reconnect USB and restart PM3 with:
 cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3"
 ```
 
+During live scan, if the PM3 cannot be found, the GUI covers the complete
+program window with a USB reconnect message. It keeps polling `bash pm3 --list`
+and removes the message only after the wrapper reports a PM3 port again.
+
 ## Explicit Non-goals
 
-- no live PM3 automation
+- no interactive PM3 terminal
 - no PySide6 dependency in core tests
 - no write, restore, clone, simulation, brute-force, or autopwn UI
-- no hidden command execution behind buttons
+- no arbitrary command execution behind buttons

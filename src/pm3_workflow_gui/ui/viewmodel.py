@@ -15,6 +15,7 @@ from pm3_workflow_gui.services.discovery_facade import (
     UiDiscoverySummary,
     default_launch_config,
 )
+from pm3_workflow_gui.services.live_pm3_readonly import LivePm3ReadonlyService
 
 Severity = Literal["ok", "warning", "error", "unknown"]
 
@@ -90,6 +91,11 @@ def load_log_view_model(path: str | Path) -> DiscoveryViewModel:
 def load_latest_log_view_model(log_dir: str | Path = DEFAULT_LOG_DIR) -> DiscoveryViewModel:
     latest = latest_log_file(log_dir)
     return load_log_view_model(latest)
+
+
+def load_live_scan_view_model(service: LivePm3ReadonlyService | None = None) -> DiscoveryViewModel:
+    live_service = service or LivePm3ReadonlyService()
+    return view_model_from_capture(live_service.capture(), source_label="Live scan")
 
 
 def view_model_from_capture(capture: CaptureResult, source_label: str | None = None) -> DiscoveryViewModel:

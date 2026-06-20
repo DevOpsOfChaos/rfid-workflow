@@ -12,6 +12,7 @@ from pm3_workflow_gui.services.discovery_facade import (
     DiscoveryFacade,
     default_launch_config,
 )
+from pm3_workflow_gui.services.live_pm3_readonly import LivePm3ReadonlyService, SAFE_LIVE_COMMANDS
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -43,6 +44,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     latest_log_summary.add_argument("--log-dir", type=Path, required=True, help="Directory containing PM3 session logs.")
 
+    subparsers.add_parser(
+        "live-scan",
+        help="Run a safe read-only live PM3 scan using the pm3 wrapper auto-port detection.",
+    )
+
     args = parser.parse_args(argv)
     if args.command == "fixture-summary":
         return _fixture_summary(args.fixture_dir, args.scenario)
@@ -52,6 +58,9 @@ def main(argv: list[str] | None = None) -> int:
         return _print_capture_summary("PM3 log summary", Pm3LogCaptureProvider(args.log))
     if args.command == "latest-log-summary":
         return _print_capture_summary("PM3 latest log summary", Pm3LogCaptureProvider(latest_log_file(args.log_dir)))
+    if args.command == "live-scan":
+        print("Live read-only commands: " + ", ".join(SAFE_LIVE_COMMANDS))
+        return _print_capture_summary("PM3 live scan summary", LivePm3ReadonlyService())
     parser.error(f"Unsupported command: {args.command}")
     return 2
 

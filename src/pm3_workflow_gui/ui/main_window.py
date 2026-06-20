@@ -7,14 +7,19 @@ from pm3_workflow_gui.ui.viewmodel import (
     RECOMMENDED_START_COMMAND,
     DiscoveryViewModel,
     demo_sources,
+    load_live_scan_view_model,
     load_demo_view_model,
     load_latest_log_view_model,
     load_log_view_model,
 )
+from pm3_workflow_gui.services.live_pm3_readonly import (
+    DEVICE_RECONNECT_MESSAGE,
+    LivePm3ReadonlyService,
+)
 
 
 try:
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal
     from PySide6.QtWidgets import (
         QComboBox,
         QFileDialog,
@@ -28,6 +33,7 @@ try:
         QMessageBox,
         QPushButton,
         QPlainTextEdit,
+        QStackedLayout,
         QSplitter,
         QVBoxLayout,
         QWidget,
@@ -38,11 +44,29 @@ except ImportError as exc:  # pragma: no cover - exercised only when launching w
     ) from exc
 
 
+class _Worker(QObject):
+    finished = Signal(object, object)
+
+    def __init__(self, callback) -> None:
+        super().__init__()
+        self._callback = callback
+
+    def run(self) -> None:
+        try:
+            self.finished.emit(self._callback(), None)
+        except Exception as exc:  # pragma: no cover - UI worker error path
+            self.finished.emit(None, exc)
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("PM3 Workflow - Read-only Discovery")
         self.resize(1120, 760)
+        self.live_service = LivePm3ReadonlyService()
+        self._worker_thread: QThread | None = None
+        self._worker: _Worker | None = None
+        self._pending_live_scan = False
 
         self.source_combo = QComboBox()
         for source in demo_sources():
@@ -51,6 +75,7 @@ class MainWindow(QMainWindow):
         self.open_log_button = QPushButton("Open PM3 log...")
         self.latest_log_dir = QLineEdit(str(DEFAULT_LOG_DIR))
         self.load_latest_button = QPushButton("Load latest PM3 log")
+        self.live_scan_button = QPushButton("Scan NFC/RFID tag")
         self.current_source = QLabel("No source loaded")
         self.start_command = QPlainTextEdit(RECOMMENDED_START_COMMAND)
         self.start_command.setReadOnly(True)
@@ -86,6 +111,9 @@ class MainWindow(QMainWindow):
         self.recognized_commands = QListWidget()
         self.ignored_host_commands = QListWidget()
         self.missing_sections = QListWidget()
+        self.reconnect_overlay = self._reconnect_overlay()
+        self.reconnect_poll_timer = QTimer(self)
+        self.reconnect_poll_timer.setInterval(2000)
 
         self._build_layout()
         self._connect_signals()
@@ -97,7 +125,14 @@ class MainWindow(QMainWindow):
         root.addWidget(self._source_panel())
         root.addWidget(self._summary_panel())
         root.setSizes([330, 790])
-        self.setCentralWidget(root)
+
+        container = QWidget()
+        stack = QStackedLayout(container)
+        stack.setStackingMode(QStackedLayout.StackAll)
+        stack.addWidget(root)
+        stack.addWidget(self.reconnect_overlay)
+        self.reconnect_overlay.hide()
+        self.setCentralWidget(container)
 
     def _source_panel(self) -> QWidget:
         panel = QWidget()
@@ -111,6 +146,7 @@ class MainWindow(QMainWindow):
         source_layout.addWidget(QLabel("Latest log directory"))
         source_layout.addWidget(self.latest_log_dir)
         source_layout.addWidget(self.load_latest_button)
+        source_layout.addWidget(self.live_scan_button)
         source_layout.addWidget(QLabel("Current source"))
         source_layout.addWidget(self.current_source)
 
@@ -133,6 +169,32 @@ class MainWindow(QMainWindow):
         layout.addLayout(self._lists_row())
         layout.addWidget(self._debug_box())
         return panel
+
+    def _reconnect_overlay(self) -> QWidget:
+        overlay = QWidget()
+        overlay.setObjectName("reconnectOverlay")
+        layout = QVBoxLayout(overlay)
+        layout.setAlignment(Qt.AlignCenter)
+
+        title = QLabel("Proxmark not found")
+        title.setObjectName("overlayTitle")
+        title.setAlignment(Qt.AlignCenter)
+        message = QLabel(
+            "Disconnect the Proxmark USB cable briefly, plug it back in, and wait here.\n"
+            "This screen closes automatically when the PM3 wrapper finds a connection."
+        )
+        message.setObjectName("overlayMessage")
+        message.setAlignment(Qt.AlignCenter)
+        message.setWordWrap(True)
+        detail = QLabel(DEVICE_RECONNECT_MESSAGE)
+        detail.setObjectName("overlayDetail")
+        detail.setAlignment(Qt.AlignCenter)
+        detail.setWordWrap(True)
+
+        layout.addWidget(title)
+        layout.addWidget(message)
+        layout.addWidget(detail)
+        return overlay
 
     def _status_box(self) -> QGroupBox:
         box = QGroupBox("Status")
@@ -192,6 +254,8 @@ class MainWindow(QMainWindow):
         self.load_scenario_button.clicked.connect(self._load_selected_demo)
         self.open_log_button.clicked.connect(self._open_log)
         self.load_latest_button.clicked.connect(self._load_latest_log)
+        self.live_scan_button.clicked.connect(self._start_live_scan)
+        self.reconnect_poll_timer.timeout.connect(self._poll_reconnect)
 
     def _load_initial_demo(self) -> None:
         if self.source_combo.count():
@@ -207,6 +271,46 @@ class MainWindow(QMainWindow):
 
     def _load_latest_log(self) -> None:
         self._load(lambda: load_latest_log_view_model(Path(self.latest_log_dir.text())))
+
+    def _start_live_scan(self) -> None:
+        self._pending_live_scan = False
+        self._set_busy(True, "Scanning live PM3...")
+        self._run_worker(lambda: load_live_scan_view_model(self.live_service), self._live_scan_finished)
+
+    def _live_scan_finished(self, model: DiscoveryViewModel | None, exc: Exception | None) -> None:
+        self._set_busy(False)
+        if exc:
+            QMessageBox.warning(self, "Live scan failed", str(exc))
+            return
+        if model is None:
+            return
+        self._render(model)
+        if model.reconnect_required:
+            self._pending_live_scan = True
+            self._show_reconnect_overlay()
+
+    def _show_reconnect_overlay(self) -> None:
+        self.reconnect_overlay.show()
+        self.reconnect_overlay.raise_()
+        if not self.reconnect_poll_timer.isActive():
+            self.reconnect_poll_timer.start()
+
+    def _hide_reconnect_overlay(self) -> None:
+        self.reconnect_poll_timer.stop()
+        self.reconnect_overlay.hide()
+
+    def _poll_reconnect(self) -> None:
+        if self._worker_thread is not None:
+            return
+        self._run_worker(self.live_service.connection_status, self._poll_reconnect_finished)
+
+    def _poll_reconnect_finished(self, status, exc: Exception | None) -> None:
+        if exc or not status or not status.connected:
+            return
+        self._hide_reconnect_overlay()
+        if self._pending_live_scan:
+            self._pending_live_scan = False
+            self._start_live_scan()
 
     def _load(self, loader) -> None:
         try:
@@ -241,6 +345,32 @@ class MainWindow(QMainWindow):
         self._fill_list(self.ignored_host_commands, model.ignored_host_commands)
         self._fill_list(self.missing_sections, model.missing_sections)
 
+    def _set_busy(self, busy: bool, message: str | None = None) -> None:
+        for widget in (
+            self.load_scenario_button,
+            self.open_log_button,
+            self.load_latest_button,
+            self.live_scan_button,
+        ):
+            widget.setEnabled(not busy)
+        if message:
+            self.current_source.setText(message)
+
+    def _run_worker(self, callback, finished_callback) -> None:
+        thread = QThread(self)
+        worker = _Worker(callback)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(finished_callback)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(lambda: setattr(self, "_worker_thread", None))
+        thread.finished.connect(lambda: setattr(self, "_worker", None))
+        self._worker_thread = thread
+        self._worker = worker
+        thread.start()
+
     def _fill_list(self, widget: QListWidget, values: tuple[str, ...]) -> None:
         widget.clear()
         for value in values or ("none",):
@@ -256,5 +386,9 @@ class MainWindow(QMainWindow):
             QPushButton:disabled { color: #7b8794; background: #edf0f3; }
             QLineEdit, QPlainTextEdit, QListWidget { background: #ffffff; border: 1px solid #c7d2df; border-radius: 5px; padding: 5px; }
             QLabel#statusTitle { font-size: 22px; font-weight: 600; color: #102a43; }
+            QWidget#reconnectOverlay { background: #fff7ed; border: 4px solid #c2410c; }
+            QLabel#overlayTitle { font-size: 34px; font-weight: 700; color: #7c2d12; }
+            QLabel#overlayMessage { font-size: 19px; color: #431407; padding: 18px; }
+            QLabel#overlayDetail { font-size: 15px; color: #7c2d12; }
             """
         )

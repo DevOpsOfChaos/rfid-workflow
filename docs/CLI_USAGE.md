@@ -1,6 +1,8 @@
 # CLI Usage
 
-The CLI is currently read-only. It validates parser, profile, capture-provider, and discovery-service behavior without executing hardware commands.
+The CLI is read-only. Fixture and log commands validate parser, profile,
+capture-provider, and discovery-service behavior without hardware. `live-scan`
+executes only a fixed read-only command allowlist through the local PM3 wrapper.
 
 ## Fixture Summary
 
@@ -128,7 +130,33 @@ LF/Hitag candidate, and a successful `lf hitag hts rdbl -p 0 -c 8` promotes the
 summary to `Hitag S256 Plain`. In that targeted workflow, missing hardware or
 search sections are optional context, not proof that the read failed.
 
-The CLI does not start `bash pm3`, does not open a live interactive session, and does not execute write commands. Write execution remains deliberately blocked.
+## Live Scan
+
+```powershell
+python -m pm3_workflow_gui.cli live-scan
+```
+
+`live-scan` first runs auto-port detection through:
+
+```powershell
+cmd /c "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 --list"
+```
+
+It does not force COM16. If no port is listed, the result is `device_lost` and
+the operator action is to briefly unplug/replug USB and retry.
+
+When a PM3 is visible, only these commands are executed:
+
+```text
+hw version
+hw tune
+hf search
+lf search
+```
+
+The CLI does not open a live interactive session, does not expose arbitrary
+command execution, and does not execute write commands. Write execution remains
+deliberately blocked.
 
 ## Read-only GUI
 
