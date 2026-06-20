@@ -72,7 +72,7 @@ def test_live_capture_runs_only_safe_readonly_commands_and_feeds_facade():
     assert tuple(capture.command_outputs) == SAFE_LIVE_COMMANDS
     assert all("-p COM16" not in call for call in calls)
     assert summary.session_status == "ok"
-    assert summary.tag_type_guess == "hitag_candidate"
+    assert summary.tag_type_guess == "hitag_s_candidate"
 
 
 def test_live_capture_can_include_targeted_hitag_read_for_debug_summary():
@@ -109,7 +109,7 @@ def test_live_capture_can_include_targeted_hitag_read_for_debug_summary():
     capture = LivePm3ReadonlyService(runner=runner).capture(include_hitag_read=True)
     summary = capture.summarize()
 
-    assert summary.tag_type_guess == "hitag_s256_plain"
+    assert summary.tag_type_guess == "hitag_s256"
     assert capture.hitag_read_result.success is True
     assert "lf hitag hts rdbl -p 0 -c 8" in capture.command_outputs
 

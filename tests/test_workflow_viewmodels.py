@@ -13,6 +13,7 @@ from pm3_workflow_gui.ui.viewmodel import (
     hardware_prep_from_check,
     save_confirmed_template,
     startup_view_model_from_check,
+    unavailable_write_plan_view_model,
     validate_second_scan,
 )
 
@@ -107,6 +108,15 @@ def test_template_read_scan_1_scan_2_identical_and_save(tmp_path):
     assert record.write_config_last is True
     assert record.supported_write_plan == (4, 5, 6, 7, 1)
     assert set(record.relevant_pages) == {4, 5, 6, 7}
+    assert record.template_id.startswith("tmpl_")
+    assert record.technology_id == "hitag_s256"
+    assert record.technology_name == "Hitag S256"
+    assert record.frequency == "lf"
+    assert record.identity == {"uid": "FA F9 91 79"}
+    assert record.capabilities["can_create_template"] is True
+    assert record.capabilities["can_write"] is False
+    assert record.write_policy == {"write_uid": False, "config_last": True}
+    assert record.template_creation_allowed is True
 
 
 def test_unstable_live_candidate_view_model_prompts_retry():
@@ -130,6 +140,37 @@ def test_unstable_live_candidate_view_model_prompts_retry():
     assert model.status == "retry"
     assert "nicht stabil" in model.message
     assert any(field.label == "UID" for field in model.fields)
+
+
+def test_generic_hf_chip_view_model_blocks_template_and_write_plan():
+    calls = []
+
+    def runner(args, timeout):
+        text = " ".join(args)
+        calls.append(text)
+        if "--list" in text:
+            return LiveCommandResult(text, 0, "1: COM16\n", "")
+        if text.endswith(" -c hf search"):
+            return LiveCommandResult(text, 0, "[+] Valid ISO 14443-A tag found\n[+] UID: 04 A1 B2 C3\n[+] MIFARE Classic 1K\n", "")
+        if text.endswith(" -c lf search"):
+            return LiveCommandResult(text, 0, "[-] Couldn't identify a chipset\n", "")
+        return LiveCommandResult(text, 1, "", "unexpected")
+
+    result = LivePm3ReadonlyService(runner=runner).read_chip()
+    model = chip_read_view_model_from_live_result(result)
+    plan = unavailable_write_plan_view_model(model)
+
+    assert result.status == "basic_detection"
+    assert result.detected_technology.technology_id == "mifare_classic"
+    assert model.status == "basic_detection"
+    assert model.profile is None
+    assert model.is_complete_template_read is False
+    assert "Vorlagen-Erstellung" in model.message
+    assert plan.plan_steps == ()
+    assert plan.disabled_actions == ()
+    assert "nicht verfügbar" in plan.compatibility_message
+    assert not any("lf hitag hts reader -@" in call for call in calls)
+    assert not any("lf hitag hts rdbl" in call for call in calls)
 
 
 def test_template_read_second_scan_mismatch_blocks_save(tmp_path):

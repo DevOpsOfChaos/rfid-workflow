@@ -98,7 +98,7 @@ def _print_capture_summary(title: str, provider, debug: bool = False, include_hi
         for command in capture.ignored_host_commands:
             print(f"- {command}")
     if capture.missing_fields:
-        label = "Missing optional sections" if summary.tag_type_guess == "hitag_s256_plain" else "Missing sections"
+        label = "Missing optional sections" if summary.tag_type_guess == "hitag_s256" else "Missing sections"
         print(f"{label}: " + ", ".join(capture.missing_fields))
     if debug:
         _print_live_debug(capture)

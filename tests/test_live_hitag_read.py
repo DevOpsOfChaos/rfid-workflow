@@ -99,7 +99,8 @@ def test_live_hitag_read_does_not_run_hitag_commands_without_candidate():
 
     result = LivePm3ReadonlyService(runner=runner).read_hitag_s256()
 
-    assert result.status == "not_hitag_candidate"
+    assert result.status == "basic_detection"
+    assert result.detected_technology.technology_id == "unknown_lf"
     assert not any("lf hitag hts reader -@" in call for call in calls)
     assert not any("lf hitag hts rdbl" in call for call in calls)
 

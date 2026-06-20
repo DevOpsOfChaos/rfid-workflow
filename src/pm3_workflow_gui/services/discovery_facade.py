@@ -23,6 +23,8 @@ from pm3_workflow_gui.pm3.parsers import (
 )
 from pm3_workflow_gui.pm3.session import Pm3LaunchConfig
 from pm3_workflow_gui.profiles.schema import HitagS256Profile
+from pm3_workflow_gui.technologies.base import DetectedTechnology
+from pm3_workflow_gui.technologies.registry import adapter_for, detect_technology
 from pm3_workflow_gui.workflows.hitag_s256 import (
     VerificationResult,
     profile_from_hitag_s_read,
@@ -87,6 +89,8 @@ class UiDiscoverySummary:
     discovery_data_status: str
     tag_frequency_guess: str
     tag_type_guess: str
+    detected_technology: DetectedTechnology | None = None
+    support_level: str = "unknown"
     risk_notes: tuple[str, ...] = ()
     recommended_next_step: str = "Run read-only discovery"
     verification_status: str | None = None
@@ -108,6 +112,7 @@ class UiDiscoverySummary:
             f"Discovery data: {self.discovery_data_status}",
             f"Tag frequency: {self.tag_frequency_guess}",
             f"Tag type: {_display_tag_type(self.tag_type_guess)}",
+            f"Support level: {self.support_level}",
             f"Verification: {self.verification_status or 'not_run'}",
             f"Next step: {self.recommended_next_step}",
             *[f"Risk note: {note}" for note in self.risk_notes],
@@ -150,10 +155,11 @@ class DiscoveryFacade:
 
     def summarize_bundle(self, bundle: DiscoveryParseBundle) -> UiDiscoverySummary:
         verification = _verify_if_possible(bundle.hitag_read, bundle.reference_profile)
-        tag_type_guess = _tag_type_guess(bundle.lf_search, bundle.hitag_reader, bundle.hitag_read)
         discovery_data_status = _discovery_data_status(bundle)
         session_status = _session_status(bundle)
         last_error = _last_error(bundle)
+        detected = None if session_status == "device_lost" else detect_technology(bundle.hf_search, bundle.lf_search, bundle.hitag_reader, bundle.hitag_read)
+        tag_type_guess = _tag_type_guess(detected)
         risk_notes = tuple(_risk_notes(bundle, verification))
         connected = _connected(bundle.startup_banner)
         com_port = _first_present(
@@ -183,8 +189,10 @@ class DiscoveryFacade:
             lf_antenna_status=_antenna_status(bundle.hw_tune.lf_antenna_status if bundle.hw_tune else None),
             hf_antenna_status=_antenna_status(bundle.hw_tune.hf_antenna_status if bundle.hw_tune else None),
             discovery_data_status=discovery_data_status,
-            tag_frequency_guess=_tag_frequency_guess(bundle.hf_search, bundle.lf_search, bundle.hitag_reader, bundle.hitag_read),
+            tag_frequency_guess=_tag_frequency_guess(detected, bundle.hf_search),
             tag_type_guess=tag_type_guess,
+            detected_technology=detected,
+            support_level=_support_level(detected),
             risk_notes=risk_notes,
             recommended_next_step=_recommended_next_step(
                 connected,
@@ -272,34 +280,18 @@ def _antenna_status(status: str | None) -> str:
 
 
 def _tag_frequency_guess(
+    detected: DetectedTechnology | None,
     hf_search: HfSearchResult | None,
-    lf_search: LfSearchResult | None,
-    hitag_reader: HitagReaderResult | None,
-    hitag_read: HitagSRead | None,
 ) -> str:
-    if _has_hitag_read_error(hitag_read):
-        return "unknown"
-    if hitag_read or (hitag_reader and hitag_reader.uids) or (lf_search and lf_search.classification == "hitag_candidate"):
-        return "lf"
+    if detected:
+        return detected.frequency
     if hf_search and hf_search.status == "no_tag_found":
         return "none"
     return "unknown"
 
 
-def _tag_type_guess(
-    lf_search: LfSearchResult | None,
-    hitag_reader: HitagReaderResult | None,
-    hitag_read: HitagSRead | None,
-) -> str:
-    if _has_hitag_read_error(hitag_read):
-        return "unknown"
-    if hitag_read and hitag_read.is_hitag_s256_plain_no_auth:
-        return "hitag_s256_plain"
-    if hitag_reader and hitag_reader.uids:
-        return "hitag_candidate"
-    if lf_search and lf_search.classification == "hitag_candidate":
-        return "hitag_candidate"
-    return "unknown"
+def _tag_type_guess(detected: DetectedTechnology | None) -> str:
+    return detected.technology_id if detected else "unknown"
 
 
 def _discovery_data_status(bundle: DiscoveryParseBundle) -> str:
@@ -361,10 +353,12 @@ def _recommended_next_step(
         return "Record verification result and keep UID mismatch noted"
     if verification and verification.status == "failed":
         return "Config/TTF differ from profile, write plan required"
-    if tag_type_guess == "hitag_s256_plain":
-        return "Read/save profile or verify blank compatibility"
-    if tag_type_guess == "hitag_candidate":
+    if tag_type_guess == "hitag_s256":
+        return "Vorlage erstellen oder Zielchip read-only vergleichen"
+    if tag_type_guess == "hitag_s_candidate":
         return "Run lf hitag hts rdbl -p 0 -c 8"
+    if tag_type_guess not in {"unknown", "none"}:
+        return "Analyse öffnen; Detailread und Vorlagen-Workflow sind für diesen Chiptyp noch nicht verfügbar"
     if discovery_data_status == "not captured":
         return "Run hf search and lf search with the tag present"
     return "Place tag on antenna and run hf search / lf search"
@@ -427,9 +421,26 @@ def _missing_sections_from_bundle(bundle: DiscoveryParseBundle) -> tuple[str, ..
 
 def _display_tag_type(tag_type_guess: str) -> str:
     labels = {
+        "hitag_s256": "Hitag S256",
         "hitag_s256_plain": "Hitag S256 Plain",
+        "hitag_s_candidate": "Hitag S candidate",
         "hitag_candidate": "Hitag candidate",
+        "mifare_classic": "MIFARE Classic",
+        "iso14443a": "ISO14443A",
+        "em410x": "EM410x",
+        "t5577": "T5577",
+        "unknown_lf": "Unknown LF chip",
+        "unknown_hf": "Unknown HF chip",
         "unknown": "unknown",
         "none": "none",
     }
     return labels.get(tag_type_guess, tag_type_guess)
+
+
+def _support_level(detected: DetectedTechnology | None) -> str:
+    if not detected:
+        return "none"
+    capabilities = adapter_for(detected).capabilities
+    if capabilities.can_create_template and capabilities.can_compare_template:
+        return "full_readonly"
+    return "basic_detection"

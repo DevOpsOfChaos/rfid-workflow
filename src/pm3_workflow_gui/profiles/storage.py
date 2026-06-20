@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+from uuid import uuid4
 
 from pm3_workflow_gui.profiles.schema import HitagS256Profile
 
@@ -45,21 +46,54 @@ class TemplateRecord:
     supported_write_plan: tuple[int, ...]
     profile: HitagS256Profile
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    template_id: str = field(default_factory=lambda: f"tmpl_{uuid4().hex}")
+    technology_id: str = "hitag_s256"
+    technology_name: str = "Hitag S256"
+    frequency: str = "lf"
+    adapter_version: str = "1.0"
+    identity: dict[str, str] = field(default_factory=dict)
+    fields: dict[str, str] = field(default_factory=dict)
+    capabilities: dict[str, bool] = field(default_factory=dict)
+    validation_requirements: tuple[str, ...] = ("second_scan_must_match",)
+    write_policy: dict[str, bool | str] = field(default_factory=dict)
+    template_creation_allowed: bool = True
 
     @classmethod
     def from_hitag_s256_profile(cls, title: str, description: str, profile: HitagS256Profile) -> "TemplateRecord":
+        relevant_pages = {page: profile.pages[page] for page in sorted(profile.pages) if page in {4, 5, 6, 7}}
         return cls(
             title=title.strip(),
             description=description.strip(),
             chip_type="Hitag S256",
             technology="LF",
             uid_reference=profile.uid,
-            relevant_pages={page: profile.pages[page] for page in sorted(profile.pages) if page in {4, 5, 6, 7}},
+            relevant_pages=relevant_pages,
             configuration=profile.config_page(),
             write_uid=False,
             write_config_last=True,
             supported_write_plan=profile.write_order,
             profile=profile,
+            technology_id="hitag_s256",
+            technology_name="Hitag S256",
+            frequency="lf",
+            adapter_version="1.0",
+            identity={"uid": profile.uid},
+            fields={
+                **{f"block_{page}": value for page, value in relevant_pages.items()},
+                **({"config": profile.config_page()} if profile.config_page() else {}),
+            },
+            capabilities={
+                "can_detect": True,
+                "can_read_identity": True,
+                "can_read_details": True,
+                "can_create_template": True,
+                "can_compare_template": True,
+                "can_plan_write": True,
+                "can_write": False,
+            },
+            validation_requirements=("second_scan_must_match",),
+            write_policy={"write_uid": False, "config_last": True},
+            template_creation_allowed=True,
         )
 
 
@@ -107,6 +141,20 @@ def load_template_record(path: str | Path) -> TemplateRecord:
         supported_write_plan=tuple(payload.get("supported_write_plan", profile.write_order)),
         profile=profile,
         created_at=payload.get("created_at", profile.created_at),
+        template_id=payload.get("template_id", f"legacy_{_slug(payload.get('title', 'template'))}"),
+        technology_id=payload.get("technology_id", "hitag_s256"),
+        technology_name=payload.get("technology_name", payload.get("chip_type", "Hitag S256")),
+        frequency=payload.get("frequency", payload.get("technology", "LF")).lower(),
+        adapter_version=payload.get("adapter_version", "1.0"),
+        identity=payload.get("identity", {"uid": payload.get("uid_reference", profile.uid)}),
+        fields=payload.get("fields", _legacy_fields_payload(payload, profile)),
+        capabilities=payload.get("capabilities", _hitag_capabilities_payload()),
+        validation_requirements=tuple(payload.get("validation_requirements", ("second_scan_must_match",))),
+        write_policy=payload.get(
+            "write_policy",
+            {"write_uid": payload.get("write_uid", False), "config_last": payload.get("write_config_last", True)},
+        ),
+        template_creation_allowed=payload.get("template_creation_allowed", True),
     )
 
 
@@ -123,9 +171,20 @@ def load_template_records(directory: str | Path | None = None) -> tuple[tuple[Pa
 def _template_record_to_payload(record: TemplateRecord) -> dict:
     profile_payload = asdict(record.profile)
     return {
+        "template_id": record.template_id,
         "title": record.title,
         "description": record.description,
         "created_at": record.created_at,
+        "technology_id": record.technology_id,
+        "technology_name": record.technology_name,
+        "frequency": record.frequency,
+        "adapter_version": record.adapter_version,
+        "identity": record.identity or {"uid": record.uid_reference},
+        "fields": record.fields,
+        "capabilities": record.capabilities or _hitag_capabilities_payload(),
+        "validation_requirements": list(record.validation_requirements),
+        "write_policy": record.write_policy or {"write_uid": record.write_uid, "config_last": record.write_config_last},
+        "template_creation_allowed": record.template_creation_allowed,
         "chip_type": record.chip_type,
         "technology": record.technology,
         "uid_reference": record.uid_reference,
@@ -148,3 +207,28 @@ def _unique_template_path(directory: Path, title: str, created_at: str) -> Path:
         path = directory / f"{timestamp}-{slug}-{counter}.json"
         counter += 1
     return path
+
+
+def _hitag_capabilities_payload() -> dict[str, bool]:
+    return {
+        "can_detect": True,
+        "can_read_identity": True,
+        "can_read_details": True,
+        "can_create_template": True,
+        "can_compare_template": True,
+        "can_plan_write": True,
+        "can_write": False,
+    }
+
+
+def _legacy_fields_payload(payload: dict, profile: HitagS256Profile) -> dict[str, str]:
+    relevant_pages = payload.get("relevant_pages", {})
+    fields = {f"block_{page}": data for page, data in relevant_pages.items()}
+    config = payload.get("configuration") or profile.config_page()
+    if config:
+        fields["config"] = config
+    return fields
+
+
+def _slug(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip().lower()).strip("-") or "template"

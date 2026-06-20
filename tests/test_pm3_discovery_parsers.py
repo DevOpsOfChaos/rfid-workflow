@@ -114,3 +114,30 @@ def test_failed_discovery_outputs_are_not_hitag_candidates():
     assert "UID Request failed!" in hitag_read.errors
     assert hitag_read.is_hitag_s256_plain_no_auth is False
     assert hf_search.status == "no_tag_found"
+
+
+def test_parse_hf_search_detects_mifare_classic_without_detail_read_claim():
+    hf_search = parse_hf_search(
+        "[+] Valid ISO 14443-A tag found\n"
+        "[+] UID: 04 A1 B2 C3 D4 55 80\n"
+        "[+] MIFARE Classic 1K\n"
+    )
+
+    assert hf_search.status == "tag_found"
+    assert hf_search.technology_family == "mifare_classic"
+    assert hf_search.tag_type == "MIFARE Classic"
+    assert hf_search.uid == "04A1B2C3D45580"
+    assert hf_search.confidence == "high"
+
+
+def test_parse_lf_search_detects_em410x_as_generic_lf_technology():
+    lf_search = parse_lf_search(
+        "[+] EM 410x ID 0011223344\n"
+        "[+] TAG ID................. 0011223344\n"
+        "[+] Chipset................ EM410x\n"
+    )
+
+    assert lf_search.classification == "em410x"
+    assert lf_search.uid == "0011223344"
+    assert lf_search.chipset == "EM410x"
+    assert lf_search.confidence == "high"

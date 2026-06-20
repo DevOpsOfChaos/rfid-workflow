@@ -19,6 +19,8 @@ from pm3_workflow_gui.services.discovery_facade import (
     default_launch_config,
 )
 from pm3_workflow_gui.services.live_pm3_readonly import LivePm3ReadonlyService
+from pm3_workflow_gui.technologies.base import DetectedTechnology, TechnologyCapabilities
+from pm3_workflow_gui.technologies.registry import adapter_for, detect_technology
 from pm3_workflow_gui.workflows.hitag_s256 import profile_from_hitag_s_read
 
 Severity = Literal["ok", "warning", "error", "unknown"]
@@ -103,10 +105,12 @@ class ChipReadViewModel:
     fields: tuple[ChipFieldViewModel, ...] = ()
     profile: HitagS256Profile | None = None
     raw_read: HitagSRead | None = None
+    technology: DetectedTechnology | None = None
+    capabilities: TechnologyCapabilities | None = None
 
     @property
     def is_complete_template_read(self) -> bool:
-        return self.profile is not None
+        return self.profile is not None and bool(self.capabilities and self.capabilities.can_create_template)
 
 
 @dataclass(frozen=True)
@@ -251,36 +255,25 @@ def hardware_prep_from_check(check) -> HardwarePrepViewModel:
 
 
 def chip_read_view_model_from_hitag_read(read: HitagSRead) -> ChipReadViewModel:
-    if not read.is_hitag_s256_plain_no_auth:
+    detection = detect_technology(hitag_read=read)
+    if detection is None:
         return ChipReadViewModel(
             status="unsupported",
             title="Chip erkannt",
             message="Dieser Chiptyp wird erkannt, aber ein vollständiger Vorlagen-Read ist in V1 noch nicht verfügbar.",
             raw_read=read,
         )
-    profile = profile_from_hitag_s_read(read)
-    fields = (
-        ChipFieldViewModel("Chiptyp", "Hitag S256"),
-        ChipFieldViewModel("Bereich", "LF"),
-        ChipFieldViewModel("UID", _compact_display(read.uid), "Nur Referenz · nicht schreibbar"),
-        ChipFieldViewModel("Konfiguration", _compact_display(read.config_page)),
-        ChipFieldViewModel("Datenrate", read.ttf_data_rate or "unknown"),
-        ChipFieldViewModel("Modus", _mode_label(read.ttf_mode)),
-        ChipFieldViewModel("Speicherbereiche", _memory_ranges(profile.writable_data_pages)),
-    )
-    return ChipReadViewModel(
-        status="complete",
-        title="Hitag S256 erkannt",
-        message="Bitte denselben Chip erneut scannen, um die Werte zu bestätigen.",
-        fields=fields,
-        profile=profile,
-        raw_read=read,
-    )
+    return _chip_read_view_model_from_adapter_result(detection, read)
 
 
 def chip_read_view_model_from_live_result(result) -> ChipReadViewModel:
-    if result.success and result.hitag_read:
-        return chip_read_view_model_from_hitag_read(result.hitag_read)
+    detection = getattr(result, "detected_technology", None) or detect_technology(
+        hf_search=getattr(result, "hf_search", None),
+        lf_search=getattr(result, "lf_search", None),
+        hitag_read=getattr(result, "hitag_read", None),
+    )
+    if result.success and result.hitag_read and detection:
+        return _chip_read_view_model_from_adapter_result(detection, result.hitag_read)
     if result.status in {"hitag_candidate_unstable", "reader_failed", "detail_read_unstable", "uid_request_failed"}:
         fields = _lf_search_fields(result.lf_search)
         return ChipReadViewModel(
@@ -288,10 +281,17 @@ def chip_read_view_model_from_live_result(result) -> ChipReadViewModel:
             "Chip erkannt",
             result.message or "Signal schwach - bitte Chip etwas verschieben und erneut scannen.",
             fields=fields,
+            technology=detection,
+            capabilities=adapter_for(detection).capabilities if detection else None,
         )
-    if result.status == "not_hitag_candidate" and result.lf_search:
-        fields = _lf_search_fields(result.lf_search)
-        return ChipReadViewModel("unsupported", "Chip erkannt", result.message, fields=fields)
+    if detection:
+        return _chip_read_view_model_from_adapter_result(detection, getattr(result, "hitag_read", None))
+    if result.status == "no_chip":
+        return ChipReadViewModel(
+            "no_chip",
+            "Kein Chip erkannt",
+            result.message or "Bitte Chip mittig auflegen und erneut scannen.",
+        )
     return ChipReadViewModel("error", "Scan nicht abgeschlossen", result.message or "Scan fehlgeschlagen")
 
 
@@ -369,6 +369,18 @@ def build_write_plan_view_model(current: HitagS256Profile, template: TemplateRec
     return WritePlanViewModel(compatible, compatibility_message, tuple(summary), tuple(rows), plan_steps, disabled_actions)
 
 
+def unavailable_write_plan_view_model(chip: ChipReadViewModel | None = None) -> WritePlanViewModel:
+    technology_name = chip.technology.technology_name if chip and chip.technology else "Dieser Chiptyp"
+    return WritePlanViewModel(
+        compatible=False,
+        compatibility_message=f"{technology_name} ist erkannt, aber ein Vorlage-/Schreibvergleich ist noch nicht verfügbar.",
+        summary_lines=("Kein Schreibplan verfügbar",),
+        rows=(),
+        plan_steps=(),
+        disabled_actions=(),
+    )
+
+
 def view_model_from_capture(capture: CaptureResult, source_label: str | None = None) -> DiscoveryViewModel:
     summary = capture.summarize(DiscoveryFacade(default_launch_config()))
     return view_model_from_summary(
@@ -426,8 +438,10 @@ def _severity(summary: UiDiscoverySummary) -> Severity:
         return "warning"
     if summary.discovery_data_status == "not captured":
         return "warning"
-    if summary.tag_type_guess in {"hitag_s256_plain", "hitag_candidate"}:
+    if summary.tag_type_guess in {"hitag_s256", "hitag_s_candidate"}:
         return "ok"
+    if summary.detected_technology is not None:
+        return "warning"
     if summary.session_status == "ok":
         return "warning"
     return "unknown"
@@ -436,10 +450,8 @@ def _severity(summary: UiDiscoverySummary) -> Severity:
 def _title(summary: UiDiscoverySummary) -> str:
     if summary.session_status == "device_lost":
         return "Device lost"
-    if summary.tag_type_guess == "hitag_s256_plain":
-        return "Tag detected - Hitag S256"
-    if summary.tag_type_guess == "hitag_candidate":
-        return "Tag detected - Hitag candidate"
+    if summary.detected_technology is not None:
+        return f"Chip erkannt - {summary.detected_technology.technology_name}"
     if summary.discovery_data_status == "not captured":
         return "Discovery not captured"
     if summary.connected == "true":
@@ -449,11 +461,37 @@ def _title(summary: UiDiscoverySummary) -> str:
 
 def _display_tag_type(tag_type: str) -> str:
     return {
+        "hitag_s256": "Hitag S256",
         "hitag_s256_plain": "Hitag S256 Plain",
+        "hitag_s_candidate": "Hitag S candidate",
         "hitag_candidate": "Hitag candidate",
+        "mifare_classic": "MIFARE Classic",
+        "iso14443a": "ISO14443A",
+        "em410x": "EM410x",
+        "t5577": "T5577",
+        "unknown_lf": "Unbekannter LF-Chip",
+        "unknown_hf": "Unbekannter HF-Chip",
         "unknown": "unknown",
         "none": "none",
     }.get(tag_type, tag_type)
+
+
+def _chip_read_view_model_from_adapter_result(detection: DetectedTechnology, raw_read: HitagSRead | None = None) -> ChipReadViewModel:
+    adapter = adapter_for(detection)
+    result = adapter.read_result(detection, raw_read)
+    profile = result.template_payload if isinstance(result.template_payload, HitagS256Profile) else None
+    fields = tuple(ChipFieldViewModel(field.label, field.value, field.note) for field in result.fields)
+    title = "Chip erkannt" if result.status != "complete" else f"{detection.technology_name} erkannt"
+    return ChipReadViewModel(
+        status=result.status,
+        title=title,
+        message=result.message,
+        fields=fields,
+        profile=profile,
+        raw_read=raw_read,
+        technology=detection,
+        capabilities=result.capabilities,
+    )
 
 
 def _compact_display(value: str | None) -> str:

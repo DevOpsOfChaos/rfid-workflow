@@ -63,6 +63,11 @@ class HfSearchResult:
     status: str
     message: str | None = None
     errors: tuple[str, ...] = ()
+    technology_family: str | None = None
+    tag_type: str | None = None
+    uid: str | None = None
+    chipset: str | None = None
+    confidence: str | None = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +79,7 @@ class LfSearchResult:
     hint: str | None
     false_positive_notes: tuple[str, ...] = ()
     identification_status: str = "unknown"
+    confidence: str = "low"
 
 
 @dataclass(frozen=True)
@@ -213,12 +219,26 @@ def parse_hf_search(output: str) -> HfSearchResult:
         return HfSearchResult(status="no_tag_found", message="No known/supported 13.56 MHz tags found", errors=errors)
     if "unsupported" in normalized:
         return HfSearchResult(status="unsupported", message=_first_nonempty_line(output), errors=errors)
+    family, label = _hf_family_and_label(output)
+    uid = _hf_uid(output)
+    chipset = _label_value(output, "Chipset") or _label_value(output, "TYPE")
+    if family or uid or chipset:
+        return HfSearchResult(
+            status="tag_found",
+            message=label or _first_nonempty_line(output),
+            errors=errors,
+            technology_family=family or "unknown_hf",
+            tag_type=label,
+            uid=uid,
+            chipset=chipset,
+            confidence="high" if family and uid else "medium",
+        )
     return HfSearchResult(status="unknown", message=_first_nonempty_line(output), errors=errors)
 
 
 def parse_lf_search(output: str) -> LfSearchResult:
     normalized = output.lower()
-    uid = _compact_hex(_label_value(output, "UID"))
+    uid = _compact_hex(_label_value(output, "UID") or _label_value(output, "TAG ID") or _label_value(output, "ID"))
     tag_type = _label_value(output, "TYPE")
     chipset = _label_value(output, "Chipset")
     hint = _hint_value(output)
@@ -227,11 +247,7 @@ def parse_lf_search(output: str) -> LfSearchResult:
         for line in output.splitlines()
         if "false positive" in line.lower() or "indala" in line.lower()
     )
-    has_hitag_hint = any(
-        value and "hitag" in value.lower()
-        for value in (tag_type, chipset, hint)
-    )
-    classification = "hitag_candidate" if uid and has_hitag_hint else "unknown"
+    classification = _lf_classification(normalized, uid, tag_type, chipset, hint)
     identification_status = "no_chipset" if "couldn't identify a chipset" in normalized else "unknown"
     return LfSearchResult(
         classification=classification,
@@ -241,6 +257,7 @@ def parse_lf_search(output: str) -> LfSearchResult:
         hint=hint,
         false_positive_notes=false_positive_notes,
         identification_status=identification_status,
+        confidence=_lf_confidence(classification, uid, tag_type, chipset, hint),
     )
 
 
@@ -335,6 +352,67 @@ def _dedupe_present(values: list[str | None]) -> list[str]:
 def _hint_value(output: str) -> str | None:
     match = re.search(r"^\[\?\]\s*Hint:\s*(?P<hint>.+)$", output, re.MULTILINE)
     return match.group("hint").strip() if match else None
+
+
+def _hf_family_and_label(output: str) -> tuple[str | None, str | None]:
+    normalized = output.lower()
+    if "mifare classic" in normalized:
+        return "mifare_classic", "MIFARE Classic"
+    if "iso14443-a" in normalized or "iso14443a" in normalized:
+        return "iso14443a", "ISO14443A"
+    if "mifare" in normalized:
+        return "mifare", "MIFARE"
+    if "valid iso 14443-a tag found" in normalized:
+        return "iso14443a", "ISO14443A"
+    return None, None
+
+
+def _hf_uid(output: str) -> str | None:
+    patterns = (
+        r"\bUID\s*[:.]+\s*(?P<uid>(?:[0-9A-Fa-f]{2}\s*){4,10})",
+        r"\bCard UID\s*[:.]+\s*(?P<uid>(?:[0-9A-Fa-f]{2}\s*){4,10})",
+        r"\bUID/serial\s*[:.]+\s*(?P<uid>(?:[0-9A-Fa-f]{2}\s*){4,10})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, output, re.IGNORECASE)
+        if match:
+            return _compact_hex(match.group("uid"))
+    return None
+
+
+def _lf_classification(
+    normalized: str,
+    uid: str | None,
+    tag_type: str | None,
+    chipset: str | None,
+    hint: str | None,
+) -> str:
+    values = " ".join(value.lower() for value in (tag_type, chipset, hint) if value)
+    if uid and "hitag" in values:
+        return "hitag_candidate"
+    if "em410" in normalized or "em 410" in values or "em410" in values or "unique" in values:
+        return "em410x"
+    if "t5577" in normalized or "t55" in values:
+        return "t5577"
+    if uid or tag_type or chipset:
+        return "unknown_lf"
+    return "unknown"
+
+
+def _lf_confidence(
+    classification: str,
+    uid: str | None,
+    tag_type: str | None,
+    chipset: str | None,
+    hint: str | None,
+) -> str:
+    if classification == "unknown":
+        return "low"
+    if uid and (tag_type or chipset):
+        return "high"
+    if uid or tag_type or chipset or hint:
+        return "medium"
+    return "low"
 
 
 def _float_match(output: str, pattern: str) -> float | None:

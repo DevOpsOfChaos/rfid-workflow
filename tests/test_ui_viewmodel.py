@@ -20,10 +20,10 @@ def test_success_blank_read_view_model_reports_detected_hitag():
     )
 
     assert model.status_severity == "ok"
-    assert "Tag detected" in model.title
+    assert "Chip erkannt" in model.title
     assert "Hitag S256" in model.title
-    assert model.tag_type == "Hitag S256 Plain"
-    assert model.next_step == "Read/save profile or verify blank compatibility"
+    assert model.tag_type == "Hitag S256"
+    assert model.next_step == "Vorlage erstellen oder Zielchip read-only vergleichen"
     assert model.ignored_host_commands
     assert any(command.startswith("cd d:\\localrepos") for command in model.ignored_host_commands)
 
@@ -66,7 +66,7 @@ def test_load_demo_view_model_uses_services():
     model = load_demo_view_model("Success blank read")
 
     assert model.source == "Success blank read"
-    assert model.tag_type == "Hitag S256 Plain"
+    assert model.tag_type == "Hitag S256"
 
 
 def test_main_window_can_be_imported_when_pyside_is_available():

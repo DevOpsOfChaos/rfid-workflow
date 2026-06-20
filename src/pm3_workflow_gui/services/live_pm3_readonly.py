@@ -8,6 +8,7 @@ import time
 from typing import Callable
 
 from pm3_workflow_gui.pm3.parsers import (
+    HfSearchResult,
     HitagSRead,
     LfSearchResult,
     parse_hf_search,
@@ -25,6 +26,8 @@ from pm3_workflow_gui.services.capture import (
     normalize_pm3_command,
 )
 from pm3_workflow_gui.services.discovery_facade import DiscoveryTextInputs, default_launch_config
+from pm3_workflow_gui.technologies.base import DetectedTechnology
+from pm3_workflow_gui.technologies.registry import detect_technology
 
 
 SAFE_LIVE_COMMANDS = ("hw version", "hw tune", "hf search", "lf search")
@@ -90,6 +93,8 @@ class HitagS256LiveReadResult:
     hitag_read: HitagSRead | None = None
     message: str = ""
     raw_results: tuple[LiveCommandResult, ...] = ()
+    hf_search: HfSearchResult | None = None
+    detected_technology: DetectedTechnology | None = None
 
     @property
     def success(self) -> bool:
@@ -219,6 +224,65 @@ class LivePm3ReadonlyService:
             hitag_read_result=hitag_result,
         )
 
+    def read_chip(self, port: str | None = None) -> HitagS256LiveReadResult:
+        selected_port = port
+        if selected_port is None:
+            status = self.connection_status()
+            if not status.connected:
+                return HitagS256LiveReadResult("device_lost", message=status.last_error or DEVICE_NOT_FOUND_ERROR)
+            selected_port = status.ports[0]
+
+        hf_result = self.run_safe_command("hf search", port=selected_port)
+        lf_result = self.run_safe_command("lf search", port=selected_port)
+        hf_output = _combined_output(hf_result)
+        lf_output = _combined_output(lf_result)
+        hf_search = parse_hf_search(hf_output) if hf_output else None
+        lf_search = parse_lf_search(lf_output) if lf_output else None
+        detected = detect_technology(hf_search=hf_search, lf_search=lf_search)
+        raw_results = (hf_result, lf_result)
+
+        if detected and detected.technology_id == "hitag_s_candidate":
+            hitag_result = self.read_hitag_s256(selected_port)
+            combined_raw = raw_results + hitag_result.raw_results
+            full_detection = detect_technology(
+                hf_search=hf_search,
+                lf_search=hitag_result.lf_search or lf_search,
+                hitag_read=hitag_result.hitag_read,
+            )
+            return HitagS256LiveReadResult(
+                hitag_result.status,
+                selected_port,
+                hitag_result.lf_search or lf_search,
+                hitag_result.hitag_read,
+                hitag_result.message,
+                combined_raw,
+                hf_search,
+                full_detection or detected,
+            )
+
+        if detected:
+            return HitagS256LiveReadResult(
+                "basic_detection",
+                selected_port,
+                lf_search,
+                None,
+                "Chip erkannt. Vollständiges Lesen und Vorlagen-Erstellung sind für diesen Chiptyp noch nicht verfügbar.",
+                raw_results,
+                hf_search,
+                detected,
+            )
+
+        return HitagS256LiveReadResult(
+            "no_chip",
+            selected_port,
+            lf_search,
+            None,
+            "Kein Chip erkannt. Bitte Chip mittig auflegen und erneut scannen.",
+            raw_results,
+            hf_search,
+            None,
+        )
+
     def run_safe_command(self, command: str, port: str | None = None) -> LiveCommandResult:
         normalized = normalize_pm3_command(command)
         if normalized not in SAFE_LIVE_COMMANDS and normalized not in SAFE_HITAG_READ_COMMANDS:
@@ -295,11 +359,21 @@ class LivePm3ReadonlyService:
                     message=HITAG_UNSTABLE_MESSAGE,
                     raw_results=tuple(lf_results),
                 )
+            detected = detect_technology(lf_search=lf_search)
+            if detected:
+                return HitagS256LiveReadResult(
+                    "basic_detection",
+                    selected_port,
+                    lf_search,
+                    message="Chip erkannt. Vollständiges Lesen und Vorlagen-Erstellung sind für diesen Chiptyp noch nicht verfügbar.",
+                    raw_results=tuple(lf_results),
+                    detected_technology=detected,
+                )
             return HitagS256LiveReadResult(
-                "not_hitag_candidate",
+                "no_chip",
                 selected_port,
                 lf_search,
-                message="Kein unterstützter Hitag-Kandidat erkannt.",
+                message="Kein Chip erkannt. Bitte Chip mittig auflegen und erneut scannen.",
                 raw_results=tuple(lf_results),
             )
 

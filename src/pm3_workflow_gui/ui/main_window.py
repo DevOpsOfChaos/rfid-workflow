@@ -14,6 +14,7 @@ from pm3_workflow_gui.ui.viewmodel import (
     save_confirmed_template,
     startup_view_model_from_check,
     startup_view_model_initial,
+    unavailable_write_plan_view_model,
     validate_second_scan,
 )
 
@@ -328,7 +329,7 @@ class MainWindow(QMainWindow):
         top_panel.setObjectName("sectionPanel")
         top_panel_layout = QVBoxLayout(top_panel)
         top_panel_layout.setContentsMargins(18, 16, 18, 16)
-        top_panel_layout.addWidget(QLabel("Template auswählen"))
+        top_panel_layout.addWidget(QLabel("Vorlage auswählen"))
         top_panel_layout.addWidget(self.template_list)
         top_panel_layout.addLayout(top)
         top_panel_layout.addWidget(self.write_message)
@@ -424,10 +425,10 @@ class MainWindow(QMainWindow):
             self._set_status("Verbindung verloren")
 
     def _scan_template_first(self) -> None:
-        self._set_status("Scan läuft · Suche LF-Chip")
-        self.template_message.setText("Suche LF-Chip ...")
+        self._set_status("Scan läuft · Suche LF/HF-Chip")
+        self.template_message.setText("Suche LF/HF-Chip ...")
         self.scan_button.setEnabled(False)
-        self._run_worker(lambda: self.live_service.read_hitag_s256(self._port), self._template_first_finished)
+        self._run_worker(lambda: self.live_service.read_chip(self._port), self._template_first_finished)
 
     def _template_first_finished(self, result, exc: Exception | None) -> None:
         self.scan_button.setEnabled(True)
@@ -445,10 +446,10 @@ class MainWindow(QMainWindow):
     def _scan_template_second(self) -> None:
         if self._first_scan is None:
             return
-        self._set_status("Scan läuft · Lese Hitag-Details")
-        self.template_message.setText("Lese Hitag-Details ...")
+        self._set_status("Scan läuft · Lese Chipdetails")
+        self.template_message.setText("Lese Chipdetails ...")
         self.second_scan_button.setEnabled(False)
-        self._run_worker(lambda: self.live_service.read_hitag_s256(self._port), self._template_second_finished)
+        self._run_worker(lambda: self.live_service.read_chip(self._port), self._template_second_finished)
 
     def _template_second_finished(self, result, exc: Exception | None) -> None:
         self.second_scan_button.setEnabled(True)
@@ -466,7 +467,7 @@ class MainWindow(QMainWindow):
     def _scan_write_target(self) -> None:
         self._set_status("Scan läuft · Zielchip wird gelesen")
         self.scan_target_button.setEnabled(False)
-        self._run_worker(lambda: self.live_service.read_hitag_s256(self._port), self._write_target_finished)
+        self._run_worker(lambda: self.live_service.read_chip(self._port), self._write_target_finished)
 
     def _write_target_finished(self, result, exc: Exception | None) -> None:
         self.scan_target_button.setEnabled(True)
@@ -474,10 +475,10 @@ class MainWindow(QMainWindow):
             self._scan_error(exc)
             return
         model = chip_read_view_model_from_live_result(result)
-        self._target_scan = model if model.profile else None
+        self._target_scan = model if model.status not in {"error", "no_chip"} else None
         self._append_raw(result)
         self._render_write_plan()
-        self._set_status("Schreibplan bereit" if model.profile else "Chip erkannt")
+        self._set_status("Schreibplan bereit" if model.profile else model.title)
 
     def _analysis_chip_scan(self) -> None:
         self.pages.setCurrentIndex(0)
@@ -547,13 +548,17 @@ class MainWindow(QMainWindow):
         self.prep_diagram.setText(model.diagram_message)
 
     def _render_chip_read(self, model: ChipReadViewModel) -> None:
-        self.template_message.setText(model.message)
+        self.template_message.setText(f"{model.title}\n{model.message}")
         self._fill_field_table(self.template_table, [(field.label, field.value, field.note) for field in model.fields])
         self.template_diff_table.setRowCount(0)
         if model.is_complete_template_read:
             self._set_status("Chip erkannt")
         elif model.status == "retry":
             self._set_status("Signal schwach · bitte Chip etwas verschieben")
+        elif model.status == "basic_detection":
+            self._set_status("Chip erkannt · Basis-Erkennung")
+        elif model.status == "no_chip":
+            self._set_status("Kein Chip erkannt")
         else:
             self._set_status("Bereit")
 
@@ -576,8 +581,12 @@ class MainWindow(QMainWindow):
         if selected < 0 or selected >= len(self._templates):
             self.write_message.setText("Wähle eine Vorlage und scanne einen Zielchip.")
             return
-        if self._target_scan is None or self._target_scan.profile is None:
+        if self._target_scan is None:
             self.write_message.setText("Vorlage gewählt. Scanne jetzt den Zielchip.")
+            return
+        if self._target_scan.profile is None:
+            plan = unavailable_write_plan_view_model(self._target_scan)
+            self.write_message.setText(plan.compatibility_message + "\n" + "\n".join(plan.summary_lines))
             return
         _, record = self._templates[selected]
         plan = build_write_plan_view_model(self._target_scan.profile, record)
@@ -623,7 +632,7 @@ class MainWindow(QMainWindow):
         self._templates = list(load_template_records())
         self.template_list.clear()
         for path, record in self._templates:
-            self.template_list.addItem(f"{record.title} · {record.chip_type} · {path.name}")
+            self.template_list.addItem(f"{record.title} · {record.technology_name} · {path.name}")
         if self._templates and self.template_list.currentRow() < 0:
             self.template_list.setCurrentRow(0)
 

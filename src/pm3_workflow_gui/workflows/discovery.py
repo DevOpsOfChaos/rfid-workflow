@@ -11,6 +11,7 @@ from pm3_workflow_gui.pm3.parsers import (
     StartupBanner,
 )
 from pm3_workflow_gui.pm3.session import Pm3LaunchConfig
+from pm3_workflow_gui.technologies.registry import detect_technology
 
 
 @dataclass(frozen=True)
@@ -71,20 +72,21 @@ def _antenna_status(status: str | None) -> str:
 
 
 def _tag_status(hf_search: HfSearchResult | None, lf_search: LfSearchResult | None, hitag_read: HitagSRead | None) -> str:
-    if hitag_read and hitag_read.is_hitag_s256_plain_no_auth:
-        return "hitag_s256_plain"
-    if lf_search and lf_search.classification == "hitag_candidate":
-        return "hitag_candidate"
+    detected = detect_technology(hf_search=hf_search, lf_search=lf_search, hitag_read=hitag_read)
+    if detected:
+        return detected.technology_id
     if hf_search and hf_search.status == "no_tag_found":
         return "none"
     return "unknown"
 
 
 def _summary_and_next_step(tag_status: str) -> tuple[str, str]:
-    if tag_status == "hitag_s256_plain":
-        return "Hitag S256 Plain tag detected", "Read profile or verify blank compatibility"
-    if tag_status == "hitag_candidate":
+    if tag_status == "hitag_s256":
+        return "Hitag S256 tag detected", "Create template or verify target read-only"
+    if tag_status == "hitag_s_candidate":
         return "Hitag candidate detected", "Run lf hitag hts rdbl manually"
+    if tag_status not in {"unknown", "none"}:
+        return "RFID technology detected", "Open analysis; full template workflow is not available for this chip type yet"
     if tag_status == "none":
         return "No HF tag detected", "Run LF search if expecting a low-frequency tag"
     return "Discovery incomplete", "Run read-only startup, hw version, hw tune, hf search, and lf search checks"

@@ -47,7 +47,7 @@ def test_pm3_log_capture_provider_feeds_discovery_facade():
     assert capture.inputs.lf_search is not None
     assert capture.inputs.hitag_rdbl is not None
     assert summary.com_port == "COM16"
-    assert summary.tag_type_guess == "hitag_s256_plain"
+    assert summary.tag_type_guess == "hitag_s256"
     assert summary.lf_antenna_status == "ok"
 
 
@@ -67,7 +67,7 @@ def test_help_only_log_does_not_infer_lf_tag_or_hitag_candidate():
     assert summary.discovery_data_status == "not captured"
     assert summary.tag_frequency_guess != "lf"
     assert summary.tag_frequency_guess == "unknown"
-    assert summary.tag_type_guess != "hitag_candidate"
+    assert summary.tag_type_guess != "hitag_s_candidate"
     assert summary.tag_type_guess == "unknown"
     assert summary.recommended_next_step == "Run hf search and lf search with the tag present"
 
@@ -99,7 +99,7 @@ def test_successful_blank_read_log_ignores_host_commands_and_detects_hitag_s256(
     assert summary.session_status == "ok"
     assert summary.device_reconnect_required is False
     assert summary.tag_frequency_guess == "lf"
-    assert summary.tag_type_guess == "hitag_s256_plain"
+    assert summary.tag_type_guess == "hitag_s256"
     assert bundle.hitag_reader is not None
     assert bundle.hitag_reader.uids == ("83F5E494",)
     assert bundle.hitag_read is not None
@@ -127,7 +127,7 @@ def test_hitag_reader_without_rdbl_is_only_candidate(tmp_path):
     summary = Pm3LogCaptureProvider(log).capture().summarize()
 
     assert summary.tag_frequency_guess == "lf"
-    assert summary.tag_type_guess == "hitag_candidate"
+    assert summary.tag_type_guess == "hitag_s_candidate"
     assert summary.recommended_next_step == "Run lf hitag hts rdbl -p 0 -c 8"
 
 
@@ -298,8 +298,8 @@ def test_cli_log_summary_reports_ignored_host_commands_for_success_log():
     assert "Session status: ok" in completed.stdout
     assert "Reconnect required: no" in completed.stdout
     assert "Tag frequency: lf" in completed.stdout
-    assert "Tag type: Hitag S256 Plain" in completed.stdout
-    assert "Next step: Read/save profile or verify blank compatibility" in completed.stdout
+    assert "Tag type: Hitag S256" in completed.stdout
+    assert "Next step: Vorlage erstellen oder Zielchip read-only vergleichen" in completed.stdout
     assert "Ignored host commands: 2" in completed.stdout
     recognized = completed.stdout.split("Recognized commands:", 1)[1].split("Ignored host commands:", 1)[0]
     assert "lf hitag hts reader -@" in recognized
