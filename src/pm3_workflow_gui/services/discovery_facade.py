@@ -171,7 +171,10 @@ class DiscoveryFacade:
             connected=connected,
             launch_mode=self.launch_config.mode,
             com_port=com_port,
-            target=bundle.startup_banner.target if bundle.startup_banner else None,
+            target=_first_present(
+                bundle.startup_banner.target if bundle.startup_banner else None,
+                bundle.hw_version.firmware if bundle.hw_version else None,
+            ),
             client_version=_first_present(
                 bundle.hw_version.client_version if bundle.hw_version else None,
                 bundle.startup_banner.client_version if bundle.startup_banner else None,
@@ -190,6 +193,7 @@ class DiscoveryFacade:
                 tag_type_guess,
                 verification,
                 discovery_data_status,
+                last_error,
             ),
             verification_status=verification.status if verification else None,
         )
@@ -299,7 +303,12 @@ def _tag_type_guess(
 
 
 def _discovery_data_status(bundle: DiscoveryParseBundle) -> str:
-    if bundle.hf_search or bundle.lf_search or bundle.hitag_reader or bundle.hitag_read:
+    if (
+        (bundle.hf_search and bundle.hf_search.status != "unknown")
+        or (bundle.lf_search and (bundle.lf_search.identification_status != "unknown" or bundle.lf_search.uid or bundle.lf_search.tag_type or bundle.lf_search.chipset or bundle.lf_search.hint))
+        or bundle.hitag_reader
+        or bundle.hitag_read
+    ):
         return "captured"
     if bundle.hw_version and bundle.hw_tune:
         return "not captured"
@@ -338,10 +347,13 @@ def _recommended_next_step(
     tag_type_guess: str,
     verification: VerificationResult | None,
     discovery_data_status: str,
+    last_error: str | None,
 ) -> str:
     if session_status == "device_lost":
         return "Reconnect USB and restart PM3 session"
     if session_status == "command_failed":
+        if last_error == "Proxmark port was found, but PM3 command execution failed.":
+            return "Proxmark port was found, but PM3 command execution failed."
         return "Check tag placement and run lf search again"
     if connected == "unknown" and com_port is None and discovery_data_status != "captured":
         return "Start Proxmark with auto-detect"
@@ -370,6 +382,7 @@ def _session_status(bundle: DiscoveryParseBundle) -> SessionStatus:
         "UID Request failed!",
         "timeout while waiting for reply",
         "Failed to get current device debug level",
+        "Proxmark port was found, but PM3 command execution failed.",
     }
     if any(error in command_failure_errors for error in bundle.session_errors):
         return "command_failed"
@@ -384,6 +397,7 @@ def _last_error(bundle: DiscoveryParseBundle) -> str | None:
     priority = (
         "Communicating with Proxmark3 device failed",
         "Failed to get current device debug level",
+        "Proxmark port was found, but PM3 command execution failed.",
         "timeout while waiting for reply",
         "UID Request failed!",
         "Couldn't identify a chipset",

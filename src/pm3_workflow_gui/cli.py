@@ -44,10 +44,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     latest_log_summary.add_argument("--log-dir", type=Path, required=True, help="Directory containing PM3 session logs.")
 
-    subparsers.add_parser(
+    live_scan = subparsers.add_parser(
         "live-scan",
         help="Run a safe read-only live PM3 scan using the pm3 wrapper auto-port detection.",
     )
+    live_scan.add_argument("--debug", action="store_true", help="Print per-command live PM3 launch diagnostics and raw output snippets.")
 
     args = parser.parse_args(argv)
     if args.command == "fixture-summary":
@@ -60,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
         return _print_capture_summary("PM3 latest log summary", Pm3LogCaptureProvider(latest_log_file(args.log_dir)))
     if args.command == "live-scan":
         print("Live read-only commands: " + ", ".join(SAFE_LIVE_COMMANDS))
-        return _print_capture_summary("PM3 live scan summary", LivePm3ReadonlyService())
+        return _print_capture_summary("PM3 live scan summary", LivePm3ReadonlyService(), debug=args.debug)
     parser.error(f"Unsupported command: {args.command}")
     return 2
 
@@ -75,7 +76,7 @@ def _fixture_summary(fixture_dir: Path | None, scenario: Path | None) -> int:
         provider = FixtureCaptureProvider(fixture_dir=fixture_dir)
     return _print_capture_summary("PM3 fixture summary", provider)
 
-def _print_capture_summary(title: str, provider) -> int:
+def _print_capture_summary(title: str, provider, debug: bool = False) -> int:
     facade = DiscoveryFacade(default_launch_config())
     capture = provider.capture()
     summary = capture.summarize(facade)
@@ -94,7 +95,36 @@ def _print_capture_summary(title: str, provider) -> int:
     if capture.missing_fields:
         label = "Missing optional sections" if summary.tag_type_guess == "hitag_s256_plain" else "Missing sections"
         print(f"{label}: " + ", ".join(capture.missing_fields))
+    if debug:
+        _print_live_debug(capture)
     return 0
+
+
+def _print_live_debug(capture) -> None:
+    results = getattr(capture, "debug_results", ())
+    status = getattr(capture, "connection_status", None)
+    print("Live debug:")
+    if status is not None:
+        print(f"- port_detected: {'yes' if status.connected else 'no'}")
+        print(f"- detected_ports: {', '.join(status.ports) if status.ports else 'none'}")
+        if status.last_error:
+            print(f"- port_error: {status.last_error}")
+    if not results:
+        print("- commands: none")
+        return
+    for result in results:
+        raw = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+        snippet = raw[:1200] + ("..." if len(raw) > 1200 else "")
+        print(f"- command: {result.command}")
+        print(f"  launch: {result.launch_variant}")
+        print(f"  exitcode: {result.returncode}")
+        print(f"  elapsed_seconds: {result.elapsed_seconds:.2f}")
+        print(f"  timed_out: {'yes' if result.timed_out else 'no'}")
+        print(f"  stdout: {'yes' if result.stdout else 'no'} ({len(result.stdout)} chars)")
+        print(f"  stderr: {'yes' if result.stderr else 'no'} ({len(result.stderr)} chars)")
+        print("  raw_excerpt:")
+        for line in snippet.splitlines() or [""]:
+            print(f"    {line}")
 
 
 if __name__ == "__main__":
