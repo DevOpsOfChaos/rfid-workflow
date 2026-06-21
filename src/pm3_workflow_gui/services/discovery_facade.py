@@ -25,6 +25,7 @@ from pm3_workflow_gui.pm3.parsers import (
 )
 from pm3_workflow_gui.pm3.session import Pm3LaunchConfig
 from pm3_workflow_gui.profiles.schema import HitagS256Profile
+from pm3_workflow_gui.services.scan_evidence import ScanEvidence, evidence_from_search_results
 from pm3_workflow_gui.technologies.base import DetectedTechnology
 from pm3_workflow_gui.technologies.registry import adapter_for, detect_technology
 from pm3_workflow_gui.workflows.hitag_s256 import (
@@ -98,6 +99,7 @@ class UiDiscoverySummary:
     risk_notes: tuple[str, ...] = ()
     recommended_next_step: str = "Run read-only discovery"
     verification_status: str | None = None
+    scan_state: str = "unknown"
 
     def lines(self) -> list[str]:
         return [
@@ -117,6 +119,7 @@ class UiDiscoverySummary:
             f"Tag frequency: {self.tag_frequency_guess}",
             f"Tag type: {_display_tag_type(self.tag_type_guess)}",
             f"Support level: {self.support_level}",
+            f"Scan state: {self.scan_state}",
             f"Verification: {self.verification_status or 'not_run'}",
             f"Next step: {self.recommended_next_step}",
             *[f"Risk note: {note}" for note in self.risk_notes],
@@ -163,7 +166,10 @@ class DiscoveryFacade:
         discovery_data_status = _discovery_data_status(bundle)
         session_status = _session_status(bundle)
         last_error = _last_error(bundle)
-        detected = None if session_status == "device_lost" else detect_technology(bundle.hf_search, bundle.lf_search, bundle.hitag_reader, bundle.hitag_read)
+        evidence = evidence_from_search_results(bundle.hf_search, bundle.lf_search)
+        detected = None
+        if session_status != "device_lost":
+            detected = _detected_from_confirmed_evidence(bundle, evidence)
         if detected and detected.technology_id == "indala" and bundle.indala_read and bundle.indala_read.false_positive_note:
             detected = replace(
                 detected,
@@ -203,7 +209,9 @@ class DiscoveryFacade:
             lf_antenna_status=_antenna_status(bundle.hw_tune.lf_antenna_status if bundle.hw_tune else None),
             hf_antenna_status=_antenna_status(bundle.hw_tune.hf_antenna_status if bundle.hw_tune else None),
             discovery_data_status=discovery_data_status,
-            tag_frequency_guess=_tag_frequency_guess(detected, bundle.hf_search),
+            tag_frequency_guess="unknown"
+            if session_status == "device_lost"
+            else _tag_frequency_guess(detected, bundle.hf_search, evidence),
             tag_type_guess=tag_type_guess,
             detected_technology=detected,
             support_level=_support_level(detected),
@@ -216,8 +224,10 @@ class DiscoveryFacade:
                 verification,
                 discovery_data_status,
                 last_error,
+                evidence,
             ),
             verification_status=verification.status if verification else None,
+            scan_state=evidence.state,
         )
 
     def summarize_scenario(self, scenario: ScenarioDefinition) -> UiDiscoverySummary:
@@ -296,9 +306,16 @@ def _antenna_status(status: str | None) -> str:
 def _tag_frequency_guess(
     detected: DetectedTechnology | None,
     hf_search: HfSearchResult | None,
+    evidence: ScanEvidence,
 ) -> str:
     if detected:
         return detected.frequency
+    if evidence.candidate:
+        return evidence.candidate.frequency
+    if any(attempt.frequency == "lf" and attempt.candidate_family for attempt in evidence.attempts):
+        return "lf"
+    if "signal_weak" in evidence.warnings:
+        return "lf"
     if hf_search and hf_search.status == "no_tag_found":
         return "none"
     return "unknown"
@@ -306,6 +323,21 @@ def _tag_frequency_guess(
 
 def _tag_type_guess(detected: DetectedTechnology | None) -> str:
     return detected.technology_id if detected else "unknown"
+
+
+def _detected_from_confirmed_evidence(
+    bundle: DiscoveryParseBundle,
+    evidence: ScanEvidence,
+) -> DetectedTechnology | None:
+    if bundle.hitag_read and bundle.hitag_read.is_hitag_s256_plain_no_auth:
+        return detect_technology(bundle.hf_search, bundle.lf_search, bundle.hitag_reader, bundle.hitag_read)
+    if bundle.hitag_reader and bundle.hitag_reader.uids:
+        return detect_technology(bundle.hf_search, bundle.lf_search, bundle.hitag_reader, bundle.hitag_read)
+    if evidence.is_confirmed:
+        return detect_technology(bundle.hf_search, bundle.lf_search, bundle.hitag_reader, bundle.hitag_read)
+    if evidence.state == "technology_candidate":
+        return detect_technology(bundle.hf_search, bundle.lf_search, bundle.hitag_reader, bundle.hitag_read)
+    return None
 
 
 def _discovery_data_status(bundle: DiscoveryParseBundle) -> str:
@@ -335,6 +367,8 @@ def _risk_notes(bundle: DiscoveryParseBundle, verification: VerificationResult |
     notes: list[str] = []
     if bundle.lf_search and bundle.lf_search.false_positive_notes:
         notes.append("LF search included possible false positives; Hitag hint was evaluated separately.")
+    if bundle.lf_search and bundle.lf_search.classification == "indala" and bundle.lf_search.false_positive_notes:
+        notes.append("LF signal is ambiguous; Indala was not confirmed because PM3 reported possible false-positive sizing.")
     if bundle.indala_read and bundle.indala_read.false_positive_note:
         notes.append("Indala reader reported possible false-positive sizing; repeat read and check tag position.")
     if bundle.lf_search and bundle.lf_search.identification_status == "no_chipset":
@@ -357,6 +391,7 @@ def _recommended_next_step(
     verification: VerificationResult | None,
     discovery_data_status: str,
     last_error: str | None,
+    evidence: ScanEvidence,
 ) -> str:
     if session_status == "device_lost":
         return "Reconnect USB and restart PM3 session"
@@ -376,6 +411,8 @@ def _recommended_next_step(
         return "Run lf hitag hts rdbl -p 0 -c 8"
     if tag_type_guess == "indala":
         return "Indala public identity read available; repeat if Raw ID or length is unstable"
+    if evidence.state in {"signal_detected_but_ambiguous", "signal_unstable", "technology_candidate"}:
+        return "Chip mittig auflegen oder leicht verschieben und erneut scannen"
     if tag_type_guess not in {"unknown", "none"}:
         return "Analyse öffnen; Detailread und Vorlagen-Workflow sind für diesen Chiptyp noch nicht verfügbar"
     if discovery_data_status == "not captured":

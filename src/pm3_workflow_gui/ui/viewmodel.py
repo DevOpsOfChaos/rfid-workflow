@@ -289,20 +289,24 @@ def chip_read_view_model_from_hitag_read(read: HitagSRead) -> ChipReadViewModel:
 
 
 def chip_read_view_model_from_live_result(result) -> ChipReadViewModel:
-    detection = getattr(result, "detected_technology", None) or detect_technology(
-        hf_search=getattr(result, "hf_search", None),
-        lf_search=getattr(result, "lf_search", None),
-        hitag_read=getattr(result, "hitag_read", None),
-    )
+    detection = getattr(result, "detected_technology", None)
+    if detection is None and getattr(result, "status", None) != "signal_unstable":
+        detection = detect_technology(
+            hf_search=getattr(result, "hf_search", None),
+            lf_search=getattr(result, "lf_search", None),
+            hitag_read=getattr(result, "hitag_read", None),
+        )
     if result.success and result.hitag_read and detection:
         return _chip_read_view_model_from_adapter_result(detection, result.hitag_read)
-    if result.status in {"hitag_candidate_unstable", "reader_failed", "detail_read_unstable", "uid_request_failed"}:
-        fields = _lf_search_fields(result.lf_search)
+    if result.status in {"signal_unstable", "hitag_candidate_unstable", "reader_failed", "detail_read_unstable", "uid_request_failed"}:
+        fields = _unstable_signal_fields(result)
         return ChipReadViewModel(
-            "retry",
-            "Chip erkannt",
-            result.message or "Signal schwach - bitte Chip etwas verschieben und erneut scannen.",
+            "signal_unstable",
+            "Chip-Signal erkannt",
+            result.message or "Der Chiptyp konnte noch nicht stabil bestimmt werden. Bitte Chip leicht verschieben und erneut scannen.",
             fields=fields,
+            warnings=_evidence_warning_labels(getattr(result, "scan_evidence", None)),
+            next_step="Bitte Chip mittig auflegen oder leicht verschieben und erneut scannen.",
             technology=detection,
             capabilities=adapter_for(detection).capabilities if detection else None,
         )
@@ -468,6 +472,8 @@ def _severity(summary: UiDiscoverySummary) -> Severity:
         return "error"
     if summary.session_status == "command_failed":
         return "warning"
+    if summary.scan_state in {"signal_detected_but_ambiguous", "signal_unstable", "technology_candidate"}:
+        return "warning"
     if summary.discovery_data_status == "not captured":
         return "warning"
     if summary.tag_type_guess in {"hitag_s256", "hitag_s_candidate"}:
@@ -482,6 +488,8 @@ def _severity(summary: UiDiscoverySummary) -> Severity:
 def _title(summary: UiDiscoverySummary) -> str:
     if summary.session_status == "device_lost":
         return "Device lost"
+    if summary.scan_state in {"signal_detected_but_ambiguous", "signal_unstable", "technology_candidate"}:
+        return "Chip-Signal erkannt"
     if summary.detected_technology is not None:
         return f"Chip erkannt - {summary.detected_technology.technology_name}"
     if summary.discovery_data_status == "not captured":
@@ -580,6 +588,31 @@ def _lf_search_fields(lf_search) -> tuple[ChipFieldViewModel, ...]:
         )
         if value != "unknown"
     )
+
+
+def _unstable_signal_fields(result) -> tuple[ChipFieldViewModel, ...]:
+    evidence = getattr(result, "scan_evidence", None)
+    fields: list[ChipFieldViewModel] = [ChipFieldViewModel("Signal", "vorhanden")]
+    if evidence and evidence.candidate:
+        fields.append(ChipFieldViewModel("Bereich", evidence.candidate.frequency.upper()))
+        fields.append(ChipFieldViewModel("Chipfamilie", "nicht stabil bestimmt"))
+    elif getattr(result, "lf_search", None):
+        fields.append(ChipFieldViewModel("Bereich", "LF"))
+        fields.append(ChipFieldViewModel("Chipfamilie", "nicht stabil bestimmt"))
+    return tuple(fields)
+
+
+def _evidence_warning_labels(evidence) -> tuple[str, ...]:
+    if evidence is None:
+        return ()
+    labels = {
+        "false_positive": "False-Positive-Hinweis",
+        "odd_size": "ungewoehnliche Bitgroesse",
+        "unstable_raw": "wechselnde Raw-Werte",
+        "unstable_bit_length": "wechselnde Bitlaenge",
+        "signal_weak": "schwaches Signal",
+    }
+    return tuple(labels[warning] for warning in evidence.warnings if warning in labels)
 
 
 def _profile_differences(first: HitagS256Profile, second: HitagS256Profile) -> tuple[tuple[str, str, str], ...]:

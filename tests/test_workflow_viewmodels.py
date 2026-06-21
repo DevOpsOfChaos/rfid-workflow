@@ -138,9 +138,9 @@ def test_unstable_live_candidate_view_model_prompts_retry():
     result = LivePm3ReadonlyService(runner=runner).read_hitag_s256()
     model = chip_read_view_model_from_live_result(result)
 
-    assert model.status == "retry"
+    assert model.status == "signal_unstable"
     assert "nicht stabil" in model.message
-    assert any(field.label == "UID" for field in model.fields)
+    assert any(field.label == "Signal" and field.value == "vorhanden" for field in model.fields)
 
 
 def test_generic_hf_chip_view_model_blocks_template_and_write_plan():
@@ -174,12 +174,11 @@ def test_generic_hf_chip_view_model_blocks_template_and_write_plan():
     assert not any("lf hitag hts rdbl" in call for call in calls)
 
 
-def test_indala_live_view_model_reports_unstable_public_details_without_hitag_text():
+def test_indala_false_positive_does_not_start_indala_adapter_and_prompts_retry():
     calls = []
-    reader_outputs = [
+    lf_outputs = [
         "[=] Odd size,  false positive?\n[+] Indala (len 151)  Raw: 800000000000000000000000000000000003ffffc000000000000000\n",
         "[=] Odd size,  false positive?\n[+] Indala (len 200)  Raw: 800000000000000000000000000000000000000000000001ffffe000\n",
-        "[=] Odd size,  false positive?\n[+] Indala (len 211)  Raw: 800000000000000000000000000000000000000000000000003ffffc\n",
     ]
 
     def runner(args, timeout):
@@ -190,9 +189,7 @@ def test_indala_live_view_model_reports_unstable_public_details_without_hitag_te
         if text.endswith(" -c hf search"):
             return LiveCommandResult(text, 0, "[!] No known/supported 13.56 MHz tags found\n", "")
         if text.endswith(" -c lf search"):
-            return LiveCommandResult(text, 0, fixture("lf_search_indala_unstable_real.txt"), "")
-        if text.endswith(" -c lf indala reader"):
-            return LiveCommandResult(text, 0, reader_outputs.pop(0), "")
+            return LiveCommandResult(text, 0, lf_outputs.pop(0), "")
         return LiveCommandResult(text, 1, "", "unexpected")
 
     result = LivePm3ReadonlyService(runner=runner).read_chip("COM16")
@@ -200,18 +197,21 @@ def test_indala_live_view_model_reports_unstable_public_details_without_hitag_te
     plan = unavailable_write_plan_view_model(model)
 
     assert result.status == "signal_unstable"
-    assert result.detected_technology.technology_id == "indala"
-    assert model.title == "Chip erkannt"
+    assert result.detected_technology is None
+    assert result.scan_evidence.state == "signal_detected_but_ambiguous"
+    assert model.title == "Chip-Signal erkannt"
     assert model.status == "signal_unstable"
     assert model.profile is None
     assert model.is_complete_template_read is False
-    assert any(field.label == "Technologie" and field.value == "Indala" for field in model.fields)
-    assert any(field.label == "Read-only Befehl" and field.value == "lf indala reader" for field in model.public_configuration)
+    assert any(field.label == "Chipfamilie" and field.value == "nicht stabil bestimmt" for field in model.fields)
+    assert model.public_configuration == ()
     combined_text = " ".join([model.message, model.next_step, plan.compatibility_message, *model.warnings])
+    assert "Unbekannter LF-Chip" not in combined_text
+    assert "Indala" not in combined_text
     assert "Hitag" not in combined_text
     assert plan.plan_steps == ()
     assert plan.disabled_actions == ()
-    assert any("lf indala reader" in call for call in calls)
+    assert not any("lf indala reader" in call for call in calls)
     assert not any("lf hitag hts rdbl" in call for call in calls)
 
 

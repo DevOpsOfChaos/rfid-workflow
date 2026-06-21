@@ -64,7 +64,10 @@ def main(argv: list[str] | None = None) -> int:
         print("Gated Hitag read-only commands: " + ", ".join(SAFE_HITAG_READ_COMMANDS))
         print("Gated Indala read-only commands: " + ", ".join(SAFE_INDALA_READ_COMMANDS))
         service = LivePm3ReadonlyService()
-        return _print_capture_summary("PM3 live scan summary", service, debug=args.debug, include_hitag_debug=args.debug)
+        exit_code = _print_capture_summary("PM3 live scan summary", service, debug=args.debug, include_hitag_debug=False)
+        if args.debug:
+            _print_auto_scan_debug(service.read_chip())
+        return exit_code
     parser.error(f"Unsupported command: {args.command}")
     return 2
 
@@ -175,6 +178,29 @@ def _print_indala_live_debug(result) -> None:
             print(f"- note: {result.indala_read.false_positive_note}")
     if result.raw_results:
         print("- gated_commands:")
+        for command_result in result.raw_results:
+            print(f"  - {command_result.command}: exit={command_result.returncode}, timeout={'yes' if command_result.timed_out else 'no'}")
+
+
+def _print_auto_scan_debug(result) -> None:
+    print("Auto scan classification:")
+    print(f"- status: {result.status}")
+    print(f"- port: {result.port or 'unknown'}")
+    print(f"- message: {result.message or 'none'}")
+    evidence = getattr(result, "scan_evidence", None)
+    if evidence:
+        print(f"- scan_state: {evidence.state}")
+        if evidence.candidate:
+            print(f"- candidate_family: {evidence.candidate.family}")
+            print(f"- candidate_frequency: {evidence.candidate.frequency}")
+            print(f"- candidate_confirmed: {'yes' if evidence.candidate.confirmed else 'no'}")
+        print(f"- warnings: {', '.join(evidence.warnings) if evidence.warnings else 'none'}")
+    if result.detected_technology:
+        print(f"- confirmed_technology: {result.detected_technology.technology_name}")
+    else:
+        print("- confirmed_technology: none")
+    if result.raw_results:
+        print("- auto_scan_commands:")
         for command_result in result.raw_results:
             print(f"  - {command_result.command}: exit={command_result.returncode}, timeout={'yes' if command_result.timed_out else 'no'}")
 

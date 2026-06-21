@@ -1,0 +1,14 @@
+[=] Note: False Positives ARE possible
+[=]
+[=] Checking for known tags...
+[=]
+[=] Odd size,  false positive?
+[+] Indala (len 151)  Raw: 800000000000000000000000000000000003FFFFC000000000000000
+
+[=] Checking for known tags...
+[=]
+[=] Odd size,  false positive?
+[+] Indala (len 200)  Raw: 800000000000000000000000000000000000000000000001FFFFE000
+
+[=] Searching for auth LF and special cases...
+[=] Couldn't identify a chipset

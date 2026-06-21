@@ -84,7 +84,7 @@ def test_facade_reports_generic_hf_chip_with_basic_support():
     assert "noch nicht verfügbar" in summary.recommended_next_step
 
 
-def test_facade_reports_unknown_lf_chip_with_basic_support():
+def test_facade_reports_weak_lf_signal_as_ambiguous_not_unknown_chip():
     summary = facade().summarize_texts(
         DiscoveryTextInputs(
             hf_search="[!] No known/supported 13.56 MHz tags found\n",
@@ -93,12 +93,13 @@ def test_facade_reports_unknown_lf_chip_with_basic_support():
     )
 
     assert summary.tag_frequency_guess == "lf"
-    assert summary.tag_type_guess == "unknown_lf"
-    assert summary.detected_technology.technology_name == "Unbekannter LF-Chip"
-    assert summary.support_level == "read_not_supported_yet"
+    assert summary.tag_type_guess == "unknown"
+    assert summary.detected_technology is None
+    assert summary.scan_state == "signal_detected_but_ambiguous"
+    assert summary.support_level == "none"
 
 
-def test_facade_reports_indala_as_public_lf_identity():
+def test_facade_reports_indala_false_positive_as_ambiguous_signal():
     summary = facade().summarize_texts(
         DiscoveryTextInputs(
             hf_search="[!] No known/supported 13.56 MHz tags found\n",
@@ -107,11 +108,11 @@ def test_facade_reports_indala_as_public_lf_identity():
     )
 
     assert summary.tag_frequency_guess == "lf"
-    assert summary.tag_type_guess == "indala"
-    assert summary.detected_technology.technology_name == "Indala"
-    assert summary.detected_technology.uid.startswith("800000")
-    assert summary.support_level == "identity_read"
-    assert "Indala public identity read available" in summary.recommended_next_step
+    assert summary.tag_type_guess == "unknown"
+    assert summary.detected_technology is None
+    assert summary.scan_state == "signal_detected_but_ambiguous"
+    assert summary.support_level == "none"
+    assert "erneut scannen" in summary.recommended_next_step
 
 
 def test_facade_reports_indala_reader_false_positive_as_signal_unstable():
@@ -123,9 +124,10 @@ def test_facade_reports_indala_reader_false_positive_as_signal_unstable():
         )
     )
 
-    assert summary.tag_type_guess == "indala"
-    assert summary.support_level == "signal_unstable"
-    assert summary.detected_technology.uid is None
+    assert summary.tag_type_guess == "unknown"
+    assert summary.support_level == "none"
+    assert summary.detected_technology is None
+    assert summary.scan_state == "signal_detected_but_ambiguous"
     assert any("Indala reader reported possible false-positive sizing" in note for note in summary.risk_notes)
 
 

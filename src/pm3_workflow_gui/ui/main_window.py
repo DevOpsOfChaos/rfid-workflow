@@ -71,8 +71,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("PM3 Workflow")
-        self.resize(960, 680)
-        self.setMinimumSize(860, 620)
+        self.resize(1120, 720)
+        self.setMinimumSize(940, 640)
         self.live_service = LivePm3ReadonlyService()
         self._worker_thread: QThread | None = None
         self._worker: _Worker | None = None
@@ -221,7 +221,7 @@ class MainWindow(QMainWindow):
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
         self.nav.addItems(["▣  Vorlage", "✎  Schreiben", "◇  Analyse"])
-        self.nav.setFixedWidth(164)
+        self.nav.setFixedWidth(170)
         self.nav.currentRowChanged.connect(self._change_page)
         self.pages = QStackedWidget()
         self.pages.addWidget(self._template_page())
@@ -232,6 +232,7 @@ class MainWindow(QMainWindow):
         self.bottom_status = QLabel("Bereit · Lege einen Chip auf den Proxmark")
         self.bottom_status.setObjectName("statusBar")
         root.addLayout(header)
+        self.header_label.setMaximumHeight(32)
         root.addWidget(_line())
         root.addLayout(body, 1)
         root.addWidget(_line())
@@ -245,15 +246,15 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(28, 22, 28, 18)
         title = QLabel("Vorlage erstellen")
         title.setObjectName("pageTitle")
-        subtitle = QLabel("Chip lesen und als Template speichern")
+        subtitle = QLabel("Chip lesen und als Vorlage speichern")
         subtitle.setObjectName("muted")
         controls = QHBoxLayout()
         self.auto_detect = QCheckBox("Automatisch erkennen")
         self.auto_detect.setChecked(True)
         self.lf_button = QPushButton("LF")
         self.hf_button = QPushButton("HF")
-        self.lf_button.setEnabled(False)
-        self.hf_button.setEnabled(False)
+        self.lf_button.hide()
+        self.hf_button.hide()
         self.auto_detect.toggled.connect(self._toggle_manual_frequency)
         controls.addWidget(self.auto_detect)
         controls.addWidget(self.lf_button)
@@ -264,16 +265,20 @@ class MainWindow(QMainWindow):
         self.scan_button.clicked.connect(self._scan_template_first)
         self.second_scan_button = QPushButton("Zweiten Scan durchführen")
         self.second_scan_button.clicked.connect(self._scan_template_second)
-        self.second_scan_button.setEnabled(False)
+        self.second_scan_button.hide()
         self.save_template_button = QPushButton("Als Vorlage speichern")
         self.save_template_button.clicked.connect(self._save_template_dialog)
-        self.save_template_button.setEnabled(False)
+        self.save_template_button.hide()
+        self.template_details_button = QPushButton("Technische Details")
+        self.template_details_button.clicked.connect(self._show_technical_details)
+        self.template_details_button.hide()
         action_row = QHBoxLayout()
         action_row.addWidget(self.scan_button)
         action_row.addWidget(self.second_scan_button)
         action_row.addWidget(self.save_template_button)
+        action_row.addWidget(self.template_details_button)
         action_row.addStretch(1)
-        self.template_message = QLabel("Bereit · Lege einen Chip auf den Proxmark")
+        self.template_message = QLabel("Automatische Erkennung ist aktiv.")
         self.template_message.setObjectName("messagePanel")
         self.template_message.setWordWrap(True)
         self.template_table = QTableWidget(0, 3)
@@ -284,6 +289,8 @@ class MainWindow(QMainWindow):
         self.template_diff_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         _polish_table(self.template_table)
         _polish_table(self.template_diff_table)
+        self.template_table.hide()
+        self.template_diff_table.hide()
         scan_panel = QFrame()
         scan_panel.setObjectName("sectionPanel")
         scan_layout = QVBoxLayout(scan_panel)
@@ -358,12 +365,15 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(28, 22, 28, 18)
         title = QLabel("Analyse")
         title.setObjectName("pageTitle")
+        self.analysis_summary = QLabel("Letzte Messung\nNoch kein Scan ausgefuehrt.")
+        self.analysis_summary.setObjectName("messagePanel")
+        self.analysis_summary.setWordWrap(True)
         grid = QGridLayout()
         self.analysis_raw = QPlainTextEdit()
         self.analysis_raw.setReadOnly(True)
         cards = [
             ("Chip erkennen", "Erkennt LF/HF und unterstützte Chiptypen.", True, self._analysis_chip_scan),
-            ("Beste Position finden", "Öffnet LF-Tune als separates PM3-Fenster.", True, self._open_lf_tune_diagram),
+            ("Beste Position finden", "Wiederholt sichere Scans und zeigt die Stabilitaet.", True, self._analysis_position_scan),
             ("Antenne prüfen", "Prüft LF/HF ohne Chip.", True, self._start_hardware_check),
             ("Frequenzdiagramm", "Startet lf tune --mix in einem eigenen Fenster.", True, self._open_lf_tune_diagram),
             ("Technische Details", "Zeigt Rohdaten, Logs und Fehler.", True, self._show_technical_details),
@@ -373,6 +383,7 @@ class MainWindow(QMainWindow):
             grid.addWidget(card, index // 2, index % 2)
         self.analysis_raw.hide()
         layout.addWidget(title)
+        layout.addWidget(self.analysis_summary)
         layout.addLayout(grid)
         layout.addWidget(self.analysis_raw, 1)
         return page
@@ -435,8 +446,13 @@ class MainWindow(QMainWindow):
 
     def _scan_template_first(self) -> None:
         self._set_status("Scan läuft · Suche LF/HF-Chip")
-        self.template_message.setText("Suche LF/HF-Chip ...")
+        self.template_message.setText("Chip wird erkannt ...\nSuche HF ...\nSuche LF ...\nPruefe Signal ...")
         self.scan_button.setEnabled(False)
+        self.second_scan_button.hide()
+        self.save_template_button.hide()
+        self.template_details_button.hide()
+        self.template_table.hide()
+        self.template_diff_table.hide()
         self._run_worker(lambda: self.live_service.read_chip(self._port), self._template_first_finished)
 
     def _template_first_finished(self, result, exc: Exception | None) -> None:
@@ -448,8 +464,9 @@ class MainWindow(QMainWindow):
         self._first_scan = model if model.is_complete_template_read else None
         self._validation = None
         self._render_chip_read(model)
+        self.second_scan_button.setVisible(model.is_complete_template_read)
         self.second_scan_button.setEnabled(model.is_complete_template_read)
-        self.save_template_button.setEnabled(False)
+        self.save_template_button.hide()
         self._append_raw(result)
 
     def _scan_template_second(self) -> None:
@@ -493,6 +510,14 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentIndex(0)
         self.nav.setCurrentRow(0)
         self._scan_template_first()
+
+    def _analysis_position_scan(self) -> None:
+        self.pages.setCurrentIndex(0)
+        self.nav.setCurrentRow(0)
+        self._set_status("Scan läuft · Position wird geprüft")
+        self.template_message.setText("Chip wird erkannt ...\nPruefe Signal ...")
+        self.scan_button.setEnabled(False)
+        self._run_worker(lambda: self.live_service.read_chip(self._port), self._template_first_finished)
 
     def _open_lf_tune_diagram(self) -> None:
         try:
@@ -573,29 +598,68 @@ class MainWindow(QMainWindow):
             extra_lines.append(model.next_step)
         extra_lines.extend(model.warnings)
         self.template_message.setText(f"{model.title}\n" + "\n".join(extra_lines))
+        self._render_analysis_summary(model)
         visible_fields = list(model.fields)
         visible_fields.extend(model.public_configuration)
         visible_fields.extend(model.memory_sections)
         self._fill_field_table(self.template_table, [(field.label, field.value, field.note) for field in visible_fields])
         self.template_diff_table.setRowCount(0)
+        show_details = bool(visible_fields) and model.status != "signal_unstable"
+        self.template_table.setVisible(show_details)
+        self.template_diff_table.hide()
+        self.template_details_button.setVisible(model.status == "signal_unstable")
+        self.scan_button.setText("Erneut scannen" if model.status in {"signal_unstable", "no_chip"} else "Chip scannen")
         if model.is_complete_template_read:
+            self.second_scan_button.show()
             self._set_status("Chip erkannt")
         elif model.status in {"retry", "signal_unstable"}:
-            self._set_status("Signal schwach · bitte Chip etwas verschieben")
+            self.second_scan_button.hide()
+            self.save_template_button.hide()
+            self._set_status("Signal instabil")
         elif model.status in {"identity_read", "public_details_read"}:
+            self.second_scan_button.hide()
+            self.save_template_button.hide()
             self._set_status("Chip gelesen · verfügbare Daten angezeigt")
         elif model.status in {"basic_detection", "detected_only", "read_requires_authorized_credentials", "read_not_supported_yet"}:
+            self.second_scan_button.hide()
+            self.save_template_button.hide()
             self._set_status("Chip erkannt · Basis-Erkennung")
         elif model.status == "no_chip":
+            self.second_scan_button.hide()
+            self.save_template_button.hide()
             self._set_status("Kein Chip erkannt")
         else:
+            self.second_scan_button.hide()
+            self.save_template_button.hide()
             self._set_status("Bereit")
+
+    def _render_analysis_summary(self, model: ChipReadViewModel) -> None:
+        if model.status == "signal_unstable":
+            reasons = ", ".join(model.warnings) if model.warnings else "Signal nicht stabil"
+            self.analysis_summary.setText(
+                "Letzte Messung\n"
+                "LF-Signal: vorhanden\n"
+                "Chipfamilie: nicht stabil bestimmt\n"
+                f"Grund: {reasons}"
+            )
+        elif model.is_complete_template_read:
+            self.analysis_summary.setText(
+                "Letzte Messung\n"
+                "Signal: stabil erkannt\n"
+                f"Chipfamilie: {model.technology.technology_name if model.technology else 'erkannt'}"
+            )
+        elif model.status == "no_chip":
+            self.analysis_summary.setText("Letzte Messung\nSignal: nicht erkannt")
+        else:
+            self.analysis_summary.setText(f"Letzte Messung\n{model.title}\n{model.message}")
 
     def _render_validation(self, validation: TemplateValidationViewModel) -> None:
         self.template_message.setText(("✓ " if validation.can_save else "") + validation.message)
+        self.save_template_button.setVisible(validation.can_save)
         self.save_template_button.setEnabled(validation.can_save)
         rows = [(label, first, second) for label, first, second in validation.differences]
         self._fill_field_table(self.template_diff_table, rows)
+        self.template_diff_table.setVisible(bool(rows))
         self._set_status("Zweiter Scan stimmt überein" if validation.can_save else "Bereit")
 
     def _render_write_plan(self) -> None:
@@ -703,8 +767,8 @@ class MainWindow(QMainWindow):
         table.resizeColumnsToContents()
 
     def _toggle_manual_frequency(self, enabled: bool) -> None:
-        self.lf_button.setEnabled(not enabled)
-        self.hf_button.setEnabled(not enabled)
+        self.lf_button.setVisible(not enabled)
+        self.hf_button.setVisible(not enabled)
 
     def _change_page(self, row: int) -> None:
         if row >= 0:

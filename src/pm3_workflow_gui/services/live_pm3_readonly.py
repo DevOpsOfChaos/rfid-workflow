@@ -30,6 +30,12 @@ from pm3_workflow_gui.services.capture import (
     normalize_pm3_command,
 )
 from pm3_workflow_gui.services.discovery_facade import DiscoveryTextInputs, default_launch_config
+from pm3_workflow_gui.services.scan_evidence import (
+    ScanEvidence,
+    evaluate_scan_evidence,
+    scan_attempt_from_hf,
+    scan_attempt_from_lf,
+)
 from pm3_workflow_gui.technologies.base import DetectedTechnology, READ_STATUS_IDENTITY_READ, READ_STATUS_SIGNAL_UNSTABLE
 from pm3_workflow_gui.technologies.registry import detect_technology
 from pm3_workflow_gui.technologies.indala import indala_detection
@@ -124,6 +130,7 @@ class HitagS256LiveReadResult:
     hf_search: HfSearchResult | None = None
     detected_technology: DetectedTechnology | None = None
     indala_read: IndalaReadResult | None = None
+    scan_evidence: ScanEvidence | None = None
 
     @property
     def success(self) -> bool:
@@ -250,8 +257,14 @@ class LivePm3ReadonlyService:
         valid_outputs = _valid_command_outputs(results)
         hf_search = parse_hf_search(valid_outputs["hf search"]) if "hf search" in valid_outputs else None
         lf_search = parse_lf_search(valid_outputs["lf search"]) if "lf search" in valid_outputs else None
-        detected = detect_technology(hf_search=hf_search, lf_search=lf_search)
-        indala_result = self.read_indala(port, lf_search, hf_search) if detected and detected.technology_id == "indala" else None
+        evidence_attempts = []
+        if "hf search" in valid_outputs:
+            evidence_attempts.append(scan_attempt_from_hf("hf search", valid_outputs["hf search"]))
+        if "lf search" in valid_outputs:
+            evidence_attempts.append(scan_attempt_from_lf("lf search", valid_outputs["lf search"]))
+        evidence = evaluate_scan_evidence(tuple(evidence_attempts))
+        detected = detect_technology(hf_search=hf_search, lf_search=lf_search) if evidence.is_confirmed else None
+        indala_result = None
         debug_results = results + list(hitag_result.raw_results if hitag_result else ()) + list(indala_result.raw_results if indala_result else ())
         errors = _result_errors(results)
         failed_commands = _failed_commands(results)
@@ -295,8 +308,46 @@ class LivePm3ReadonlyService:
         lf_output = _combined_output(lf_result)
         hf_search = parse_hf_search(hf_output) if hf_output else None
         lf_search = parse_lf_search(lf_output) if lf_output else None
-        detected = detect_technology(hf_search=hf_search, lf_search=lf_search)
         raw_results = (hf_result, lf_result)
+        evidence_attempts = []
+        if hf_output:
+            evidence_attempts.append(scan_attempt_from_hf("hf search", hf_output))
+        if lf_output:
+            evidence_attempts.append(scan_attempt_from_lf("lf search", lf_output))
+        evidence = evaluate_scan_evidence(tuple(evidence_attempts))
+
+        should_repeat_lf = (
+            evidence.state == "technology_candidate"
+            and evidence.candidate
+            and evidence.candidate.frequency == "lf"
+        ) or (
+            evidence.state == "signal_detected_but_ambiguous"
+            and any(attempt.frequency == "lf" for attempt in evidence.attempts)
+        )
+        if should_repeat_lf:
+            repeat_result = self.run_safe_command("lf search", port=selected_port)
+            repeat_output = _combined_output(repeat_result)
+            raw_results = raw_results + (repeat_result,)
+            if repeat_output:
+                lf_search = parse_lf_search(repeat_output)
+                evidence_attempts.append(scan_attempt_from_lf("lf search", repeat_output))
+                evidence = evaluate_scan_evidence(tuple(evidence_attempts))
+
+        if evidence.is_ambiguous:
+            return HitagS256LiveReadResult(
+                "signal_unstable",
+                selected_port,
+                lf_search,
+                None,
+                _ambiguous_signal_message(evidence),
+                raw_results,
+                hf_search,
+                None,
+                None,
+                evidence,
+            )
+
+        detected = detect_technology(hf_search=hf_search, lf_search=lf_search) if evidence.is_confirmed else None
 
         if detected and detected.technology_id == "hitag_s_candidate":
             hitag_result = self.read_hitag_s256(selected_port)
@@ -315,10 +366,23 @@ class LivePm3ReadonlyService:
                 combined_raw,
                 hf_search,
                 full_detection or detected,
+                scan_evidence=evidence,
             )
 
         if detected and detected.technology_id == "indala":
-            return self.read_indala(selected_port, lf_search, hf_search, raw_results)
+            indala_result = self.read_indala(selected_port, lf_search, hf_search, raw_results)
+            return HitagS256LiveReadResult(
+                indala_result.status,
+                indala_result.port,
+                indala_result.lf_search,
+                indala_result.hitag_read,
+                indala_result.message,
+                indala_result.raw_results,
+                indala_result.hf_search,
+                indala_result.detected_technology,
+                indala_result.indala_read,
+                evidence,
+            )
 
         if detected:
             return HitagS256LiveReadResult(
@@ -330,6 +394,7 @@ class LivePm3ReadonlyService:
                 raw_results,
                 hf_search,
                 detected,
+                scan_evidence=evidence,
             )
 
         return HitagS256LiveReadResult(
@@ -341,6 +406,7 @@ class LivePm3ReadonlyService:
             raw_results,
             hf_search,
             None,
+            scan_evidence=evidence,
         )
 
     def run_safe_command(self, command: str, port: str | None = None) -> LiveCommandResult:
@@ -981,3 +1047,20 @@ def _stable_indala_read(reads: list[IndalaReadResult]) -> IndalaReadResult | Non
         if counts[key] >= 2:
             return by_key[key]
     return None
+
+
+def _ambiguous_signal_message(evidence: ScanEvidence) -> str:
+    reason_labels = {
+        "false_positive": "False-Positive-Hinweis",
+        "odd_size": "ungewoehnliche Bitgroesse",
+        "unstable_raw": "wechselnde Raw-Werte",
+        "unstable_bit_length": "wechselnde Bitlaenge",
+        "signal_weak": "schwaches Signal",
+    }
+    reasons = [reason_labels[warning] for warning in evidence.warnings if warning in reason_labels]
+    suffix = f" Grund: {', '.join(reasons)}." if reasons else ""
+    return (
+        "Chip-Signal erkannt. Chiptyp konnte noch nicht stabil bestimmt werden. "
+        "Bitte Chip mittig auflegen oder leicht verschieben und erneut scannen."
+        + suffix
+    )
