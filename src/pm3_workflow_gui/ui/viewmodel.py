@@ -18,7 +18,8 @@ from pm3_workflow_gui.services.discovery_facade import (
     UiDiscoverySummary,
     default_launch_config,
 )
-from pm3_workflow_gui.services.live_pm3_readonly import LivePm3ReadonlyService
+from pm3_workflow_gui.services.live_pm3_readonly import LivePm3ReadonlyService, PositioningCheckResult
+from pm3_workflow_gui.services.pm3_graph_viewer import LOCAL_GRAPH_WORKFLOW
 from pm3_workflow_gui.technologies.base import DetectedTechnology, TechnologyCapabilities
 from pm3_workflow_gui.technologies.registry import adapter_for, detect_technology
 from pm3_workflow_gui.workflows.hitag_s256 import profile_from_hitag_s_read
@@ -86,8 +87,8 @@ class HardwarePrepViewModel:
     ready: bool = False
     lf_antenna_status: str = "unknown"
     hf_antenna_status: str = "unknown"
-    diagram_available: bool = True
-    diagram_message: str = "Optional: LF-Positionsdiagramm in einem separaten PM3-Fenster öffnen. Im Diagrammfenster beendet Enter die Messung."
+    diagram_available: bool = LOCAL_GRAPH_WORKFLOW.enabled
+    diagram_message: str = LOCAL_GRAPH_WORKFLOW.failure_reason or "PM3-Diagramm lokal bestätigt."
 
 
 @dataclass(frozen=True)
@@ -265,6 +266,8 @@ def hardware_prep_from_check(check) -> HardwarePrepViewModel:
             ready=True,
             lf_antenna_status=check.lf_antenna_status,
             hf_antenna_status=check.hf_antenna_status,
+            diagram_available=LOCAL_GRAPH_WORKFLOW.enabled,
+            diagram_message=LOCAL_GRAPH_WORKFLOW.failure_reason or "Frequenzdiagramm lokal bestätigt.",
         )
     return HardwarePrepViewModel(
         title="Vorbereitung",
@@ -273,6 +276,8 @@ def hardware_prep_from_check(check) -> HardwarePrepViewModel:
         ready=False,
         lf_antenna_status=check.lf_antenna_status,
         hf_antenna_status=check.hf_antenna_status,
+        diagram_available=LOCAL_GRAPH_WORKFLOW.enabled,
+        diagram_message=LOCAL_GRAPH_WORKFLOW.failure_reason or "Frequenzdiagramm lokal bestätigt.",
     )
 
 
@@ -302,11 +307,11 @@ def chip_read_view_model_from_live_result(result) -> ChipReadViewModel:
         fields = _unstable_signal_fields(result)
         return ChipReadViewModel(
             "signal_unstable",
-            "Chip-Signal erkannt",
-            result.message or "Der Chiptyp konnte noch nicht stabil bestimmt werden. Bitte Chip leicht verschieben und erneut scannen.",
+            "Chip-Signal gefunden",
+            result.message or "Noch keine stabile Identifikation.",
             fields=fields,
             warnings=_evidence_warning_labels(getattr(result, "scan_evidence", None)),
-            next_step="Bitte Chip mittig auflegen oder leicht verschieben und erneut scannen.",
+            next_step="Position prüfen oder weiter messen.",
             technology=detection,
             capabilities=adapter_for(detection).capabilities if detection else None,
         )
@@ -322,6 +327,42 @@ def chip_read_view_model_from_live_result(result) -> ChipReadViewModel:
             result.message or "Bitte Chip mittig auflegen und erneut scannen.",
         )
     return ChipReadViewModel("error", "Scan nicht abgeschlossen", result.message or "Scan fehlgeschlagen")
+
+
+def chip_read_view_model_from_positioning_result(result: PositioningCheckResult) -> ChipReadViewModel:
+    if result.status == "stable_detected" and result.stable_candidate:
+        fields = [
+            ChipFieldViewModel("Technologie", _display_tag_type(result.stable_candidate.family)),
+            ChipFieldViewModel("Frequenz", result.stable_candidate.frequency.upper()),
+        ]
+        if result.stable_candidate.uid_or_raw_value:
+            fields.append(ChipFieldViewModel("UID / ID", result.stable_candidate.uid_or_raw_value))
+        if result.stable_candidate.chipset:
+            fields.append(ChipFieldViewModel("Chipset", result.stable_candidate.chipset))
+        return ChipReadViewModel(
+            "position_stable",
+            "Stabil erkannt",
+            "Der Kandidat wurde wiederholt gleich gemessen.",
+            fields=tuple(fields),
+            next_step=result.next_step or "Nächster Schritt: Details lesen",
+            technology=result.detected_technology,
+            capabilities=adapter_for(result.detected_technology).capabilities if result.detected_technology else None,
+        )
+    if result.status == "no_signal":
+        return ChipReadViewModel(
+            "no_chip",
+            "Kein Signal",
+            result.message or "Kein Signal erkannt.",
+            next_step=result.next_step or "Chip langsam über die Antenne bewegen.",
+        )
+    return ChipReadViewModel(
+        "signal_unstable",
+        "Chip-Signal gefunden",
+        "Die Daten sind noch nicht stabil genug.\nVerschiebe den Chip einige Millimeter oder drehe ihn leicht.",
+        fields=(ChipFieldViewModel("Signal", "vorhanden"),),
+        warnings=_evidence_warning_labels(result.scan_evidence),
+        next_step=result.next_step or "Weiter messen.",
+    )
 
 
 def validate_second_scan(first: ChipReadViewModel, second: ChipReadViewModel) -> TemplateValidationViewModel:

@@ -88,8 +88,8 @@ def test_hardware_check_ok_view_model():
     assert model.ready is True
     assert model.lf_antenna_status == "ok"
     assert model.hf_antenna_status == "ok"
-    assert model.diagram_available is True
-    assert "LF-Positionsdiagramm" in model.diagram_message
+    assert model.diagram_available is False
+    assert "kein separates PM3-/Qt-Fenster" in model.diagram_message
 
 
 def test_template_read_scan_1_scan_2_identical_and_save(tmp_path):
@@ -199,7 +199,7 @@ def test_indala_false_positive_does_not_start_indala_adapter_and_prompts_retry()
     assert result.status == "signal_unstable"
     assert result.detected_technology is None
     assert result.scan_evidence.state == "signal_detected_but_ambiguous"
-    assert model.title == "Chip-Signal erkannt"
+    assert model.title == "Chip-Signal gefunden"
     assert model.status == "signal_unstable"
     assert model.profile is None
     assert model.is_complete_template_read is False

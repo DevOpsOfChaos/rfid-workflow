@@ -8,6 +8,7 @@ from pm3_workflow_gui.ui.viewmodel import (
     ChipReadViewModel,
     TemplateValidationViewModel,
     build_write_plan_view_model,
+    chip_read_view_model_from_positioning_result,
     chip_read_view_model_from_live_result,
     hardware_prep_from_check,
     hardware_prep_initial,
@@ -182,7 +183,7 @@ class MainWindow(QMainWindow):
         self.prep_diagram.setAlignment(Qt.AlignCenter)
         self.prep_diagram.setWordWrap(True)
         self.prep_diagram_button = QPushButton("LF-Diagramm öffnen")
-        self.prep_diagram_button.clicked.connect(self._open_lf_tune_diagram)
+        self.prep_diagram_button.clicked.connect(self._open_frequency_diagram)
         enter = QAction(self)
         enter.setShortcut(QKeySequence(Qt.Key_Return))
         enter.triggered.connect(self.prep_button.click)
@@ -263,22 +264,30 @@ class MainWindow(QMainWindow):
         self.scan_button = QPushButton("Chip scannen")
         self.scan_button.setObjectName("primaryButton")
         self.scan_button.clicked.connect(self._scan_template_first)
+        self.position_button = QPushButton("Position prüfen")
+        self.position_button.clicked.connect(self._position_template)
         self.second_scan_button = QPushButton("Zweiten Scan durchführen")
         self.second_scan_button.clicked.connect(self._scan_template_second)
         self.second_scan_button.hide()
         self.save_template_button = QPushButton("Als Vorlage speichern")
         self.save_template_button.clicked.connect(self._save_template_dialog)
         self.save_template_button.hide()
+        self.template_graph_button = QPushButton("Frequenzdiagramm öffnen")
+        self.template_graph_button.clicked.connect(self._open_frequency_diagram)
+        self.template_graph_button.setEnabled(self.live_service.graph_viewer_available())
+        self.template_graph_button.hide()
         self.template_details_button = QPushButton("Technische Details")
         self.template_details_button.clicked.connect(self._show_technical_details)
         self.template_details_button.hide()
         action_row = QHBoxLayout()
         action_row.addWidget(self.scan_button)
+        action_row.addWidget(self.position_button)
         action_row.addWidget(self.second_scan_button)
         action_row.addWidget(self.save_template_button)
+        action_row.addWidget(self.template_graph_button)
         action_row.addWidget(self.template_details_button)
         action_row.addStretch(1)
-        self.template_message = QLabel("Automatische Erkennung ist aktiv.")
+        self.template_message = QLabel("Vorlage erstellen\nChip lesen und als Vorlage speichern")
         self.template_message.setObjectName("messagePanel")
         self.template_message.setWordWrap(True)
         self.template_table = QTableWidget(0, 3)
@@ -372,11 +381,11 @@ class MainWindow(QMainWindow):
         self.analysis_raw = QPlainTextEdit()
         self.analysis_raw.setReadOnly(True)
         cards = [
-            ("Chip erkennen", "Erkennt LF/HF und unterstützte Chiptypen.", True, self._analysis_chip_scan),
-            ("Beste Position finden", "Wiederholt sichere Scans und zeigt die Stabilitaet.", True, self._analysis_position_scan),
-            ("Antenne prüfen", "Prüft LF/HF ohne Chip.", True, self._start_hardware_check),
-            ("Frequenzdiagramm", "Startet lf tune --mix in einem eigenen Fenster.", True, self._open_lf_tune_diagram),
-            ("Technische Details", "Zeigt Rohdaten, Logs und Fehler.", True, self._show_technical_details),
+            ("Chip erkennen", "", True, self._analysis_chip_scan),
+            ("Position prüfen", "", True, self._analysis_position_scan),
+            ("Antenne prüfen", "", True, self._start_hardware_check),
+            ("Frequenzdiagramm öffnen", "", self.live_service.graph_viewer_available(), self._open_frequency_diagram),
+            ("Technische Details", "", True, self._show_technical_details),
         ]
         for index, (heading, text, enabled, callback) in enumerate(cards):
             card = self._analysis_card(heading, text, enabled, callback)
@@ -448,8 +457,10 @@ class MainWindow(QMainWindow):
         self._set_status("Scan läuft · Suche LF/HF-Chip")
         self.template_message.setText("Chip wird erkannt ...\nSuche HF ...\nSuche LF ...\nPruefe Signal ...")
         self.scan_button.setEnabled(False)
+        self.position_button.setEnabled(False)
         self.second_scan_button.hide()
         self.save_template_button.hide()
+        self.template_graph_button.hide()
         self.template_details_button.hide()
         self.template_table.hide()
         self.template_diff_table.hide()
@@ -457,6 +468,7 @@ class MainWindow(QMainWindow):
 
     def _template_first_finished(self, result, exc: Exception | None) -> None:
         self.scan_button.setEnabled(True)
+        self.position_button.setEnabled(True)
         if exc:
             self._scan_error(exc)
             return
@@ -467,6 +479,31 @@ class MainWindow(QMainWindow):
         self.second_scan_button.setVisible(model.is_complete_template_read)
         self.second_scan_button.setEnabled(model.is_complete_template_read)
         self.save_template_button.hide()
+        self._append_raw(result)
+
+    def _position_template(self) -> None:
+        self._set_status("Scan läuft · Position wird geprüft")
+        self.template_message.setText("Signal wird geprüft ...\nBewege den Chip langsam über die Antenne.")
+        self.scan_button.setEnabled(False)
+        self.position_button.setEnabled(False)
+        self.second_scan_button.hide()
+        self.save_template_button.hide()
+        self.template_graph_button.hide()
+        self.template_details_button.hide()
+        self.template_table.hide()
+        self.template_diff_table.hide()
+        self._run_worker(lambda: self.live_service.position_chip(self._port), self._position_finished)
+
+    def _position_finished(self, result, exc: Exception | None) -> None:
+        self.scan_button.setEnabled(True)
+        self.position_button.setEnabled(True)
+        if exc:
+            self._scan_error(exc)
+            return
+        model = chip_read_view_model_from_positioning_result(result)
+        self._first_scan = None
+        self._validation = None
+        self._render_chip_read(model)
         self._append_raw(result)
 
     def _scan_template_second(self) -> None:
@@ -514,19 +551,17 @@ class MainWindow(QMainWindow):
     def _analysis_position_scan(self) -> None:
         self.pages.setCurrentIndex(0)
         self.nav.setCurrentRow(0)
-        self._set_status("Scan läuft · Position wird geprüft")
-        self.template_message.setText("Chip wird erkannt ...\nPruefe Signal ...")
-        self.scan_button.setEnabled(False)
-        self._run_worker(lambda: self.live_service.read_chip(self._port), self._template_first_finished)
+        self._position_template()
 
-    def _open_lf_tune_diagram(self) -> None:
+    def _open_frequency_diagram(self) -> None:
+        self._set_status("Diagramm wird geöffnet ...")
         try:
-            launch = self.live_service.open_lf_tune_diagram(self._port)
+            launch = self.live_service.open_frequency_diagram(self._port)
         except Exception as exc:
-            QMessageBox.warning(self, "LF-Diagramm", str(exc))
-            self._set_status("LF-Diagramm konnte nicht gestartet werden")
+            QMessageBox.warning(self, "Frequenzdiagramm", str(exc))
+            self._set_status("Diagramm nicht verfügbar")
             return
-        self._set_status(f"LF-Diagramm geöffnet · {launch.port}")
+        self._set_status(f"Diagramm geöffnet · {launch.port}")
 
     def _show_technical_details(self) -> None:
         dialog = QDialog(self)
@@ -608,6 +643,9 @@ class MainWindow(QMainWindow):
         self.template_table.setVisible(show_details)
         self.template_diff_table.hide()
         self.template_details_button.setVisible(model.status == "signal_unstable")
+        self.template_graph_button.setVisible(model.status == "signal_unstable")
+        self.template_graph_button.setEnabled(self.live_service.graph_viewer_available())
+        self.position_button.setText("Weiter messen" if model.status == "signal_unstable" else "Position prüfen")
         self.scan_button.setText("Erneut scannen" if model.status in {"signal_unstable", "no_chip"} else "Chip scannen")
         if model.is_complete_template_read:
             self.second_scan_button.show()
@@ -639,7 +677,8 @@ class MainWindow(QMainWindow):
             self.analysis_summary.setText(
                 "Letzte Messung\n"
                 "LF-Signal: vorhanden\n"
-                "Chipfamilie: nicht stabil bestimmt\n"
+                "Identifikation: noch nicht stabil\n"
+                "Empfehlung: Chip langsam mittig bewegen oder leicht drehen\n"
                 f"Grund: {reasons}"
             )
         elif model.is_complete_template_read:

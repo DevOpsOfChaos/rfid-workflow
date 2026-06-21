@@ -5,6 +5,7 @@ from pm3_workflow_gui.services.live_pm3_readonly import (
     SAFE_INDALA_READ_COMMANDS,
     SAFE_LIVE_COMMANDS,
 )
+from pm3_workflow_gui.services.pm3_graph_viewer import Pm3GraphWorkflow
 from pm3_workflow_gui.ui.viewmodel import load_live_scan_view_model
 
 
@@ -55,7 +56,19 @@ def test_live_command_allowlist_allows_only_targeted_indala_reader():
         raise AssertionError("Indala clone command must be blocked")
 
 
-def test_lf_tune_diagram_starts_detached_cmd_window(monkeypatch):
+def test_frequency_diagram_is_disabled_without_confirmed_local_qt_window():
+    service = LivePm3ReadonlyService(runner=lambda args, timeout: LiveCommandResult("", 0, "", ""))
+
+    assert service.graph_viewer_available() is False
+    try:
+        service.open_frequency_diagram("COM16")
+    except RuntimeError as exc:
+        assert "deaktiviert" in str(exc)
+    else:
+        raise AssertionError("unconfirmed PM3 graph workflow must stay disabled")
+
+
+def test_frequency_diagram_starts_external_process_only_for_confirmed_allowlist(monkeypatch):
     launched = {}
 
     class FakeProcess:
@@ -66,17 +79,85 @@ def test_lf_tune_diagram_starts_detached_cmd_window(monkeypatch):
         launched["kwargs"] = kwargs
         return FakeProcess()
 
-    monkeypatch.setattr("pm3_workflow_gui.services.live_pm3_readonly.subprocess.Popen", fake_popen)
-    service = LivePm3ReadonlyService(runner=lambda args, timeout: LiveCommandResult("", 0, "", ""))
+    workflow = Pm3GraphWorkflow(
+        "lf_read_data_plot",
+        "lf read",
+        "data plot",
+        'proxmark3.exe <port> -c "lf read;data plot"',
+        opens_separate_window=True,
+        locally_confirmed=True,
+    )
+    monkeypatch.setattr("pm3_workflow_gui.services.pm3_graph_viewer.subprocess.Popen", fake_popen)
+    service = LivePm3ReadonlyService(
+        runner=lambda args, timeout: LiveCommandResult("", 0, "", ""),
+        graph_workflow=workflow,
+    )
 
-    launch = service.open_lf_tune_diagram("COM16")
+    launch = service.open_frequency_diagram("COM16")
 
     assert launch.pid == 4242
     assert launch.port == "COM16"
-    assert launched["args"][0:2] == ["cmd.exe", "/k"]
-    assert "lf tune --mix" in launched["args"][2]
-    assert "wrbl" not in launched["args"][2].lower()
+    assert launched["args"][-2:] == ["-c", "lf read;data plot"]
+    assert "wrbl" not in " ".join(launched["args"]).lower()
     assert launched["kwargs"]["cwd"] == service.client_dir
+
+
+def test_positioning_mode_no_signal_stops_after_hf_and_single_lf_probe():
+    calls = []
+
+    def runner(args, timeout):
+        text = " ".join(args)
+        calls.append(text)
+        if text.endswith(" -c hf search"):
+            return LiveCommandResult(text, 0, "[!] No known/supported 13.56 MHz tags found\n", "")
+        if text.endswith(" -c lf search"):
+            return LiveCommandResult(text, 0, "[!] No known/supported 125/134 kHz tags found\n", "")
+        return LiveCommandResult(text, 1, "", "unexpected")
+
+    result = LivePm3ReadonlyService(runner=runner).position_chip("COM16", pause_seconds=0)
+
+    assert result.status == "no_signal"
+    assert sum(call.endswith(" -c lf search") for call in calls) == 1
+
+
+def test_positioning_mode_weak_signal_retries_until_maximum():
+    calls = []
+
+    def runner(args, timeout):
+        text = " ".join(args)
+        calls.append(text)
+        if text.endswith(" -c hf search"):
+            return LiveCommandResult(text, 0, "[!] No known/supported 13.56 MHz tags found\n", "")
+        if text.endswith(" -c lf search"):
+            return LiveCommandResult(text, 0, "[-] Couldn't identify a chipset\n[?] Hint: try `hf search` - since tag might not be LF\n", "")
+        return LiveCommandResult(text, 1, "", "unexpected")
+
+    result = LivePm3ReadonlyService(runner=runner).position_chip("COM16", max_lf_attempts=3, pause_seconds=0)
+
+    assert result.status == "signal_present"
+    assert result.scan_evidence.state == "signal_detected_but_ambiguous"
+    assert sum(call.endswith(" -c lf search") for call in calls) == 3
+
+
+def test_positioning_mode_repeated_stable_candidate_does_not_run_detail_reader():
+    calls = []
+    lf_output = "[+] UID.................... D2 DF E4 94\n[+] TYPE................... PCF 7945\n[+] Chipset................ Hitag 1/S / 82xx\n"
+
+    def runner(args, timeout):
+        text = " ".join(args)
+        calls.append(text)
+        if text.endswith(" -c hf search"):
+            return LiveCommandResult(text, 0, "[!] No known/supported 13.56 MHz tags found\n", "")
+        if text.endswith(" -c lf search"):
+            return LiveCommandResult(text, 0, lf_output, "")
+        return LiveCommandResult(text, 1, "", "unexpected")
+
+    result = LivePm3ReadonlyService(runner=runner).position_chip("COM16", pause_seconds=0)
+
+    assert result.status == "stable_detected"
+    assert result.stable_candidate.uid_or_raw_value == "D2DFE494"
+    assert sum(call.endswith(" -c lf search") for call in calls) == 2
+    assert not any("lf hitag hts" in call for call in calls)
 
 
 def test_hitag_write_refuses_uid_page():

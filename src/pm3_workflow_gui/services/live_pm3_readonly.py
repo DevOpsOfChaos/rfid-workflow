@@ -30,8 +30,16 @@ from pm3_workflow_gui.services.capture import (
     normalize_pm3_command,
 )
 from pm3_workflow_gui.services.discovery_facade import DiscoveryTextInputs, default_launch_config
+from pm3_workflow_gui.services.pm3_graph_viewer import (
+    LOCAL_GRAPH_WORKFLOW,
+    Pm3GraphLaunch,
+    Pm3GraphViewer,
+    Pm3GraphWorkflow,
+)
 from pm3_workflow_gui.services.scan_evidence import (
     ScanEvidence,
+    ScanAttempt,
+    TechnologyCandidate,
     evaluate_scan_evidence,
     scan_attempt_from_hf,
     scan_attempt_from_lf,
@@ -107,6 +115,18 @@ class Pm3DetachedLaunch:
 
 
 @dataclass(frozen=True)
+class PositioningCheckResult:
+    status: str
+    port: str | None = None
+    message: str = ""
+    raw_results: tuple[LiveCommandResult, ...] = ()
+    scan_evidence: ScanEvidence | None = None
+    detected_technology: DetectedTechnology | None = None
+    stable_candidate: TechnologyCandidate | None = None
+    next_step: str = ""
+
+
+@dataclass(frozen=True)
 class HitagS256WriteResult:
     success: bool
     page: int
@@ -157,6 +177,7 @@ class LivePm3ReadonlyService:
         runner: Runner | None = None,
         timeout_seconds: int = 45,
         probe_timeout_seconds: int = 6,
+        graph_workflow: Pm3GraphWorkflow = LOCAL_GRAPH_WORKFLOW,
     ) -> None:
         config = default_launch_config()
         self.client_dir = Path(client_dir) if client_dir else config.client_dir
@@ -164,6 +185,7 @@ class LivePm3ReadonlyService:
         self.runner = runner or self._run_subprocess
         self.timeout_seconds = timeout_seconds
         self.probe_timeout_seconds = probe_timeout_seconds
+        self.graph_workflow = graph_workflow
 
     def connection_status(self) -> Pm3ConnectionStatus:
         result = self.runner(self._pm3_args("--list"), self.probe_timeout_seconds)
@@ -226,25 +248,34 @@ class LivePm3ReadonlyService:
         )
 
     def open_lf_tune_diagram(self, port: str | None = None) -> Pm3DetachedLaunch:
+        launch = self.open_frequency_diagram(port)
+        return Pm3DetachedLaunch(
+            command=launch.command,
+            pid=launch.pid,
+            port=launch.port,
+            description="PM3 frequency diagram",
+        )
+
+    def graph_viewer_workflow(self) -> Pm3GraphWorkflow:
+        return self.graph_workflow
+
+    def graph_viewer_available(self) -> bool:
+        return self.graph_workflow.enabled
+
+    def open_frequency_diagram(self, port: str | None = None) -> Pm3GraphLaunch:
         selected_port = port
         if selected_port is None:
             status = self.connection_status()
             if not status.connected:
                 raise RuntimeError(status.last_error or DEVICE_NOT_FOUND_ERROR)
             selected_port = status.ports[0]
-        command = self._lf_tune_window_args(selected_port)
-        process = subprocess.Popen(
-            command,
-            cwd=self.client_dir,
-            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
-            close_fds=True,
+        viewer = Pm3GraphViewer(
+            self.client_dir,
+            self.proxmark_exe,
+            self.graph_workflow,
+            env=self._proxmark_env(),
         )
-        return Pm3DetachedLaunch(
-            command=tuple(command),
-            pid=process.pid,
-            port=selected_port,
-            description="LF tuning diagram",
-        )
+        return viewer.launch(selected_port)
 
     def capture(self, include_hitag_read: bool = False) -> CaptureResult:
         status = self.connection_status()
@@ -407,6 +438,74 @@ class LivePm3ReadonlyService:
             hf_search,
             None,
             scan_evidence=evidence,
+        )
+
+    def position_chip(self, port: str | None = None, max_lf_attempts: int = 6, pause_seconds: float = 0.2) -> PositioningCheckResult:
+        if max_lf_attempts < 1:
+            raise ValueError("max_lf_attempts must be at least 1")
+        selected_port = port
+        if selected_port is None:
+            status = self.connection_status()
+            if not status.connected:
+                return PositioningCheckResult("device_lost", message=status.last_error or DEVICE_NOT_FOUND_ERROR)
+            selected_port = status.ports[0]
+
+        raw_results: list[LiveCommandResult] = []
+        attempts: list[ScanAttempt] = []
+
+        hf_result = self.run_safe_command("hf search", port=selected_port)
+        raw_results.append(hf_result)
+        hf_output = _combined_output(hf_result)
+        hf_search = parse_hf_search(hf_output) if hf_output else None
+        if hf_output:
+            attempts.append(scan_attempt_from_hf("hf search", hf_output))
+
+        lf_search: LfSearchResult | None = None
+        for index in range(max_lf_attempts):
+            lf_result = self.run_safe_command("lf search", port=selected_port)
+            raw_results.append(lf_result)
+            lf_output = _combined_output(lf_result)
+            if lf_output:
+                lf_search = parse_lf_search(lf_output)
+                attempts.append(scan_attempt_from_lf("lf search", lf_output))
+
+            stable_candidate = _stable_position_candidate(tuple(attempts))
+            evidence = evaluate_scan_evidence(tuple(attempts))
+            if stable_candidate:
+                detected = detect_technology(hf_search=hf_search, lf_search=lf_search) if stable_candidate.confirmed else None
+                return PositioningCheckResult(
+                    "stable_detected",
+                    selected_port,
+                    "Stabil erkannt",
+                    tuple(raw_results),
+                    evidence,
+                    detected,
+                    stable_candidate,
+                    "Nächster Schritt: Details lesen",
+                )
+            if not _should_continue_positioning(evidence):
+                break
+            if index < max_lf_attempts - 1:
+                time.sleep(pause_seconds)
+
+        evidence = evaluate_scan_evidence(tuple(attempts))
+        if evidence.state == "no_chip_detected":
+            return PositioningCheckResult(
+                "no_signal",
+                selected_port,
+                "Kein Signal",
+                tuple(raw_results),
+                evidence,
+                next_step="Chip langsam über die Antenne bewegen.",
+            )
+        return PositioningCheckResult(
+            "signal_present",
+            selected_port,
+            "Chip-Signal gefunden. Die Daten sind noch nicht stabil genug. Verschiebe den Chip einige Millimeter oder drehe ihn leicht.",
+            tuple(raw_results),
+            evidence,
+            stable_candidate=evidence.candidate,
+            next_step="Weiter messen oder Chip leicht verschieben.",
         )
 
     def run_safe_command(self, command: str, port: str | None = None) -> LiveCommandResult:
@@ -653,13 +752,6 @@ class LivePm3ReadonlyService:
 
     def _proxmark_args(self, port: str, command: str) -> list[str]:
         return [str(self.proxmark_exe), port, "-c", command]
-
-    def _lf_tune_window_args(self, port: str) -> list[str]:
-        command = (
-            f'title PM3 LF tuning diagram && cd /d "{self.client_dir}" '
-            f'&& call setup.bat && "{self.proxmark_exe}" {port} -c "lf tune --mix"'
-        )
-        return ["cmd.exe", "/k", command]
 
     def _run_subprocess(self, args: list[str], timeout_seconds: int) -> LiveCommandResult:
         if "lf hitag hts reader -@" in " ".join(args).lower():
@@ -1033,6 +1125,62 @@ def _has_hitag_candidate_evidence(search: LfSearchResult | None) -> bool:
         value and "hitag" in value.lower()
         for value in (search.tag_type, search.chipset, search.hint)
     )
+
+
+def _stable_position_candidate(attempts: tuple[ScanAttempt, ...]) -> TechnologyCandidate | None:
+    counts: dict[tuple[str, str, str, int | None], int] = {}
+    by_key: dict[tuple[str, str, str, int | None], ScanAttempt] = {}
+    for attempt in attempts:
+        if not attempt.candidate_family or _position_attempt_is_unstable(attempt):
+            continue
+        if attempt.frequency == "hf" and attempt.uid_or_raw_value:
+            return TechnologyCandidate(
+                attempt.candidate_family,
+                attempt.frequency,
+                attempt.uid_or_raw_value,
+                attempt.bit_length,
+                attempt.chipset,
+                "high",
+                True,
+            )
+        if attempt.frequency != "lf" or not attempt.uid_or_raw_value:
+            continue
+        key = (attempt.frequency, attempt.candidate_family, attempt.uid_or_raw_value, attempt.bit_length)
+        counts[key] = counts.get(key, 0) + 1
+        by_key[key] = attempt
+        if counts[key] >= 2:
+            stable = by_key[key]
+            return TechnologyCandidate(
+                stable.candidate_family,
+                stable.frequency,
+                stable.uid_or_raw_value,
+                stable.bit_length,
+                stable.chipset,
+                "high",
+                True,
+            )
+    return None
+
+
+def _should_continue_positioning(evidence: ScanEvidence) -> bool:
+    if evidence.state == "device_lost":
+        return False
+    if evidence.state == "no_chip_detected":
+        return False
+    return any(
+        attempt.frequency == "lf"
+        and (
+            attempt.candidate_family is not None
+            or "signal_weak" in attempt.warnings
+            or "false_positive" in attempt.warnings
+            or "odd_size" in attempt.warnings
+        )
+        for attempt in evidence.attempts
+    )
+
+
+def _position_attempt_is_unstable(attempt: ScanAttempt) -> bool:
+    return bool({"false_positive", "odd_size", "unstable_raw", "unstable_bit_length", "signal_weak"} & set(attempt.warnings))
 
 
 def _stable_indala_read(reads: list[IndalaReadResult]) -> IndalaReadResult | None:
