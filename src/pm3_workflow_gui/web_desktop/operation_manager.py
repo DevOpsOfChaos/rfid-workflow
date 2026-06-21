@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from threading import Lock, Thread
-from typing import Callable
+from typing import Any, Callable
 from uuid import uuid4
 
 
@@ -18,7 +18,7 @@ class VerificationFailedError(RuntimeError):
     """Raised when a write completed but the required re-read did not match."""
 
 
-ProgressCallback = Callable[[str], None]
+ProgressCallback = Callable[[str | dict[str, Any]], None]
 OperationCallback = Callable[[ProgressCallback], dict]
 
 
@@ -29,6 +29,7 @@ class Operation:
     state: str = "queued"
     message: str = "Wartet ..."
     progress: list[str] = field(default_factory=list)
+    details: dict[str, Any] = field(default_factory=dict)
     result: dict | None = None
     error: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -41,6 +42,7 @@ class Operation:
             "state": self.state,
             "message": self.message,
             "progress": list(self.progress),
+            "details": dict(self.details),
             "result": self.result,
             "error": self.error,
             "created_at": self.created_at,
@@ -80,7 +82,7 @@ class OperationManager:
     def _run(self, operation_id: str, callback: OperationCallback) -> None:
         self._set_running(operation_id)
 
-        def progress(message: str) -> None:
+        def progress(message: str | dict[str, Any]) -> None:
             self._set_progress(operation_id, message)
 
         try:
@@ -102,9 +104,15 @@ class OperationManager:
             operation.message = "Operation läuft ..."
             operation.updated_at = _now()
 
-    def _set_progress(self, operation_id: str, message: str) -> None:
+    def _set_progress(self, operation_id: str, payload: str | dict[str, Any]) -> None:
         with self._lock:
             operation = self._operations[operation_id]
+            if isinstance(payload, dict):
+                message = str(payload.get("message") or operation.message)
+                details = {key: value for key, value in payload.items() if key != "message"}
+                operation.details.update(details)
+            else:
+                message = payload
             operation.message = message
             operation.progress.append(message)
             operation.updated_at = _now()

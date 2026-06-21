@@ -9,7 +9,7 @@ import re
 import shutil
 from typing import Any
 
-from pm3_workflow_gui.pm3.parsers import parse_hf_search
+from pm3_workflow_gui.pm3.parsers import parse_hf_search, parse_hw_tune
 from pm3_workflow_gui.profiles.backups import (
     BackupRecord,
     default_backup_dir,
@@ -37,6 +37,7 @@ from pm3_workflow_gui.ui.viewmodel import (
     ChipReadViewModel,
     build_write_plan_view_model,
     chip_read_view_model_from_live_result,
+    chip_read_view_model_from_positioning_result,
     validate_second_scan,
 )
 from pm3_workflow_gui.web_desktop.operation_manager import (
@@ -238,8 +239,29 @@ class WebDesktopBridge:
         operation_id = self.operations.start("write_region", lambda progress: self._write_region_operation(region_id, progress))
         return {"operation_id": operation_id}
 
+    def start_write_all(self) -> dict:
+        operation_id = self.operations.start("write_all", self._write_all_operation)
+        return {"operation_id": operation_id}
+
     def get_write_operation_state(self, operation_id: str) -> dict:
         return self.get_operation_state(operation_id)
+
+    def start_position_check(self) -> dict:
+        operation_id = self.operations.start("position_check", self._position_operation)
+        return {"operation_id": operation_id}
+
+    def start_antenna_check(self) -> dict:
+        operation_id = self.operations.start("antenna_check", self._antenna_operation)
+        return {"operation_id": operation_id}
+
+    def get_technical_details(self) -> dict:
+        snapshot = self.state.snapshot()
+        chip = snapshot["current_chip"] or snapshot["last_scan"]
+        return {
+            "ok": True,
+            "details": chip.details if hasattr(chip, "details") else _technical_details_payload(chip),
+            "chip": _chip_payload(chip),
+        }
 
     def _scan_operation(self, mode: str, progress) -> dict:
         mode = _normalize_mode(mode)
@@ -330,6 +352,128 @@ class WebDesktopBridge:
             "verification_value": _compact(result.verification_value),
             "chip": _chip_payload(verified),
             "comparison": self.compare_current_to_target().get("comparison"),
+        }
+
+    def _write_all_operation(self, progress) -> dict:
+        snapshot = self.state.snapshot()
+        current = snapshot["current_chip"]
+        target = snapshot["target"]
+        if current is None or current.profile is None:
+            raise ValueError("Kein aktueller Hitag-S256-Read vorhanden.")
+        target_profile = _target_profile(target)
+        target_id = _target_id(target)
+        if target_profile is None or target_id is None:
+            raise ValueError("Kein Zielzustand ausgewaehlt.")
+
+        plan = build_write_plan_view_model(current.profile, target_profile)
+        actions = tuple(action for action in plan.disabled_actions if action.enabled and action.page != 0)
+        if not plan.compatible:
+            raise ValueError("Zielzustand ist nicht kompatibel.")
+        if not actions:
+            return {
+                "ok": True,
+                "message": "Keine offenen Unterschiede",
+                "completed_regions": [],
+                "comparison": _comparison_payload(plan),
+            }
+
+        check = self._verify_connection(progress)
+        current_model = current
+        completed: list[str] = []
+        total = len(actions)
+        for index, action in enumerate(actions, start=1):
+            if action.page is None:
+                continue
+            region_id = f"page_{action.page}"
+            label = _write_label(action.page)
+            progress(
+                {
+                    "message": f"{index - 1} / {total} Bereiche uebernommen · {label} wird geschrieben ...",
+                    "active_region": region_id,
+                    "completed_regions": list(completed),
+                    "completed_steps": index - 1,
+                    "total_steps": total,
+                }
+            )
+            if current_model.profile is None:
+                raise VerificationFailedError(f"{label} konnte nicht verifiziert werden. Ablauf angehalten.")
+            result = self.service.write_hitag_s256_page(
+                action.page,
+                current_model.profile.pages[action.page],
+                target_profile.pages[action.page],
+                target_id,
+                current_model.profile.uid,
+                check.port,
+            )
+            self._raise_if_device_lost(result.verify_result)
+            verified = chip_read_view_model_from_live_result(result.verify_result)
+            if verified.profile is not None:
+                self.state.set_current_chip(verified, snapshot["current_backup"])
+                current_model = verified
+            if not result.success:
+                progress(
+                    {
+                        "message": f"{label} konnte nicht verifiziert werden. Ablauf angehalten.",
+                        "active_region": None,
+                        "failed_region": region_id,
+                        "completed_regions": list(completed),
+                        "completed_steps": len(completed),
+                        "total_steps": total,
+                    }
+                )
+                raise VerificationFailedError(f"{label} konnte nicht verifiziert werden. Ablauf angehalten.")
+            completed.append(region_id)
+            progress(
+                {
+                    "message": f"{index} / {total} Bereiche uebernommen · {label} verifiziert",
+                    "active_region": None,
+                    "completed_regions": list(completed),
+                    "completed_steps": index,
+                    "total_steps": total,
+                }
+            )
+
+        final_comparison = self.compare_current_to_target().get("comparison")
+        return {
+            "ok": True,
+            "message": "Alle Unterschiede uebernommen und verifiziert",
+            "completed_regions": completed,
+            "comparison": final_comparison,
+            "chip": self.get_current_chip().get("chip"),
+        }
+
+    def _position_operation(self, progress) -> dict:
+        check = self._verify_connection(progress)
+        progress("Position wird mit echten Read-only-Messungen geprueft ...")
+        result = self.service.position_chip(check.port, max_lf_attempts=6)
+        if result.status == "device_lost":
+            self.state.mark_connection_lost(result.message or "Verbindung verloren")
+            raise ConnectionLostError(result.message or "Verbindung verloren")
+        model = chip_read_view_model_from_positioning_result(result)
+        return {
+            "ok": True,
+            "message": result.message or model.message,
+            "position": {
+                "status": result.status,
+                "title": model.title,
+                "message": model.message,
+                "fields": [_field_payload(field) for field in model.fields],
+                "next_step": model.next_step,
+                "history": _position_history(result),
+            },
+        }
+
+    def _antenna_operation(self, progress) -> dict:
+        check = self._verify_connection(progress)
+        progress("Antennenpruefung laeuft ...")
+        hardware = self.service.hardware_check(check.port)
+        if not hardware.ok and hardware.message == "No Proxmark3 port found":
+            self.state.mark_connection_lost(hardware.message)
+            raise ConnectionLostError(hardware.message)
+        return {
+            "ok": hardware.ok,
+            "message": hardware.message or "Antennenpruefung abgeschlossen",
+            "antenna": _antenna_payload(hardware),
         }
 
     def _verify_connection(self, progress) -> Pm3StartupCheck:
@@ -475,17 +619,17 @@ def _scan_payload(
         "second_scan_status": second_status,
         "warnings": list(scan.warnings),
         "next_step": scan.next_step,
-        "chip": _chip_payload(scan),
+        "chip": _chip_payload(scan, second_scan_status=second_status),
     }
 
 
-def _chip_payload(scan: ChipReadViewModel | None) -> dict | None:
+def _chip_payload(scan: ChipReadViewModel | None, second_scan_status: str = "nicht bestaetigt") -> dict | None:
     if scan is None:
         return None
     if scan.profile is not None:
         technology_name = scan.technology.technology_name if scan.technology else "Hitag S256"
         frequency = scan.technology.frequency if scan.technology else "lf"
-        return _chip_from_profile(scan.profile, technology_name, frequency, scan.profile.created_at, "nicht bestaetigt")
+        return _chip_from_profile(scan.profile, technology_name, frequency, scan.profile.created_at, second_scan_status)
     fields = {field.label.lower(): field.value for field in scan.fields}
     uid = _value_by_label(scan.fields, ("UID", "UID / ID"))
     frequency = scan.technology.frequency.upper() if scan.technology else fields.get("bereich", "")
@@ -502,7 +646,7 @@ def _chip_payload(scan: ChipReadViewModel | None) -> dict | None:
             "Chipfamilie": technology,
             "Frequenz": frequency,
             "UID": _compact(uid) or "",
-            "Status zweiter Scan": "nicht bestaetigt",
+            "Status zweiter Scan": second_scan_status,
         },
         "read_status": scan.read_status,
         "support_level": scan.support_level,
@@ -621,6 +765,81 @@ def _backup_payload_from_record(record: BackupRecord | None) -> dict | None:
         "created_display": _display_datetime(record.created_at),
         "chip": _chip_from_profile(record.profile, record.technology_name, record.frequency, record.created_at, "Backup"),
     }
+
+
+def _technical_details_payload(chip: ChipReadViewModel | None) -> dict:
+    if chip is None:
+        return {}
+    payload = {
+        "Status": chip.status,
+        "Meldung": chip.message,
+        "Read-Status": chip.read_status,
+        "Support": chip.support_level,
+    }
+    if chip.technology is not None:
+        payload.update(
+            {
+                "Chipfamilie": chip.technology.technology_name,
+                "Frequenz": chip.technology.frequency.upper(),
+                "UID": _compact(chip.technology.uid),
+            }
+        )
+    for field in chip.fields:
+        payload[field.label] = field.value
+    return {key: value for key, value in payload.items() if value}
+
+
+def _position_history(result) -> list[dict]:
+    evidence = getattr(result, "scan_evidence", None)
+    attempts = getattr(evidence, "attempts", ()) if evidence else ()
+    history = []
+    for index, attempt in enumerate(attempts, start=1):
+        if getattr(attempt, "candidate_family", None):
+            status = "Chip stabil erkannt" if result.status == "stable_detected" and index == len(attempts) else "Signal vorhanden"
+        elif getattr(attempt, "frequency", ""):
+            status = "Signal nicht erkannt"
+        else:
+            status = "Messung ohne Ergebnis"
+        history.append(
+            {
+                "label": f"Messung {index}",
+                "frequency": getattr(attempt, "frequency", "").upper(),
+                "status": status,
+            }
+        )
+    return history
+
+
+def _antenna_payload(hardware) -> dict:
+    output = _combined_output(hardware.hw_tune) if hardware.hw_tune else ""
+    tune = parse_hw_tune(output) if output else None
+    return {
+        "ok": hardware.ok,
+        "port": hardware.port,
+        "lf": {
+            "status": hardware.lf_antenna_status,
+            "voltage_125khz": _format_voltage(tune.lf_125khz_voltage if tune else None),
+            "voltage_134_83khz": _format_voltage(tune.lf_134_83khz_voltage if tune else None),
+            "optimal_frequency": _format_frequency(tune.lf_optimal_frequency_khz if tune else None, "kHz"),
+            "optimal_voltage": _format_voltage(tune.lf_optimal_voltage if tune else None),
+        },
+        "hf": {
+            "status": hardware.hf_antenna_status,
+            "voltage_13_56mhz": _format_voltage(tune.hf_13_56mhz_voltage if tune else None),
+        },
+    }
+
+
+def _format_voltage(value: float | None) -> str:
+    if value is None:
+        return ""
+    return f"{value:.2f} V".replace(".", ",")
+
+
+def _format_frequency(value: float | None, unit: str) -> str:
+    if value is None:
+        return ""
+    return f"{value:.2f} {unit}".replace(".", ",")
 
 
 def _target_profile(target: TargetSnapshot | None) -> HitagS256Profile | None:
