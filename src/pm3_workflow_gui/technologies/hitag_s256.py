@@ -5,6 +5,8 @@ from pm3_workflow_gui.technologies.base import (
     ChipField,
     ChipReadResult,
     DetectedTechnology,
+    READ_STATUS_FULL_SUPPORTED_READ,
+    READ_STATUS_SIGNAL_UNSTABLE,
     TechnologyCapabilities,
 )
 from pm3_workflow_gui.workflows.hitag_s256 import profile_from_hitag_s_read
@@ -17,24 +19,28 @@ class HitagS256Adapter:
     capabilities = TechnologyCapabilities(
         can_detect=True,
         can_read_identity=True,
-        can_read_details=True,
+        can_read_public_details=True,
+        can_read_memory=True,
         can_create_template=True,
         can_compare_template=True,
         can_plan_write=True,
-        can_write=False,
+        can_write=True,
     )
 
     def read_result(self, detection: DetectedTechnology, raw_read: object | None = None) -> ChipReadResult:
         if not isinstance(raw_read, HitagSRead) or not raw_read.is_hitag_s256_plain_no_auth:
             return ChipReadResult(
-                status="retry",
+                status=READ_STATUS_SIGNAL_UNSTABLE,
                 technology=detection,
                 capabilities=self.capabilities,
                 message="Chip erkannt, aber Signal ist zu schwach für einen stabilen Detail-Read. Bitte Position leicht verändern und erneut scannen.",
+                read_status=READ_STATUS_SIGNAL_UNSTABLE,
+                support_level="full_supported_read",
+                next_step="Chip leicht verschieben und erneut scannen.",
                 raw_read=raw_read,
             )
         profile = profile_from_hitag_s_read(raw_read)
-        fields = (
+        identity_fields = (
             ChipField("Chiptyp", "Hitag S256"),
             ChipField("Bereich", "LF"),
             ChipField("UID", _compact_display(raw_read.uid), "Nur Referenz · nicht schreibbar"),
@@ -43,12 +49,25 @@ class HitagS256Adapter:
             ChipField("TTF-Modus", _mode_label(raw_read.ttf_mode)),
             ChipField("Blöcke 4-7", _memory_ranges(profile.writable_data_pages)),
         )
+        memory_fields = tuple(
+            ChipField(f"Block {page}", _compact_display(profile.pages[page]), "Datenbereich")
+            for page in sorted(profile.writable_data_pages)
+        )
+        public_configuration = (
+            ChipField("Config Page 1", _compact_display(profile.config_page()), "Konfiguration · zuletzt schreiben"),
+        )
         return ChipReadResult(
-            status="complete",
+            status=READ_STATUS_FULL_SUPPORTED_READ,
             technology=detection,
             capabilities=self.capabilities,
             message="Bitte denselben Chip erneut scannen, um die Werte zu bestätigen.",
-            fields=fields,
+            fields=identity_fields,
+            memory_sections=memory_fields,
+            public_configuration=public_configuration,
+            warnings=("UID Page 0 wird nie geschrieben.",),
+            next_step="Zweiten Scan durchführen oder als Zielchip read-only vergleichen.",
+            read_status=READ_STATUS_FULL_SUPPORTED_READ,
+            support_level="full_supported_read",
             raw_read=raw_read,
             template_payload=profile,
         )
@@ -63,8 +82,9 @@ def hitag_s256_detection(uid: str | None = None, confidence: str = "high") -> De
         chipset="Hitag S 256",
         uid=uid,
         confidence=confidence,
-        support_level="full_readonly",
+        support_level="full_supported_read",
         source="hitag_rdbl",
+        read_status=READ_STATUS_FULL_SUPPORTED_READ,
     )
 
 

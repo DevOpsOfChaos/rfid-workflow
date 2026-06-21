@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from pm3_workflow_gui.pm3.parsers import HfSearchResult, HitagReaderResult, HitagSRead, LfSearchResult
-from pm3_workflow_gui.technologies.base import DetectedTechnology, TechnologyAdapter
+from pm3_workflow_gui.technologies.base import (
+    DetectedTechnology,
+    READ_STATUS_DETECTED_ONLY,
+    READ_STATUS_IDENTITY_READ,
+    READ_STATUS_PUBLIC_DETAILS_READ,
+    READ_STATUS_SIGNAL_UNSTABLE,
+    READ_STATUS_NOT_SUPPORTED_YET,
+    TechnologyAdapter,
+)
 from pm3_workflow_gui.technologies.generic import GenericDetectedChipAdapter
 from pm3_workflow_gui.technologies.hitag_s256 import HitagS256Adapter, hitag_s256_detection
 
@@ -36,6 +44,7 @@ def detect_technology(
             support_level="candidate",
             source="hitag_reader",
             status="unstable",
+            read_status=READ_STATUS_SIGNAL_UNSTABLE,
         )
     if lf_search and lf_search.classification == "hitag_candidate":
         return DetectedTechnology(
@@ -48,6 +57,7 @@ def detect_technology(
             confidence="medium" if lf_search.uid else "low",
             support_level="candidate",
             source="lf_search",
+            read_status=READ_STATUS_DETECTED_ONLY,
         )
     if lf_search and lf_search.classification not in {"unknown", "no_tag_found"}:
         return DetectedTechnology(
@@ -60,6 +70,7 @@ def detect_technology(
             confidence=_lf_confidence(lf_search),
             support_level="basic_detection",
             source="lf_search",
+            read_status=READ_STATUS_IDENTITY_READ if lf_search.uid else READ_STATUS_PUBLIC_DETAILS_READ,
         )
     if hf_search and hf_search.status == "tag_found":
         return DetectedTechnology(
@@ -72,6 +83,7 @@ def detect_technology(
             confidence=hf_search.confidence or "medium",
             support_level="basic_detection",
             source="hf_search",
+            read_status=READ_STATUS_IDENTITY_READ if hf_search.uid else READ_STATUS_PUBLIC_DETAILS_READ,
         )
     if lf_search and lf_search.identification_status == "no_chipset":
         return DetectedTechnology(
@@ -84,6 +96,7 @@ def detect_technology(
             confidence="low",
             support_level="basic_detection",
             source="lf_search",
+            read_status=READ_STATUS_NOT_SUPPORTED_YET,
         )
     if hf_search and hf_search.status not in {"unknown", "no_tag_found", "device_lost", "command_failed"}:
         return DetectedTechnology(
@@ -94,6 +107,7 @@ def detect_technology(
             confidence="low",
             support_level="basic_detection",
             source="hf_search",
+            read_status=READ_STATUS_NOT_SUPPORTED_YET,
         )
     return None
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -32,6 +34,7 @@ from pm3_workflow_gui.technologies.registry import detect_technology
 
 SAFE_LIVE_COMMANDS = ("hw version", "hw tune", "hf search", "lf search")
 SAFE_HITAG_READ_COMMANDS = ("lf hitag hts reader -@", "lf hitag hts rdbl -p 0 -c 8")
+SAFE_HITAG_WRITE_PAGES = frozenset({1, 4, 5, 6, 7})
 DEVICE_NOT_FOUND_ERROR = "No Proxmark3 port found"
 DEVICE_RECONNECT_MESSAGE = "USB reconnect required. Reconnect the Proxmark and restart the session."
 COMMAND_EXECUTION_FAILED = "Proxmark port was found, but PM3 command execution failed."
@@ -83,6 +86,27 @@ class Pm3HardwareCheck:
     hf_antenna_status: str = "unknown"
     message: str = ""
     hw_tune: LiveCommandResult | None = None
+
+
+@dataclass(frozen=True)
+class Pm3DetachedLaunch:
+    command: tuple[str, ...]
+    pid: int | None
+    port: str
+    description: str
+
+
+@dataclass(frozen=True)
+class HitagS256WriteResult:
+    success: bool
+    page: int
+    old_value: str
+    new_value: str
+    verification_value: str | None
+    message: str
+    write_result: LiveCommandResult
+    verify_result: HitagS256LiveReadResult
+    audit_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +210,27 @@ class LivePm3ReadonlyService:
             hf_antenna_status=parsed.hf_antenna_status or "unknown",
             message="LF/HF geprüft" if ok else "Antenne prüfen: LF/HF nicht eindeutig ok",
             hw_tune=hw_tune,
+        )
+
+    def open_lf_tune_diagram(self, port: str | None = None) -> Pm3DetachedLaunch:
+        selected_port = port
+        if selected_port is None:
+            status = self.connection_status()
+            if not status.connected:
+                raise RuntimeError(status.last_error or DEVICE_NOT_FOUND_ERROR)
+            selected_port = status.ports[0]
+        command = self._lf_tune_window_args(selected_port)
+        process = subprocess.Popen(
+            command,
+            cwd=self.client_dir,
+            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+            close_fds=True,
+        )
+        return Pm3DetachedLaunch(
+            command=tuple(command),
+            pid=process.pid,
+            port=selected_port,
+            description="LF tuning diagram",
         )
 
     def capture(self, include_hitag_read: bool = False) -> CaptureResult:
@@ -307,6 +352,79 @@ class LivePm3ReadonlyService:
             result.timed_out,
             result.elapsed_seconds,
             "pm3-wrapper -c",
+        )
+
+    def write_hitag_s256_page(
+        self,
+        page: int,
+        old_value: str,
+        new_value: str,
+        template_id: str,
+        target_uid: str,
+        port: str | None = None,
+        audit_dir: str | Path | None = None,
+    ) -> HitagS256WriteResult:
+        if page not in SAFE_HITAG_WRITE_PAGES:
+            raise ValueError(f"Refusing Hitag S256 write outside approved pages: {page}")
+        old_value = _normalize_page_data(old_value)
+        new_value = _normalize_page_data(new_value)
+        selected_port = port
+        if selected_port is None:
+            status = self.connection_status()
+            if not status.connected:
+                raise RuntimeError(status.last_error or DEVICE_NOT_FOUND_ERROR)
+            selected_port = status.ports[0]
+
+        command = f"lf hitag hts wrbl -p {page} -d {new_value.replace(' ', '')}"
+        write_result = self.runner(self._proxmark_args(selected_port, command), self.timeout_seconds)
+        normalized_write = LiveCommandResult(
+            command,
+            write_result.returncode,
+            write_result.stdout,
+            write_result.stderr,
+            write_result.timed_out,
+            write_result.elapsed_seconds,
+            "proxmark3.exe detected-port -c",
+        )
+        if normalized_write.timed_out or normalized_write.returncode != 0:
+            verify_result = HitagS256LiveReadResult(
+                "write_failed",
+                selected_port,
+                message="Schreiben fehlgeschlagen; Verifikation nicht ausgeführt.",
+            )
+            audit_path = self._write_audit_record(
+                template_id, target_uid, page, old_value, new_value, None, False, audit_dir
+            )
+            return HitagS256WriteResult(
+                False,
+                page,
+                old_value,
+                new_value,
+                None,
+                "Schreiben fehlgeschlagen; keine automatische Fortsetzung.",
+                normalized_write,
+                verify_result,
+                audit_path,
+            )
+
+        verify_result = self.read_hitag_s256(selected_port)
+        verification_value = None
+        if verify_result.hitag_read and page in verify_result.hitag_read.pages:
+            verification_value = _normalize_page_data(verify_result.hitag_read.pages[page].data)
+        success = verification_value == new_value
+        audit_path = self._write_audit_record(
+            template_id, target_uid, page, old_value, new_value, verification_value, success, audit_dir
+        )
+        return HitagS256WriteResult(
+            success,
+            page,
+            old_value,
+            new_value,
+            verification_value,
+            "Schreiben verifiziert." if success else "Schreiben nicht verifiziert; Workflow gestoppt.",
+            normalized_write,
+            verify_result,
+            audit_path,
         )
 
     def read_hitag_s256(self, port: str | None = None) -> HitagS256LiveReadResult:
@@ -455,6 +573,13 @@ class LivePm3ReadonlyService:
     def _proxmark_args(self, port: str, command: str) -> list[str]:
         return [str(self.proxmark_exe), port, "-c", command]
 
+    def _lf_tune_window_args(self, port: str) -> list[str]:
+        command = (
+            f'title PM3 LF tuning diagram && cd /d "{self.client_dir}" '
+            f'&& call setup.bat && "{self.proxmark_exe}" {port} -c "lf tune --mix"'
+        )
+        return ["cmd.exe", "/k", command]
+
     def _run_subprocess(self, args: list[str], timeout_seconds: int) -> LiveCommandResult:
         if "lf hitag hts reader -@" in " ".join(args).lower():
             return self._run_reader_subprocess(args, timeout_seconds)
@@ -522,6 +647,35 @@ class LivePm3ReadonlyService:
         env["PATH"] = qt_plugin_path + ";" + qt_plugin_path + "shell\\;" + env.get("PATH", "")
         env["MSYSTEM"] = "MINGW64"
         return env
+
+    def _write_audit_record(
+        self,
+        template_id: str,
+        target_uid: str,
+        page: int,
+        old_value: str,
+        new_value: str,
+        verification_value: str | None,
+        success: bool,
+        audit_dir: str | Path | None,
+    ) -> Path:
+        target_dir = Path(audit_dir) if audit_dir else _default_audit_dir()
+        target_dir.mkdir(parents=True, exist_ok=True)
+        path = target_dir / "hitag_s256_write_audit.jsonl"
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "template_id": template_id,
+            "technology": "hitag_s256",
+            "target_uid": target_uid,
+            "area": f"page_{page}",
+            "old_value": old_value,
+            "new_value": new_value,
+            "verification_value": verification_value,
+            "verification_success": success,
+        }
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+        return path
 
 
 def _device_lost_capture(status: Pm3ConnectionStatus) -> CaptureResult:
@@ -696,6 +850,27 @@ def _cmd_quote(value: str) -> str:
     if not value or any(char.isspace() for char in value):
         return '"' + value.replace('"', r'\"') + '"'
     return value
+
+
+def _normalize_page_data(value: str) -> str:
+    parts = []
+    current = ""
+    for char in value:
+        if char in "0123456789abcdefABCDEF":
+            current += char
+            if len(current) == 2:
+                parts.append(current.upper())
+                current = ""
+    if current or len(parts) != 4:
+        raise ValueError(f"Expected exactly four hex bytes, got: {value}")
+    return " ".join(parts)
+
+
+def _default_audit_dir() -> Path:
+    base = os.environ.get("LOCALAPPDATA")
+    if base:
+        return Path(base) / "PM3Workflow" / "audit"
+    return Path.home() / ".pm3-workflow" / "audit"
 
 
 def _combined_output(result: LiveCommandResult) -> str:

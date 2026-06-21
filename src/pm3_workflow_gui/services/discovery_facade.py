@@ -441,6 +441,6 @@ def _support_level(detected: DetectedTechnology | None) -> str:
     if not detected:
         return "none"
     capabilities = adapter_for(detected).capabilities
-    if capabilities.can_create_template and capabilities.can_compare_template:
-        return "full_readonly"
-    return "basic_detection"
+    if capabilities.can_create_template and capabilities.can_compare_template and capabilities.can_read_memory:
+        return "full_supported_read"
+    return detected.read_status or detected.support_level

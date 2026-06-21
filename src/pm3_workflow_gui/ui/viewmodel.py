@@ -86,8 +86,8 @@ class HardwarePrepViewModel:
     ready: bool = False
     lf_antenna_status: str = "unknown"
     hf_antenna_status: str = "unknown"
-    diagram_available: bool = False
-    diagram_message: str = "Frequenzdiagramm steht in dieser PM3-Installation noch nicht automatisiert zur Verfügung."
+    diagram_available: bool = True
+    diagram_message: str = "Optional: LF-Positionsdiagramm in einem separaten PM3-Fenster öffnen. Im Diagrammfenster beendet Enter die Messung."
 
 
 @dataclass(frozen=True)
@@ -103,6 +103,12 @@ class ChipReadViewModel:
     title: str
     message: str
     fields: tuple[ChipFieldViewModel, ...] = ()
+    memory_sections: tuple[ChipFieldViewModel, ...] = ()
+    public_configuration: tuple[ChipFieldViewModel, ...] = ()
+    warnings: tuple[str, ...] = ()
+    next_step: str = ""
+    read_status: str = ""
+    support_level: str = ""
     profile: HitagS256Profile | None = None
     raw_read: HitagSRead | None = None
     technology: DetectedTechnology | None = None
@@ -139,6 +145,10 @@ class ComparisonRowViewModel:
 class DisabledWriteActionViewModel:
     label: str
     reason: str = "Deaktiviert in dieser Version"
+    page: int | None = None
+    old_value: str = ""
+    new_value: str = ""
+    enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -223,6 +233,17 @@ def startup_view_model_from_check(check) -> StartupScreenViewModel:
         can_retry=True,
         port=check.port,
         target=check.target,
+    )
+
+
+def startup_view_model_error(message: str) -> StartupScreenViewModel:
+    return StartupScreenViewModel(
+        title="PM3 Workflow",
+        message=f"Startprüfung fehlgeschlagen: {message}",
+        progress_label="Verbindung fehlgeschlagen",
+        connected=False,
+        can_continue=False,
+        can_retry=True,
     )
 
 
@@ -363,7 +384,14 @@ def build_write_plan_view_model(current: HitagS256Profile, template: TemplateRec
         for index, page in enumerate(plan_pages, start=1)
     )
     disabled_actions = tuple(
-        DisabledWriteActionViewModel("Konfiguration schreiben" if page == 1 else f"Block {page} schreiben")
+        DisabledWriteActionViewModel(
+            "Konfiguration schreiben" if page == 1 else f"Block {page} schreiben",
+            "" if compatible else "Zielchip nicht kompatibel",
+            page,
+            _compact_display(current.pages.get(page)),
+            _compact_display(template_profile.pages.get(page)),
+            compatible and page in template_profile.pages and page in current.pages and page != 0,
+        )
         for page in plan_pages
     )
     return WritePlanViewModel(compatible, compatibility_message, tuple(summary), tuple(rows), plan_steps, disabled_actions)
@@ -373,7 +401,7 @@ def unavailable_write_plan_view_model(chip: ChipReadViewModel | None = None) -> 
     technology_name = chip.technology.technology_name if chip and chip.technology else "Dieser Chiptyp"
     return WritePlanViewModel(
         compatible=False,
-        compatibility_message=f"{technology_name} ist erkannt, aber ein Vorlage-/Schreibvergleich ist noch nicht verfügbar.",
+        compatibility_message=f"Schreiben für diesen Chiptyp ist noch nicht freigeschaltet. Erkannt: {technology_name}.",
         summary_lines=("Kein Schreibplan verfügbar",),
         rows=(),
         plan_steps=(),
@@ -481,12 +509,20 @@ def _chip_read_view_model_from_adapter_result(detection: DetectedTechnology, raw
     result = adapter.read_result(detection, raw_read)
     profile = result.template_payload if isinstance(result.template_payload, HitagS256Profile) else None
     fields = tuple(ChipFieldViewModel(field.label, field.value, field.note) for field in result.fields)
-    title = "Chip erkannt" if result.status != "complete" else f"{detection.technology_name} erkannt"
+    memory_sections = tuple(ChipFieldViewModel(field.label, field.value, field.note) for field in result.memory_sections)
+    public_configuration = tuple(ChipFieldViewModel(field.label, field.value, field.note) for field in result.public_configuration)
+    title = f"{detection.technology_name} erkannt" if result.is_complete_template_read else "Chip erkannt"
     return ChipReadViewModel(
         status=result.status,
         title=title,
         message=result.message,
         fields=fields,
+        memory_sections=memory_sections,
+        public_configuration=public_configuration,
+        warnings=result.warnings,
+        next_step=result.next_step,
+        read_status=result.read_status,
+        support_level=result.support_level,
         profile=profile,
         raw_read=raw_read,
         technology=detection,
@@ -573,9 +609,6 @@ def _incompatible_reasons(current: HitagS256Profile, template: HitagS256Profile)
     missing_pages = [page for page in template.writable_data_pages if page not in current.pages]
     if missing_pages:
         reasons.append("falscher Speicherumfang")
-    locked_pages = [page for page in template.writable_data_pages if page in current.pages and page not in current.writable_data_pages]
-    if locked_pages:
-        reasons.append("fehlende Schreibrechte")
     return tuple(reasons)
 
 

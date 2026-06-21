@@ -4,11 +4,23 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
+READ_STATUS_NO_CHIP = "no_chip"
+READ_STATUS_DETECTED_ONLY = "detected_only"
+READ_STATUS_IDENTITY_READ = "identity_read"
+READ_STATUS_PUBLIC_DETAILS_READ = "public_details_read"
+READ_STATUS_FULL_SUPPORTED_READ = "full_supported_read"
+READ_STATUS_REQUIRES_AUTHORIZED_CREDENTIALS = "read_requires_authorized_credentials"
+READ_STATUS_NOT_SUPPORTED_YET = "read_not_supported_yet"
+READ_STATUS_SIGNAL_UNSTABLE = "signal_unstable"
+READ_STATUS_DEVICE_LOST = "device_lost"
+
+
 @dataclass(frozen=True)
 class TechnologyCapabilities:
     can_detect: bool = True
     can_read_identity: bool = False
-    can_read_details: bool = False
+    can_read_public_details: bool = False
+    can_read_memory: bool = False
     can_create_template: bool = False
     can_compare_template: bool = False
     can_plan_write: bool = False
@@ -18,7 +30,9 @@ class TechnologyCapabilities:
         return {
             "can_detect": self.can_detect,
             "can_read_identity": self.can_read_identity,
-            "can_read_details": self.can_read_details,
+            "can_read_public_details": self.can_read_public_details,
+            "can_read_memory": self.can_read_memory,
+            "can_read_details": self.can_read_public_details or self.can_read_memory,
             "can_create_template": self.can_create_template,
             "can_compare_template": self.can_compare_template,
             "can_plan_write": self.can_plan_write,
@@ -38,6 +52,7 @@ class DetectedTechnology:
     support_level: str = "basic_detection"
     source: str = "search"
     status: str = "detected"
+    read_status: str = READ_STATUS_DETECTED_ONLY
 
 
 @dataclass(frozen=True)
@@ -54,6 +69,12 @@ class ChipReadResult:
     capabilities: TechnologyCapabilities
     message: str
     fields: tuple[ChipField, ...] = ()
+    memory_sections: tuple[ChipField, ...] = ()
+    public_configuration: tuple[ChipField, ...] = ()
+    warnings: tuple[str, ...] = ()
+    next_step: str = ""
+    read_status: str = READ_STATUS_DETECTED_ONLY
+    support_level: str = "basic_detection"
     raw_read: object | None = None
     template_payload: object | None = None
 

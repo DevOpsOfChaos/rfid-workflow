@@ -80,7 +80,7 @@ def test_facade_reports_generic_hf_chip_with_basic_support():
 
     assert summary.tag_frequency_guess == "hf"
     assert summary.tag_type_guess == "mifare_classic"
-    assert summary.support_level == "basic_detection"
+    assert summary.support_level == "identity_read"
     assert "noch nicht verfügbar" in summary.recommended_next_step
 
 
@@ -95,7 +95,7 @@ def test_facade_reports_unknown_lf_chip_with_basic_support():
     assert summary.tag_frequency_guess == "lf"
     assert summary.tag_type_guess == "unknown_lf"
     assert summary.detected_technology.technology_name == "Unbekannter LF-Chip"
-    assert summary.support_level == "basic_detection"
+    assert summary.support_level == "read_not_supported_yet"
 
 
 def test_cli_fixture_summary_outputs_compact_diagnostics():

@@ -34,6 +34,89 @@ def test_live_command_allowlist_blocks_write_like_commands():
         raise AssertionError("write command must be blocked")
 
 
+def test_lf_tune_diagram_starts_detached_cmd_window(monkeypatch):
+    launched = {}
+
+    class FakeProcess:
+        pid = 4242
+
+    def fake_popen(args, **kwargs):
+        launched["args"] = args
+        launched["kwargs"] = kwargs
+        return FakeProcess()
+
+    monkeypatch.setattr("pm3_workflow_gui.services.live_pm3_readonly.subprocess.Popen", fake_popen)
+    service = LivePm3ReadonlyService(runner=lambda args, timeout: LiveCommandResult("", 0, "", ""))
+
+    launch = service.open_lf_tune_diagram("COM16")
+
+    assert launch.pid == 4242
+    assert launch.port == "COM16"
+    assert launched["args"][0:2] == ["cmd.exe", "/k"]
+    assert "lf tune --mix" in launched["args"][2]
+    assert "wrbl" not in launched["args"][2].lower()
+    assert launched["kwargs"]["cwd"] == service.client_dir
+
+
+def test_hitag_write_refuses_uid_page():
+    service = LivePm3ReadonlyService(runner=lambda args, timeout: LiveCommandResult("", 0, "", ""))
+
+    try:
+        service.write_hitag_s256_page(0, "AA BB CC DD", "11 22 33 44", "tmpl", "AA BB CC DD")
+    except ValueError as exc:
+        assert "outside approved pages" in str(exc)
+    else:
+        raise AssertionError("UID page write must be blocked")
+
+
+def test_hitag_write_runs_verify_read_and_audit(tmp_path):
+    calls = []
+    verify_read = (
+        "[=] Access Hitag S in Plain mode\n"
+        "[+] Memory type............ Hitag S 256\n"
+        "[+] Authentication......... No\n"
+        "[+] TTF data rate.......... 2 kBit\n"
+        "[+] TTF mode............... Page 4, Page 5, Page 6, Page 7\n"
+        "[+]  0 | D2 DF E4 94 | . | r | UID\n"
+        "[+]  1 | C9 28 00 AA | . | rw | Config\n"
+        "[+]  4 | FF F8 06 97 | . | rw | Data\n"
+        "[+]  5 | 8C 66 C1 80 | . | rw | Data\n"
+        "[+]  6 | 03 6E F7 00 | . | rw | Data\n"
+        "[+]  7 | 00 00 00 00 | . | rw | Data\n"
+    )
+
+    def runner(args, timeout):
+        text = " ".join(args)
+        calls.append(text)
+        if "wrbl -p 4 -d FFF80697" in text:
+            return LiveCommandResult(text, 0, "[+] done\n", "")
+        if text.endswith(" -c lf search"):
+            return LiveCommandResult(text, 0, "[+] UID.................... D2 DF E4 94\n[+] TYPE................... PCF 7945\n[+] Chipset................ Hitag 1/S / 82xx\n", "")
+        if text.endswith(" -c lf hitag hts reader -@"):
+            return LiveCommandResult(text, 0, "[+] UID.................... D2DFE494\n", "")
+        if text.endswith(" -c lf hitag hts rdbl -p 0 -c 8"):
+            return LiveCommandResult(text, 0, verify_read, "")
+        return LiveCommandResult(text, 1, "", "unexpected")
+
+    result = LivePm3ReadonlyService(runner=runner).write_hitag_s256_page(
+        4,
+        "00 00 00 00",
+        "FF F8 06 97",
+        "tmpl_123",
+        "D2 DF E4 94",
+        "COM16",
+        tmp_path,
+    )
+
+    assert result.success is True
+    assert result.verification_value == "FF F8 06 97"
+    assert any("wrbl -p 4 -d FFF80697" in call for call in calls)
+    assert any("lf hitag hts rdbl -p 0 -c 8" in call for call in calls)
+    audit = (tmp_path / "hitag_s256_write_audit.jsonl").read_text(encoding="utf-8")
+    assert '"template_id": "tmpl_123"' in audit
+    assert '"verification_success": true' in audit
+
+
 def test_missing_pm3_returns_device_lost_capture_for_facade():
     def runner(args, timeout):
         return LiveCommandResult(" ".join(args), 1, "", "[!!] No port found\n")

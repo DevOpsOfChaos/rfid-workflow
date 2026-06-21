@@ -12,6 +12,7 @@ from pm3_workflow_gui.ui.viewmodel import (
     hardware_prep_from_check,
     hardware_prep_initial,
     save_confirmed_template,
+    startup_view_model_error,
     startup_view_model_from_check,
     startup_view_model_initial,
     unavailable_write_plan_view_model,
@@ -82,6 +83,7 @@ class MainWindow(QMainWindow):
         self._target_scan: ChipReadViewModel | None = None
         self._templates: list[tuple[Path, TemplateRecord]] = []
         self._raw_log: list[str] = []
+        self._current_write_plan = None
 
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
@@ -175,10 +177,12 @@ class MainWindow(QMainWindow):
         self.prep_detail = QLabel("")
         self.prep_detail.setObjectName("muted")
         self.prep_detail.setAlignment(Qt.AlignCenter)
-        self.prep_diagram = QLabel("Frequenzdiagramm steht in dieser PM3-Installation noch nicht automatisiert zur Verfügung.")
+        self.prep_diagram = QLabel("Optional: LF-Positionsdiagramm in einem separaten PM3-Fenster öffnen.")
         self.prep_diagram.setObjectName("muted")
         self.prep_diagram.setAlignment(Qt.AlignCenter)
         self.prep_diagram.setWordWrap(True)
+        self.prep_diagram_button = QPushButton("LF-Diagramm öffnen")
+        self.prep_diagram_button.clicked.connect(self._open_lf_tune_diagram)
         enter = QAction(self)
         enter.setShortcut(QKeySequence(Qt.Key_Return))
         enter.triggered.connect(self.prep_button.click)
@@ -191,6 +195,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.prep_progress, alignment=Qt.AlignCenter)
         layout.addWidget(self.prep_detail)
         layout.addWidget(self.prep_diagram)
+        layout.addWidget(self.prep_diagram_button, alignment=Qt.AlignCenter)
         outer.addWidget(panel)
         self.stack.addWidget(screen)
 
@@ -300,7 +305,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(28, 22, 28, 18)
         title = QLabel("Schreiben")
         title.setObjectName("pageTitle")
-        subtitle = QLabel("Planungs- und Vergleichsansicht · echte Schreibausführung ist deaktiviert")
+        subtitle = QLabel("Hitag S256 einzeln schreiben · Zielchip wird nach jeder Aktion verifiziert")
         subtitle.setObjectName("muted")
         self.template_list = QListWidget()
         self.template_list.setMaximumHeight(92)
@@ -314,7 +319,9 @@ class MainWindow(QMainWindow):
         top.addWidget(self.refresh_templates_button)
         top.addWidget(self.scan_target_button)
         top.addStretch(1)
-        self.write_message = QLabel("Keine reale Schreibausführung in dieser Version.")
+        self.write_authorized = QCheckBox("Ich bestätige, dass ich berechtigt bin, diesen Chip zu beschreiben.")
+        self.write_authorized.toggled.connect(self._render_write_plan)
+        self.write_message = QLabel("Wähle eine Vorlage und scanne einen Zielchip.")
         self.write_message.setObjectName("messagePanel")
         self.write_message.setWordWrap(True)
         self.compare_table = QTableWidget(0, 5)
@@ -332,6 +339,7 @@ class MainWindow(QMainWindow):
         top_panel_layout.addWidget(QLabel("Vorlage auswählen"))
         top_panel_layout.addWidget(self.template_list)
         top_panel_layout.addLayout(top)
+        top_panel_layout.addWidget(self.write_authorized)
         top_panel_layout.addWidget(self.write_message)
         layout.addWidget(title)
         layout.addWidget(subtitle)
@@ -355,9 +363,9 @@ class MainWindow(QMainWindow):
         self.analysis_raw.setReadOnly(True)
         cards = [
             ("Chip erkennen", "Erkennt LF/HF und unterstützte Chiptypen.", True, self._analysis_chip_scan),
-            ("Beste Position finden", "Noch kein lokal bestätigter read-only Messweg.", False, None),
+            ("Beste Position finden", "Öffnet LF-Tune als separates PM3-Fenster.", True, self._open_lf_tune_diagram),
             ("Antenne prüfen", "Prüft LF/HF ohne Chip.", True, self._start_hardware_check),
-            ("Frequenzdiagramm", "Noch kein bestätigter Diagramm-Befehl in dieser PM3-Installation.", False, None),
+            ("Frequenzdiagramm", "Startet lf tune --mix in einem eigenen Fenster.", True, self._open_lf_tune_diagram),
             ("Technische Details", "Zeigt Rohdaten, Logs und Fehler.", True, self._show_technical_details),
         ]
         for index, (heading, text, enabled, callback) in enumerate(cards):
@@ -395,6 +403,7 @@ class MainWindow(QMainWindow):
 
     def _startup_finished(self, result, exc: Exception | None) -> None:
         if exc:
+            self._render_start(startup_view_model_error(str(exc)))
             QMessageBox.warning(self, "Proxmark prüfen", str(exc))
             return
         model = startup_view_model_from_check(result)
@@ -485,6 +494,15 @@ class MainWindow(QMainWindow):
         self.nav.setCurrentRow(0)
         self._scan_template_first()
 
+    def _open_lf_tune_diagram(self) -> None:
+        try:
+            launch = self.live_service.open_lf_tune_diagram(self._port)
+        except Exception as exc:
+            QMessageBox.warning(self, "LF-Diagramm", str(exc))
+            self._set_status("LF-Diagramm konnte nicht gestartet werden")
+            return
+        self._set_status(f"LF-Diagramm geöffnet · {launch.port}")
+
     def _show_technical_details(self) -> None:
         dialog = QDialog(self)
         dialog.setWindowTitle("Technische Details")
@@ -536,6 +554,7 @@ class MainWindow(QMainWindow):
         self.start_detail.setText(model.progress_label)
         self.start_progress.setRange(0, 1 if model.can_continue or model.can_retry else 0)
         self.start_progress.setValue(1 if model.can_continue else 0)
+        self.start_progress.setVisible(not (model.can_continue or model.can_retry))
         self.start_state.setText("✓ Verbindung geprüft" if model.can_continue else "")
         self.retry_button.setVisible(model.can_retry)
         self.continue_button.setVisible(model.can_continue)
@@ -546,16 +565,24 @@ class MainWindow(QMainWindow):
         self.prep_button.setText(model.button_label)
         self.prep_detail.setText(f"LF: {model.lf_antenna_status} · HF: {model.hf_antenna_status}" if model.ready else "")
         self.prep_diagram.setText(model.diagram_message)
+        self.prep_diagram_button.setEnabled(model.diagram_available)
 
     def _render_chip_read(self, model: ChipReadViewModel) -> None:
-        self.template_message.setText(f"{model.title}\n{model.message}")
-        self._fill_field_table(self.template_table, [(field.label, field.value, field.note) for field in model.fields])
+        extra_lines = [model.message]
+        if model.next_step:
+            extra_lines.append(model.next_step)
+        extra_lines.extend(model.warnings)
+        self.template_message.setText(f"{model.title}\n" + "\n".join(extra_lines))
+        visible_fields = list(model.fields)
+        visible_fields.extend(model.public_configuration)
+        visible_fields.extend(model.memory_sections)
+        self._fill_field_table(self.template_table, [(field.label, field.value, field.note) for field in visible_fields])
         self.template_diff_table.setRowCount(0)
         if model.is_complete_template_read:
             self._set_status("Chip erkannt")
-        elif model.status == "retry":
+        elif model.status in {"retry", "signal_unstable"}:
             self._set_status("Signal schwach · bitte Chip etwas verschieben")
-        elif model.status == "basic_detection":
+        elif model.status in {"basic_detection", "identity_read", "public_details_read", "detected_only", "read_requires_authorized_credentials", "read_not_supported_yet"}:
             self._set_status("Chip erkannt · Basis-Erkennung")
         elif model.status == "no_chip":
             self._set_status("Kein Chip erkannt")
@@ -570,6 +597,7 @@ class MainWindow(QMainWindow):
         self._set_status("Zweiter Scan stimmt überein" if validation.can_save else "Bereit")
 
     def _render_write_plan(self) -> None:
+        self._current_write_plan = None
         while self.disabled_actions.count():
             item = self.disabled_actions.takeAt(0)
             widget = item.widget()
@@ -590,6 +618,7 @@ class MainWindow(QMainWindow):
             return
         _, record = self._templates[selected]
         plan = build_write_plan_view_model(self._target_scan.profile, record)
+        self._current_write_plan = plan
         self.write_message.setText(plan.compatibility_message + "\n" + "\n".join(plan.summary_lines))
         self.compare_table.setRowCount(len(plan.rows))
         for row_index, row in enumerate(plan.rows):
@@ -609,9 +638,60 @@ class MainWindow(QMainWindow):
         for step in plan.plan_steps:
             self.plan_list.addItem(step)
         for action in plan.disabled_actions:
-            button = QPushButton(f"{action.label}  ·  {action.reason}")
-            button.setEnabled(False)
+            suffix = f"  ·  {action.reason}" if action.reason else ""
+            button = QPushButton(f"{action.label}{suffix}")
+            button.setEnabled(action.enabled and self.write_authorized.isChecked())
+            if action.enabled and action.page is not None:
+                button.clicked.connect(lambda checked=False, write_action=action: self._confirm_hitag_write(write_action))
             self.disabled_actions.addWidget(button)
+
+    def _confirm_hitag_write(self, action) -> None:
+        selected = self.template_list.currentRow()
+        if selected < 0 or selected >= len(self._templates) or self._target_scan is None or self._target_scan.profile is None:
+            return
+        if not self.write_authorized.isChecked():
+            QMessageBox.warning(self, "Schreiben", "Autorisierungsbestätigung ist erforderlich.")
+            return
+        if action.page is None:
+            return
+        label = "Konfiguration" if action.page == 1 else f"Block {action.page}"
+        answer = QMessageBox.question(
+            self,
+            f"{label} schreiben",
+            f"{label}\nAlter Wert: {action.old_value}\nNeuer Wert: {action.new_value}\n\nNach dem Schreiben wird sofort erneut gelesen und verifiziert.",
+        )
+        if answer != QMessageBox.Yes:
+            return
+        _, record = self._templates[selected]
+        self._set_status(f"Schreibe {label} · Verifikation folgt")
+        self.scan_target_button.setEnabled(False)
+        self._run_worker(
+            lambda: self.live_service.write_hitag_s256_page(
+                action.page,
+                action.old_value,
+                action.new_value,
+                record.template_id,
+                self._target_scan.profile.uid,
+                self._port,
+            ),
+            self._hitag_write_finished,
+        )
+
+    def _hitag_write_finished(self, result, exc: Exception | None) -> None:
+        self.scan_target_button.setEnabled(True)
+        if exc:
+            QMessageBox.warning(self, "Schreiben", str(exc))
+            self._set_status("Schreiben fehlgeschlagen")
+            return
+        if result.verify_result:
+            self._append_raw(result.verify_result)
+        if result.success:
+            self._target_scan = chip_read_view_model_from_live_result(result.verify_result)
+            self._set_status(f"Page {result.page} geschrieben und verifiziert")
+        else:
+            self._set_status(result.message)
+            QMessageBox.warning(self, "Schreiben", result.message)
+        self._render_write_plan()
 
     def _fill_field_table(self, table: QTableWidget, rows: list[tuple[str, str, str]]) -> None:
         table.setRowCount(len(rows))

@@ -88,7 +88,8 @@ def test_hardware_check_ok_view_model():
     assert model.ready is True
     assert model.lf_antenna_status == "ok"
     assert model.hf_antenna_status == "ok"
-    assert model.diagram_available is False
+    assert model.diagram_available is True
+    assert "LF-Positionsdiagramm" in model.diagram_message
 
 
 def test_template_read_scan_1_scan_2_identical_and_save(tmp_path):
@@ -114,7 +115,7 @@ def test_template_read_scan_1_scan_2_identical_and_save(tmp_path):
     assert record.frequency == "lf"
     assert record.identity == {"uid": "FA F9 91 79"}
     assert record.capabilities["can_create_template"] is True
-    assert record.capabilities["can_write"] is False
+    assert record.capabilities["can_write"] is True
     assert record.write_policy == {"write_uid": False, "config_last": True}
     assert record.template_creation_allowed is True
 
@@ -162,13 +163,13 @@ def test_generic_hf_chip_view_model_blocks_template_and_write_plan():
 
     assert result.status == "basic_detection"
     assert result.detected_technology.technology_id == "mifare_classic"
-    assert model.status == "basic_detection"
+    assert model.status == "read_requires_authorized_credentials"
     assert model.profile is None
     assert model.is_complete_template_read is False
-    assert "Vorlagen-Erstellung" in model.message
+    assert "berechtigte Schlüssel" in model.message
     assert plan.plan_steps == ()
     assert plan.disabled_actions == ()
-    assert "nicht verfügbar" in plan.compatibility_message
+    assert "noch nicht freigeschaltet" in plan.compatibility_message
     assert not any("lf hitag hts reader -@" in call for call in calls)
     assert not any("lf hitag hts rdbl" in call for call in calls)
 
@@ -201,7 +202,8 @@ def test_write_plan_uid_never_writable_and_config_last():
         "5. Konfiguration schreiben",
     )
     assert plan.disabled_actions[-1].label == "Konfiguration schreiben"
-    assert all("Deaktiviert" in action.reason for action in plan.disabled_actions)
+    assert all(action.enabled for action in plan.disabled_actions)
+    assert [action.page for action in plan.disabled_actions] == [4, 5, 6, 7, 1]
 
 
 def test_write_plan_only_uid_mismatch_is_compatible():

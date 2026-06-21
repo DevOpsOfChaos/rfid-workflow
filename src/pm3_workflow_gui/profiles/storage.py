@@ -89,7 +89,7 @@ class TemplateRecord:
                 "can_create_template": True,
                 "can_compare_template": True,
                 "can_plan_write": True,
-                "can_write": False,
+                "can_write": True,
             },
             validation_requirements=("second_scan_must_match",),
             write_policy={"write_uid": False, "config_last": True},
@@ -217,7 +217,7 @@ def _hitag_capabilities_payload() -> dict[str, bool]:
         "can_create_template": True,
         "can_compare_template": True,
         "can_plan_write": True,
-        "can_write": False,
+        "can_write": True,
     }
 
 
