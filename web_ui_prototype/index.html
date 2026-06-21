@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RFID Workflow Prototype</title>
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260621f" />
+    <link rel="stylesheet" href="styles.css?v=20260621g" />
   </head>
   <body>
     <div class="app-shell" data-app-shell>
@@ -34,13 +34,11 @@
 
       <aside class="side-nav" aria-label="Hauptnavigation">
         <nav class="primary-nav">
-          <button class="nav-item is-active" type="button" data-view="read">Lesen &amp; Vorlagen</button>
+          <button class="nav-item is-active" type="button" data-view="read">Lesen</button>
           <button class="nav-item" type="button" data-view="write">Schreiben</button>
-          <button class="nav-item" type="button" data-view="analysis">Analyse</button>
-        </nav>
-        <nav class="secondary-nav" aria-label="Ablagen">
-          <button class="nav-item nav-item-sub" type="button" data-view="templates">Vorlagen</button>
-          <button class="nav-item nav-item-sub" type="button" data-view="backups">Backups</button>
+          <span class="nav-break" aria-hidden="true"></span>
+          <button class="nav-item" type="button" data-view="templates">Vorlagen</button>
+          <button class="nav-item" type="button" data-view="backups">Backups</button>
         </nav>
       </aside>
 
@@ -53,6 +51,7 @@
     </div>
 
     <div id="modalRoot" class="modal-root" hidden></div>
-    <script src="app.js?v=20260621f"></script>
+    <div id="toastRoot" class="toast-root" hidden></div>
+    <script src="app.js?v=20260621g"></script>
   </body>
 </html>

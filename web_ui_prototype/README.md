@@ -17,11 +17,12 @@ http://localhost:8765
 
 ## Umfang
 
-- Lesen & Vorlagen mit Scan-Start, Scan-Fortschritt, instabilem Signal, zweitem Scan und Vorlage-speichern-Dialog.
-- Schreiben mit aktuellem Chip, automatischem Backup-Hinweis, Zielzustand-Auswahl, Kompatibilitätsstatus und einzelnen Mock-Schreibaktionen.
-- Schlanke Analyse-Seite ohne Diagramme, PM3-Argumente oder Terminalausgaben.
+- Lesen mit Scan-Start, Scan-Fortschritt, instabilem Signal, zweitem Scan und Vorlage-speichern-Dialog.
+- Schreiben mit aktuellem Chip, automatischem Backup-Hinweis, Vorlage/Backup als Zielzustand, Kompatibilitätsstatus und einzelnen Mock-Schreibaktionen.
+- Vorlagenverwaltung mit Bearbeiten, Duplizieren, Löschen mit Rückgängig und Zielzustand-Auswahl.
+- Backupverwaltung mit Zielzustand-Auswahl und Löschen mit Rückgängig.
 - Mock-Daten liegen in `app.js` und sind technologie-neutral aufgebaut.
 
 ## Grenzen
 
-Dieser Prototyp spricht keine Hardware an. Er führt keine PM3-Kommandos aus, schreibt keine bestehenden Vorlagenordner und ersetzt die PySide6-Oberfläche nicht.
+Dieser Prototyp spricht keine Hardware an, schreibt keine bestehenden Vorlagenordner und ersetzt die PySide6-Oberfläche nicht.
