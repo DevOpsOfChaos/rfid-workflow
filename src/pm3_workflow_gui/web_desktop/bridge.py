@@ -70,6 +70,7 @@ class WebDesktopBridge:
         return _connection_to_payload(self.state.connection)
 
     def start_scan(self, mode: str = "auto") -> dict:
+        self.state.clear_last_scan()
         operation_id = self.operations.start("scan", lambda progress: self._scan_operation(mode, progress))
         return {"operation_id": operation_id}
 
@@ -175,6 +176,7 @@ class WebDesktopBridge:
         }
 
     def start_current_chip_scan(self) -> dict:
+        self.state.clear_current_chip()
         operation_id = self.operations.start("current_chip_scan", self._current_chip_scan_operation)
         return {"operation_id": operation_id}
 
@@ -256,8 +258,8 @@ class WebDesktopBridge:
         second = chip_read_view_model_from_live_result(second_result)
         validation = validate_second_scan(first, second)
         confirmed = validation.can_save
-        self.state.set_last_scan(first if confirmed else second, confirmed=confirmed, second_status=validation.status)
-        payload = _scan_payload(first if confirmed else second, confirmed=confirmed, second_status=validation.status)
+        self.state.set_last_scan(first, confirmed=confirmed, second_status=validation.status)
+        payload = _scan_payload(first, confirmed=confirmed, second_status=validation.status)
         payload["message"] = validation.message
         return payload
 

@@ -25,6 +25,7 @@ class FakeService:
         self.reads = list(reads)
         self.connected = connected
         self.write_result = write_result
+        self.read_calls = 0
         self.write_calls = []
 
     def startup_check(self):
@@ -33,6 +34,7 @@ class FakeService:
         return Pm3StartupCheck(True, "COM16", "PM3 Generic", "client", "Proxmark erkannt")
 
     def read_chip(self, port=None):
+        self.read_calls += 1
         if not self.reads:
             raise AssertionError("unexpected read_chip call")
         return self.reads.pop(0)
@@ -55,8 +57,16 @@ def hitag_result(fixture_name: str) -> HitagS256LiveReadResult:
     )
 
 
+def device_lost_result() -> HitagS256LiveReadResult:
+    return HitagS256LiveReadResult("device_lost", "COM16", message="Device lost")
+
+
 def profile_from_fixture(fixture_name: str) -> HitagS256Profile:
     return HitagS256Profile.from_hitag_s_read(parse_hitag_s_rdbl((FIXTURES / fixture_name).read_text(encoding="utf-8")))
+
+
+def compact(value: str | None) -> str:
+    return "".join((value or "").split()).upper()
 
 
 def wait_for_operation(bridge: WebDesktopBridge, operation_id: str) -> dict:
@@ -127,6 +137,105 @@ def test_confirmed_scan_saves_template_after_storage_write(tmp_path):
     assert len(list((tmp_path / "templates").glob("*.json"))) == 1
 
 
+def test_scan_after_template_save_starts_fresh_operation_and_replaces_result(tmp_path):
+    service = FakeService(
+        reads=(
+            hitag_result("lf_hitag_hts_rdbl_original_pages_0_7.txt"),
+            hitag_result("lf_hitag_hts_rdbl_original_pages_0_7.txt"),
+            hitag_result("lf_hitag_hts_rdbl_blank_pages_0_7.txt"),
+            hitag_result("lf_hitag_hts_rdbl_blank_pages_0_7.txt"),
+        )
+    )
+    bridge = WebDesktopBridge(service, template_dir=tmp_path / "templates", backup_dir=tmp_path / "backups")
+
+    first_operation_id = bridge.start_scan("auto")["operation_id"]
+    first_operation = wait_for_operation(bridge, first_operation_id)
+    save_result = bridge.save_template("Chip A", "", "")
+    second_operation_id = bridge.start_scan("auto")["operation_id"]
+    second_operation = wait_for_operation(bridge, second_operation_id)
+    last_scan = bridge.get_last_scan()
+    chip_b = profile_from_fixture("lf_hitag_hts_rdbl_blank_pages_0_7.txt")
+
+    assert first_operation_id != second_operation_id
+    assert first_operation["state"] == "succeeded"
+    assert second_operation["state"] == "succeeded"
+    assert save_result["ok"] is True
+    assert service.read_calls == 4
+    assert last_scan["confirmed"] is True
+    assert last_scan["chip"]["uid"] == compact(chip_b.uid)
+    assert last_scan["chip"]["memoryRegions"][0]["value"] == compact(chip_b.pages[4])
+
+
+def test_failed_second_scan_after_previous_success_does_not_reconfirm_old_chip(tmp_path):
+    service = FakeService(
+        reads=(
+            hitag_result("lf_hitag_hts_rdbl_original_pages_0_7.txt"),
+            hitag_result("lf_hitag_hts_rdbl_original_pages_0_7.txt"),
+            hitag_result("lf_hitag_hts_rdbl_blank_pages_0_7.txt"),
+            hitag_result("lf_hitag_hts_rdbl_original_pages_0_7.txt"),
+        )
+    )
+    bridge = WebDesktopBridge(service, template_dir=tmp_path / "templates", backup_dir=tmp_path / "backups")
+
+    wait_for_operation(bridge, bridge.start_scan("auto")["operation_id"])
+    operation = wait_for_operation(bridge, bridge.start_scan("auto")["operation_id"])
+    last_scan = bridge.get_last_scan()
+    chip_b = profile_from_fixture("lf_hitag_hts_rdbl_blank_pages_0_7.txt")
+
+    assert operation["state"] == "succeeded"
+    assert operation["result"]["canSave"] is False
+    assert operation["result"]["second_scan_status"] == "mismatch"
+    assert last_scan["confirmed"] is False
+    assert last_scan["canSave"] is False
+    assert last_scan["chip"]["uid"] == compact(chip_b.uid)
+    assert last_scan["chip"]["memoryRegions"][0]["value"] == compact(chip_b.pages[4])
+
+
+def test_scan_after_connection_lost_requires_successful_reconnection(tmp_path):
+    service = FakeService(connected=False)
+    bridge = WebDesktopBridge(service, template_dir=tmp_path / "templates", backup_dir=tmp_path / "backups")
+
+    lost_operation = wait_for_operation(bridge, bridge.start_scan("auto")["operation_id"])
+    disconnected = bridge.get_connection_state()
+    stale_scan = bridge.get_last_scan()
+
+    service.connected = True
+    service.reads = [
+        hitag_result("lf_hitag_hts_rdbl_blank_pages_0_7.txt"),
+        hitag_result("lf_hitag_hts_rdbl_blank_pages_0_7.txt"),
+    ]
+    reconnected = bridge.refresh_connection()
+    recovered_operation = wait_for_operation(bridge, bridge.start_scan("auto")["operation_id"])
+
+    assert lost_operation["state"] == "connection_lost"
+    assert disconnected["connected"] is False
+    assert stale_scan["chip"] is None
+    assert reconnected["connected"] is True
+    assert recovered_operation["state"] == "succeeded"
+    assert recovered_operation["result"]["confirmed"] is True
+
+
+def test_template_save_does_not_block_followup_scan(tmp_path):
+    service = FakeService(
+        reads=(
+            hitag_result("lf_hitag_hts_rdbl_original_pages_0_7.txt"),
+            hitag_result("lf_hitag_hts_rdbl_original_pages_0_7.txt"),
+            hitag_result("lf_hitag_hts_rdbl_blank_pages_0_7.txt"),
+            hitag_result("lf_hitag_hts_rdbl_blank_pages_0_7.txt"),
+        )
+    )
+    bridge = WebDesktopBridge(service, template_dir=tmp_path / "templates", backup_dir=tmp_path / "backups")
+
+    wait_for_operation(bridge, bridge.start_scan("auto")["operation_id"])
+    save_result = bridge.save_template("Stored", "", "")
+    operation = wait_for_operation(bridge, bridge.start_scan("auto")["operation_id"])
+
+    assert save_result["ok"] is True
+    assert operation["state"] == "succeeded"
+    assert operation["result"]["confirmed"] is True
+    assert service.read_calls == 4
+
+
 def test_current_chip_scan_creates_real_backup_after_complete_read(tmp_path):
     bridge = WebDesktopBridge(
         FakeService(reads=(hitag_result("lf_hitag_hts_rdbl_blank_pages_0_7.txt"),)),
@@ -143,6 +252,29 @@ def test_current_chip_scan_creates_real_backup_after_complete_read(tmp_path):
     assert operation["result"]["message"] == "Backup erstellt"
     assert len(backups) == 1
     assert len(list((tmp_path / "backups").glob("*.json"))) == 1
+
+
+def test_device_lost_invalidates_current_chip_and_backup(tmp_path):
+    bridge = WebDesktopBridge(
+        FakeService(
+            reads=(
+                hitag_result("lf_hitag_hts_rdbl_blank_pages_0_7.txt"),
+                device_lost_result(),
+            )
+        ),
+        template_dir=tmp_path / "templates",
+        backup_dir=tmp_path / "backups",
+    )
+
+    wait_for_operation(bridge, bridge.start_current_chip_scan()["operation_id"])
+    lost_operation = wait_for_operation(bridge, bridge.start_current_chip_scan()["operation_id"])
+    current = bridge.get_current_chip()
+    connection = bridge.get_connection_state()
+
+    assert lost_operation["state"] == "connection_lost"
+    assert connection["connected"] is False
+    assert current["chip"] is None
+    assert current["backup"] is None
 
 
 def test_write_success_requires_reread_verification_and_uid_is_not_action(tmp_path):

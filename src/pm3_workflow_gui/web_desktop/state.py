@@ -43,9 +43,16 @@ class WebDesktopState:
             self.connection = snapshot
             if not snapshot.connected:
                 self.current_chip = None
+                self.current_backup = None
 
     def mark_connection_lost(self, message: str = "Verbindung verloren · Bitte PM3 neu verbinden.") -> None:
-        self.set_connection(ConnectionSnapshot("lost", False, message))
+        with self._lock:
+            self.connection = ConnectionSnapshot("lost", False, message)
+            self.last_scan = None
+            self.last_scan_confirmed = False
+            self.last_scan_second_status = "nicht ausgeführt"
+            self.current_chip = None
+            self.current_backup = None
 
     def set_last_scan(self, scan: ChipReadViewModel | None, confirmed: bool, second_status: str) -> None:
         with self._lock:
@@ -53,10 +60,16 @@ class WebDesktopState:
             self.last_scan_confirmed = confirmed
             self.last_scan_second_status = second_status
 
+    def clear_last_scan(self) -> None:
+        self.set_last_scan(None, confirmed=False, second_status="nicht ausgeführt")
+
     def set_current_chip(self, chip: ChipReadViewModel | None, backup: BackupRecord | None = None) -> None:
         with self._lock:
             self.current_chip = chip
             self.current_backup = backup
+
+    def clear_current_chip(self) -> None:
+        self.set_current_chip(None, None)
 
     def set_target(self, target: TargetSnapshot | None) -> None:
         with self._lock:
