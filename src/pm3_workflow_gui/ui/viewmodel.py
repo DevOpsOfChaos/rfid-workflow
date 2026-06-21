@@ -161,6 +161,14 @@ class WritePlanViewModel:
     rows: tuple[ComparisonRowViewModel, ...]
     plan_steps: tuple[str, ...]
     disabled_actions: tuple[DisabledWriteActionViewModel, ...]
+    difference_count: int = 0
+    writable_difference_count: int = 0
+
+
+@dataclass(frozen=True)
+class WriteActivationViewModel:
+    write_ready: bool
+    reason: str
 
 
 def demo_sources(repo_root: Path | None = None) -> tuple[DemoSource, ...]:
@@ -401,8 +409,8 @@ def save_confirmed_template(
 
 def build_write_plan_view_model(current: HitagS256Profile, template: TemplateRecord | HitagS256Profile) -> WritePlanViewModel:
     template_profile = template.profile if isinstance(template, TemplateRecord) else template
-    rows = list(_comparison_rows(current, template_profile))
     incompatible_reasons = _incompatible_reasons(current, template_profile)
+    rows = list(_comparison_rows(current, template_profile, incompatible=bool(incompatible_reasons)))
     differing_writable_pages = tuple(
         page
         for page in template_profile.writable_data_pages
@@ -427,7 +435,10 @@ def build_write_plan_view_model(current: HitagS256Profile, template: TemplateRec
         summary.append("Nur UID weicht ab; UID ist nicht schreibbar")
     if not summary:
         summary.append("Alle relevanten Bereiche passen")
-    plan_pages = tuple(page for page in template_profile.write_order if page in {4, 5, 6, 7, 1})
+    changed_pages = set(differing_writable_pages)
+    if config_differs:
+        changed_pages.add(1)
+    plan_pages = tuple(page for page in template_profile.write_order if page in changed_pages and page in {4, 5, 6, 7, 1})
     plan_steps = tuple(
         f"{index}. {'Konfiguration schreiben' if page == 1 else f'Block {page} schreiben'}"
         for index, page in enumerate(plan_pages, start=1)
@@ -443,7 +454,37 @@ def build_write_plan_view_model(current: HitagS256Profile, template: TemplateRec
         )
         for page in plan_pages
     )
-    return WritePlanViewModel(compatible, compatibility_message, tuple(summary), tuple(rows), plan_steps, disabled_actions)
+    return WritePlanViewModel(
+        compatible,
+        compatibility_message,
+        tuple(summary),
+        tuple(rows),
+        plan_steps,
+        disabled_actions,
+        len(changed_pages) + (1 if current.uid != template_profile.uid else 0),
+        len(plan_pages) if compatible else 0,
+    )
+
+
+def write_activation_view_model(
+    template_selected: bool,
+    target_scanned: bool,
+    authorized: bool,
+    plan: WritePlanViewModel | None,
+) -> WriteActivationViewModel:
+    if not template_selected:
+        return WriteActivationViewModel(False, "Bitte zuerst eine Vorlage auswählen.")
+    if not target_scanned:
+        return WriteActivationViewModel(False, "Bitte zuerst einen Zielchip scannen.")
+    if plan is None:
+        return WriteActivationViewModel(False, "Vergleich noch nicht erstellt.")
+    if not plan.compatible:
+        return WriteActivationViewModel(False, "Zielchip nicht kompatibel.")
+    if plan.writable_difference_count == 0:
+        return WriteActivationViewModel(False, "Keine schreibbaren Unterschiede vorhanden.")
+    if not authorized:
+        return WriteActivationViewModel(False, "Bitte Berechtigung bestätigen, um Schreibaktionen freizuschalten.")
+    return WriteActivationViewModel(True, "Schreibaktionen freigeschaltet.")
 
 
 def unavailable_write_plan_view_model(chip: ChipReadViewModel | None = None) -> WritePlanViewModel:
@@ -669,15 +710,25 @@ def _profile_differences(first: HitagS256Profile, second: HitagS256Profile) -> t
     return tuple(differences)
 
 
-def _comparison_rows(current: HitagS256Profile, template: HitagS256Profile) -> tuple[ComparisonRowViewModel, ...]:
+def _comparison_rows(
+    current: HitagS256Profile,
+    template: HitagS256Profile,
+    incompatible: bool = False,
+) -> tuple[ComparisonRowViewModel, ...]:
+    chip_type_state: ValueState = "incompatible" if current.mode != template.mode else "same"
+    config_state: ValueState
+    if current.config_page() == template.config_page():
+        config_state = "same"
+    else:
+        config_state = "incompatible" if incompatible else "config"
     rows = [
-        ComparisonRowViewModel("Chiptyp", "Hitag S256", "Hitag S256", "same"),
+        ComparisonRowViewModel("Chiptyp", "Hitag S256", "Hitag S256", chip_type_state),
         ComparisonRowViewModel("UID", _compact_display(current.uid), _compact_display(template.uid), "uid", "UID ist nicht schreibbar"),
         ComparisonRowViewModel(
             "Config",
             _compact_display(current.config_page()),
             _compact_display(template.config_page()),
-            "config" if current.config_page() != template.config_page() else "same",
+            config_state,
             "Konfiguration wird zuletzt behandelt",
         ),
     ]
@@ -685,7 +736,10 @@ def _comparison_rows(current: HitagS256Profile, template: HitagS256Profile) -> t
     for page in relevant_pages:
         current_value = current.pages.get(page, "fehlt")
         template_value = template.pages.get(page, "fehlt")
-        state: ValueState = "same" if current_value == template_value else "different"
+        if current_value == template_value:
+            state: ValueState = "same"
+        else:
+            state = "incompatible" if incompatible else "different"
         rows.append(ComparisonRowViewModel(f"Block {page}", _compact_display(current_value), _compact_display(template_value), state))
     return tuple(rows)
 

@@ -18,16 +18,18 @@ from pm3_workflow_gui.ui.viewmodel import (
     startup_view_model_initial,
     unavailable_write_plan_view_model,
     validate_second_scan,
+    write_activation_view_model,
 )
 
 
 try:
     from PySide6.QtCore import QObject, QThread, Qt, Signal
-    from PySide6.QtGui import QAction, QKeySequence
+    from PySide6.QtGui import QAction, QColor, QKeySequence
     from PySide6.QtWidgets import (
         QAbstractItemView,
         QButtonGroup,
         QCheckBox,
+        QComboBox,
         QDialog,
         QDialogButtonBox,
         QFrame,
@@ -72,8 +74,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("PM3 Workflow")
-        self.resize(1120, 720)
-        self.setMinimumSize(940, 640)
+        self.resize(1040, 680)
+        self.setMinimumSize(900, 600)
         self.live_service = LivePm3ReadonlyService()
         self._worker_thread: QThread | None = None
         self._worker: _Worker | None = None
@@ -212,7 +214,7 @@ class MainWindow(QMainWindow):
         help_button.setObjectName("smallButton")
         help_button.clicked.connect(self._show_help)
         header = QHBoxLayout()
-        header.setContentsMargins(18, 10, 18, 10)
+        header.setContentsMargins(14, 6, 14, 6)
         header.addWidget(self.header_dot)
         header.addWidget(self.header_label)
         header.addStretch(1)
@@ -222,7 +224,7 @@ class MainWindow(QMainWindow):
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
         self.nav.addItems(["▣  Vorlage", "✎  Schreiben", "◇  Analyse"])
-        self.nav.setFixedWidth(170)
+        self.nav.setFixedWidth(150)
         self.nav.currentRowChanged.connect(self._change_page)
         self.pages = QStackedWidget()
         self.pages.addWidget(self._template_page())
@@ -318,53 +320,88 @@ class MainWindow(QMainWindow):
     def _write_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(28, 22, 28, 18)
+        layout.setContentsMargins(18, 14, 18, 12)
+        layout.setSpacing(8)
         title = QLabel("Schreiben")
         title.setObjectName("pageTitle")
         subtitle = QLabel("Hitag S256 einzeln schreiben · Zielchip wird nach jeder Aktion verifiziert")
         subtitle.setObjectName("muted")
-        self.template_list = QListWidget()
-        self.template_list.setMaximumHeight(92)
-        self.template_list.currentRowChanged.connect(self._render_write_plan)
+        self.template_list = QComboBox()
+        self.template_list.currentIndexChanged.connect(lambda _index: self._render_write_plan())
         self.refresh_templates_button = QPushButton("Vorlagen neu laden")
         self.refresh_templates_button.clicked.connect(self._load_templates)
         self.scan_target_button = QPushButton("Zielchip scannen")
         self.scan_target_button.setObjectName("primaryButton")
         self.scan_target_button.clicked.connect(self._scan_write_target)
-        top = QHBoxLayout()
-        top.addWidget(self.refresh_templates_button)
-        top.addWidget(self.scan_target_button)
-        top.addStretch(1)
+        self.write_template_status = QLabel("Vorlage: keine ausgewählt")
+        self.write_target_status = QLabel("Zielchip: nicht gescannt")
+        self.write_compatibility_status = QLabel("Kompatibilität: offen")
+        self.write_difference_status = QLabel("Unterschiede: offen")
+        for label in (
+            self.write_template_status,
+            self.write_target_status,
+            self.write_compatibility_status,
+            self.write_difference_status,
+        ):
+            label.setObjectName("compactStatus")
         self.write_authorized = QCheckBox("Ich bestätige, dass ich berechtigt bin, diesen Chip zu beschreiben.")
         self.write_authorized.toggled.connect(self._render_write_plan)
+        self.write_safety_note = QLabel("UID wird nicht geschrieben. Konfiguration wird zuletzt geschrieben. Jede Aktion wird danach verifiziert.")
+        self.write_safety_note.setObjectName("muted")
+        self.write_safety_note.setWordWrap(True)
         self.write_message = QLabel("Wähle eine Vorlage und scanne einen Zielchip.")
         self.write_message.setObjectName("messagePanel")
         self.write_message.setWordWrap(True)
         self.compare_table = QTableWidget(0, 5)
         self.compare_table.setHorizontalHeaderLabels(["Feld", "Aktueller Chip", "Vorlage", "Status", "Hinweis"])
         self.compare_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.plan_list = QListWidget()
-        self.disabled_actions = QVBoxLayout()
-        disabled_box = QWidget()
-        disabled_box.setLayout(self.disabled_actions)
         _polish_table(self.compare_table)
+        self.action_status = QLabel("Bitte zuerst eine Vorlage auswählen.")
+        self.action_status.setObjectName("messagePanel")
+        self.action_status.setWordWrap(True)
+        self.disabled_actions = QVBoxLayout()
+        self.disabled_actions.setSpacing(6)
+        self.disabled_actions.addStretch(1)
         top_panel = QFrame()
         top_panel.setObjectName("sectionPanel")
-        top_panel_layout = QVBoxLayout(top_panel)
-        top_panel_layout.setContentsMargins(18, 16, 18, 16)
-        top_panel_layout.addWidget(QLabel("Vorlage auswählen"))
-        top_panel_layout.addWidget(self.template_list)
-        top_panel_layout.addLayout(top)
-        top_panel_layout.addWidget(self.write_authorized)
-        top_panel_layout.addWidget(self.write_message)
+        top_panel_layout = QGridLayout(top_panel)
+        top_panel_layout.setContentsMargins(12, 10, 12, 10)
+        top_panel_layout.setHorizontalSpacing(8)
+        top_panel_layout.setVerticalSpacing(6)
+        top_panel_layout.addWidget(QLabel("Vorlage"), 0, 0)
+        top_panel_layout.addWidget(self.template_list, 0, 1, 1, 2)
+        top_panel_layout.addWidget(self.refresh_templates_button, 0, 3)
+        top_panel_layout.addWidget(self.scan_target_button, 0, 4)
+        top_panel_layout.addWidget(self.write_template_status, 1, 0, 1, 2)
+        top_panel_layout.addWidget(self.write_target_status, 1, 2)
+        top_panel_layout.addWidget(self.write_compatibility_status, 1, 3)
+        top_panel_layout.addWidget(self.write_difference_status, 1, 4)
+        top_panel_layout.addWidget(self.write_authorized, 2, 0, 1, 3)
+        top_panel_layout.addWidget(self.write_safety_note, 2, 3, 1, 2)
+        top_panel_layout.addWidget(self.write_message, 3, 0, 1, 5)
+        top_panel_layout.setColumnStretch(1, 1)
+        top_panel_layout.setColumnStretch(2, 1)
+        top_panel_layout.setColumnStretch(3, 1)
+        top_panel_layout.setColumnStretch(4, 1)
+        action_panel = QFrame()
+        action_panel.setObjectName("sectionPanel")
+        action_panel.setFixedWidth(250)
+        action_layout = QVBoxLayout(action_panel)
+        action_layout.setContentsMargins(12, 10, 12, 10)
+        action_layout.setSpacing(8)
+        action_title = QLabel("Aktionen")
+        action_title.setObjectName("cardTitle")
+        action_layout.addWidget(action_title)
+        action_layout.addWidget(self.action_status)
+        action_layout.addLayout(self.disabled_actions, 1)
+        content = QHBoxLayout()
+        content.setSpacing(10)
+        content.addWidget(self.compare_table, 1)
+        content.addWidget(action_panel)
         layout.addWidget(title)
         layout.addWidget(subtitle)
-        layout.addSpacing(10)
         layout.addWidget(top_panel)
-        layout.addWidget(self.compare_table, 1)
-        layout.addWidget(QLabel("Schreibplan"))
-        layout.addWidget(self.plan_list)
-        layout.addWidget(disabled_box)
+        layout.addLayout(content, 1)
         self._load_templates()
         return page
 
@@ -541,7 +578,8 @@ class MainWindow(QMainWindow):
         self._target_scan = model if model.status not in {"error", "no_chip"} else None
         self._append_raw(result)
         self._render_write_plan()
-        self._set_status("Schreibplan bereit" if model.profile else model.title)
+        if model.profile:
+            self._set_status("Zielchip erkannt · Vergleich erstellt")
 
     def _analysis_chip_scan(self) -> None:
         self.pages.setCurrentIndex(0)
@@ -708,50 +746,80 @@ class MainWindow(QMainWindow):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
-        self.plan_list.clear()
         self.compare_table.setRowCount(0)
-        selected = self.template_list.currentRow()
+        selected = self._selected_template_index()
+        has_template = selected >= 0 and selected < len(self._templates)
+        has_target = self._target_scan is not None
+        self.write_template_status.setText("Vorlage: keine ausgewählt")
+        self.write_target_status.setText("Zielchip: nicht gescannt")
+        self.write_compatibility_status.setText("Kompatibilität: offen")
+        self.write_difference_status.setText("Unterschiede: offen")
         if selected < 0 or selected >= len(self._templates):
             self.write_message.setText("Wähle eine Vorlage und scanne einen Zielchip.")
+            activation = write_activation_view_model(False, has_target, self.write_authorized.isChecked(), None)
+            self.action_status.setText(activation.reason)
+            self._set_status("Schreiben gesperrt: keine Vorlage")
+            self.disabled_actions.addStretch(1)
             return
+        _, record = self._templates[selected]
+        self.write_template_status.setText(f"Vorlage: {record.title} · {record.technology_name}")
         if self._target_scan is None:
             self.write_message.setText("Vorlage gewählt. Scanne jetzt den Zielchip.")
+            activation = write_activation_view_model(has_template, False, self.write_authorized.isChecked(), None)
+            self.action_status.setText(activation.reason)
+            self._set_status("Schreiben gesperrt: Zielchip fehlt")
+            self.disabled_actions.addStretch(1)
             return
         if self._target_scan.profile is None:
             plan = unavailable_write_plan_view_model(self._target_scan)
             self.write_message.setText(plan.compatibility_message + "\n" + "\n".join(plan.summary_lines))
+            self.write_target_status.setText(f"Zielchip: {self._target_scan.title}")
+            self.write_compatibility_status.setText("Kompatibilität: ungeeignet")
+            self.write_difference_status.setText("Unterschiede: nicht verfügbar")
+            activation = write_activation_view_model(has_template, True, self.write_authorized.isChecked(), plan)
+            self.action_status.setText(activation.reason)
+            self._set_status("Schreiben gesperrt: Zielchip nicht geeignet")
+            self.disabled_actions.addStretch(1)
             return
-        _, record = self._templates[selected]
         plan = build_write_plan_view_model(self._target_scan.profile, record)
         self._current_write_plan = plan
-        self.write_message.setText(plan.compatibility_message + "\n" + "\n".join(plan.summary_lines))
+        activation = write_activation_view_model(has_template, True, self.write_authorized.isChecked(), plan)
+        self.write_target_status.setText("Zielchip: Hitag S256 erkannt")
+        self.write_compatibility_status.setText("Kompatibilität: geeignet" if plan.compatible else "Kompatibilität: ungeeignet")
+        self.write_difference_status.setText(f"Unterschiede: {plan.difference_count} Bereiche")
+        self.write_message.setText(plan.compatibility_message + "\n" + "\n".join([*plan.summary_lines, activation.reason]))
+        self.action_status.setText(activation.reason)
         self.compare_table.setRowCount(len(plan.rows))
         for row_index, row in enumerate(plan.rows):
-            values = [row.label, row.current_value, row.template_value, row.state, row.note]
+            values = [row.label, row.current_value, row.template_value, _status_label(row.state), row.note]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)
-                if row.state == "same":
-                    item.setBackground(Qt.GlobalColor.darkGreen)
-                elif row.state in {"different", "config"}:
-                    item.setBackground(Qt.GlobalColor.darkYellow)
-                elif row.state == "incompatible":
-                    item.setBackground(Qt.GlobalColor.darkRed)
-                elif row.state == "uid":
-                    item.setBackground(Qt.GlobalColor.lightGray)
+                background, foreground = _row_colors(row.state)
+                item.setBackground(background)
+                item.setForeground(foreground)
                 self.compare_table.setItem(row_index, col, item)
         self.compare_table.resizeColumnsToContents()
-        for step in plan.plan_steps:
-            self.plan_list.addItem(step)
         for action in plan.disabled_actions:
             suffix = f"  ·  {action.reason}" if action.reason else ""
             button = QPushButton(f"{action.label}{suffix}")
-            button.setEnabled(action.enabled and self.write_authorized.isChecked())
-            if action.enabled and action.page is not None:
+            button.setEnabled(action.enabled and activation.write_ready)
+            button.setToolTip("" if activation.write_ready else activation.reason)
+            if action.enabled and action.page is not None and activation.write_ready:
                 button.clicked.connect(lambda checked=False, write_action=action: self._confirm_hitag_write(write_action))
             self.disabled_actions.addWidget(button)
+        if not plan.disabled_actions:
+            no_action = QLabel("Keine Schreibaktion nötig.")
+            no_action.setObjectName("muted")
+            no_action.setWordWrap(True)
+            self.disabled_actions.addWidget(no_action)
+        self.disabled_actions.addStretch(1)
+        if activation.write_ready:
+            self._set_status("Vergleich erstellt · Schreibaktionen freigeschaltet")
+        else:
+            self._set_status(f"Schreiben gesperrt: {activation.reason}")
 
     def _confirm_hitag_write(self, action) -> None:
-        selected = self.template_list.currentRow()
+        selected = self._selected_template_index()
         if selected < 0 or selected >= len(self._templates) or self._target_scan is None or self._target_scan.profile is None:
             return
         if not self.write_authorized.isChecked():
@@ -790,13 +858,15 @@ class MainWindow(QMainWindow):
             return
         if result.verify_result:
             self._append_raw(result.verify_result)
+        status_text = result.message
         if result.success:
             self._target_scan = chip_read_view_model_from_live_result(result.verify_result)
-            self._set_status(f"Page {result.page} geschrieben und verifiziert")
+            label = "Konfiguration" if result.page == 1 else f"Block {result.page}"
+            status_text = f"{label} erfolgreich geschrieben · Verifikation erfolgreich"
         else:
-            self._set_status(result.message)
             QMessageBox.warning(self, "Schreiben", result.message)
         self._render_write_plan()
+        self._set_status(status_text)
 
     def _fill_field_table(self, table: QTableWidget, rows: list[tuple[str, str, str]]) -> None:
         table.setRowCount(len(rows))
@@ -818,8 +888,12 @@ class MainWindow(QMainWindow):
         self.template_list.clear()
         for path, record in self._templates:
             self.template_list.addItem(f"{record.title} · {record.technology_name} · {path.name}")
-        if self._templates and self.template_list.currentRow() < 0:
-            self.template_list.setCurrentRow(0)
+        if self._templates and self.template_list.currentIndex() < 0:
+            self.template_list.setCurrentIndex(0)
+        self._render_write_plan()
+
+    def _selected_template_index(self) -> int:
+        return self.template_list.currentIndex()
 
     def _append_raw(self, result) -> None:
         for command_result in getattr(result, "raw_results", ()):
@@ -834,7 +908,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Hilfe",
-            "Diese Oberfläche führt nur autorisierte Read-only-Scans aus. Schreibaktionen sind sichtbar geplant, aber deaktiviert.",
+            "Diese Oberfläche führt autorisierte Read-only-Scans aus. Hitag-S256-Schreibaktionen sind nur für einzelne geprüfte Bereiche nach Berechtigungsbestätigung freigeschaltet.",
         )
 
     def _set_status(self, text: str) -> None:
@@ -860,27 +934,28 @@ class MainWindow(QMainWindow):
     def _apply_style(self) -> None:
         self.setStyleSheet(
             """
-            QWidget { background: #f6f7f9; color: #1f2933; font-size: 14px; }
+            QWidget { background: #f6f7f9; color: #1f2933; font-size: 13px; }
             QFrame#centerPanel, QFrame#sectionPanel { background: #ffffff; border: 1px solid #d8e1ea; border-radius: 8px; }
             QLabel#heroIcon { font-size: 48px; color: #245d8f; }
             QLabel#startTitle { font-size: 30px; font-weight: 700; color: #102a43; }
             QLabel#startMessage { font-size: 18px; color: #263849; }
-            QLabel#pageTitle { font-size: 24px; font-weight: 650; color: #102a43; }
-            QLabel#cardTitle { font-size: 17px; font-weight: 650; }
+            QLabel#pageTitle { font-size: 20px; font-weight: 650; color: #102a43; }
+            QLabel#cardTitle { font-size: 15px; font-weight: 650; }
             QLabel#headerLabel { color: #243b53; font-weight: 600; }
             QLabel#statusDot { color: #1f9d55; font-size: 18px; }
             QLabel#successText { color: #1f7a4d; font-weight: 650; }
             QLabel#muted { color: #5d6b78; }
-            QLabel#messagePanel { padding: 10px 12px; background: #f4f7fb; border: 1px solid #d8e1ea; border-radius: 6px; color: #263849; }
-            QLabel#statusBar { padding: 11px 18px; background: #e8eef4; color: #263849; font-weight: 600; }
-            QListWidget#nav { background: #e8eef4; border: 0; padding: 10px; font-size: 15px; }
-            QListWidget#nav::item { min-height: 50px; padding: 8px; border-radius: 7px; }
+            QLabel#compactStatus { color: #243b53; background: #f7f9fb; border: 1px solid #d8e1ea; border-radius: 5px; padding: 5px 7px; }
+            QLabel#messagePanel { padding: 7px 9px; background: #f4f7fb; border: 1px solid #d8e1ea; border-radius: 6px; color: #263849; }
+            QLabel#statusBar { padding: 7px 14px; background: #e8eef4; color: #263849; font-weight: 600; }
+            QListWidget#nav { background: #e8eef4; border: 0; padding: 8px; font-size: 14px; }
+            QListWidget#nav::item { min-height: 38px; padding: 6px; border-radius: 6px; }
             QListWidget#nav::item:selected { background: #ffffff; color: #102a43; border-left: 4px solid #245d8f; }
-            QPushButton { background: #eaf0f6; border: 1px solid #bdc9d5; border-radius: 6px; padding: 8px 12px; }
-            QPushButton#smallButton { padding: 6px 10px; }
-            QPushButton#primaryButton { background: #245d8f; color: #ffffff; font-size: 16px; padding: 12px 18px; }
+            QPushButton { background: #eaf0f6; border: 1px solid #bdc9d5; border-radius: 6px; padding: 6px 10px; }
+            QPushButton#smallButton { padding: 4px 8px; }
+            QPushButton#primaryButton { background: #245d8f; color: #ffffff; font-size: 14px; padding: 7px 12px; }
             QPushButton:disabled { color: #73808c; background: #edf0f3; }
-            QLineEdit, QTextEdit, QPlainTextEdit, QTableWidget, QListWidget { background: #ffffff; border: 1px solid #c7d2df; border-radius: 5px; }
+            QLineEdit, QTextEdit, QPlainTextEdit, QTableWidget, QListWidget, QComboBox { background: #ffffff; border: 1px solid #c7d2df; border-radius: 5px; padding: 3px; }
             QFrame#toolCard { background: #ffffff; border: 1px solid #d6dee6; border-radius: 8px; padding: 8px; }
             QProgressBar { border: 1px solid #c7d2df; border-radius: 5px; text-align: center; background: #edf2f7; min-height: 12px; }
             QProgressBar::chunk { background: #2f80b7; border-radius: 5px; }
@@ -894,6 +969,28 @@ def _line() -> QFrame:
     frame.setFrameShadow(QFrame.Plain)
     frame.setStyleSheet("color: #d6dee6;")
     return frame
+
+
+def _status_label(state: str) -> str:
+    return {
+        "same": "gleich",
+        "different": "abweichend · schreibbar",
+        "config": "abweichend · zuletzt",
+        "uid": "Referenz · nicht schreibbar",
+        "incompatible": "blockierend",
+    }.get(state, state)
+
+
+def _row_colors(state: str) -> tuple[QColor, QColor]:
+    colors = {
+        "same": ("#e8f5ec", "#14532d"),
+        "different": ("#fff7cc", "#5f4500"),
+        "config": ("#fff1b8", "#5f4500"),
+        "uid": ("#eef1f4", "#4b5563"),
+        "incompatible": ("#fde2e2", "#7f1d1d"),
+    }
+    background, foreground = colors.get(state, ("#ffffff", "#1f2933"))
+    return QColor(background), QColor(foreground)
 
 
 def _polish_table(table: QTableWidget) -> None:

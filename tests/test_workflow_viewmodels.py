@@ -15,6 +15,7 @@ from pm3_workflow_gui.ui.viewmodel import (
     startup_view_model_from_check,
     unavailable_write_plan_view_model,
     validate_second_scan,
+    write_activation_view_model,
 )
 
 
@@ -247,6 +248,74 @@ def test_write_plan_uid_never_writable_and_config_last():
     assert [action.page for action in plan.disabled_actions] == [4, 5, 6, 7, 1]
 
 
+def test_write_activation_ready_when_template_target_differences_and_authorization_present():
+    original = hitag_profile("lf_hitag_hts_rdbl_original_pages_0_7.txt")
+    blank = hitag_profile("lf_hitag_hts_rdbl_blank_pages_0_7.txt")
+    plan = build_write_plan_view_model(blank, original)
+
+    activation = write_activation_view_model(
+        template_selected=True,
+        target_scanned=True,
+        authorized=True,
+        plan=plan,
+    )
+
+    assert activation.write_ready is True
+    assert "freigeschaltet" in activation.reason
+    assert plan.writable_difference_count == 5
+    assert all(action.enabled for action in plan.disabled_actions)
+
+
+def test_write_activation_reports_missing_template_target_authorization_and_differences():
+    original = hitag_profile("lf_hitag_hts_rdbl_original_pages_0_7.txt")
+    blank = hitag_profile("lf_hitag_hts_rdbl_blank_pages_0_7.txt")
+    changed_plan = build_write_plan_view_model(blank, original)
+    matching_values_with_other_uid = hitag_profile("lf_hitag_hts_rdbl_written_blank_pages_0_7.txt")
+    no_write_plan = build_write_plan_view_model(matching_values_with_other_uid, original)
+
+    no_template = write_activation_view_model(False, True, True, changed_plan)
+    no_target = write_activation_view_model(True, False, True, changed_plan)
+    no_authorization = write_activation_view_model(True, True, False, changed_plan)
+    no_differences = write_activation_view_model(True, True, True, no_write_plan)
+
+    assert no_template.write_ready is False
+    assert "Vorlage" in no_template.reason
+    assert no_target.write_ready is False
+    assert "Zielchip" in no_target.reason
+    assert no_authorization.write_ready is False
+    assert "Berechtigung" in no_authorization.reason
+    assert no_differences.write_ready is False
+    assert "Keine schreibbaren Unterschiede" in no_differences.reason
+
+
+def test_write_plan_comparison_shows_current_template_values_and_uid_reference():
+    original = hitag_profile("lf_hitag_hts_rdbl_original_pages_0_7.txt")
+    blank = hitag_profile("lf_hitag_hts_rdbl_blank_pages_0_7.txt")
+
+    plan = build_write_plan_view_model(blank, original)
+    rows = {row.label: row for row in plan.rows}
+
+    assert rows["UID"].current_value == "D2DFE494"
+    assert rows["UID"].template_value == "FAF99179"
+    assert rows["UID"].state == "uid"
+    assert "nicht schreibbar" in rows["UID"].note
+    assert rows["Block 4"].current_value == "00000000"
+    assert rows["Block 4"].template_value == "FFF80697"
+    assert rows["Block 4"].state == "different"
+
+
+def test_write_plan_omits_actions_for_already_equal_areas():
+    original = hitag_profile("lf_hitag_hts_rdbl_original_pages_0_7.txt")
+    matching_values_with_other_uid = hitag_profile("lf_hitag_hts_rdbl_written_blank_pages_0_7.txt")
+
+    plan = build_write_plan_view_model(matching_values_with_other_uid, original)
+
+    assert plan.compatible is True
+    assert plan.writable_difference_count == 0
+    assert plan.disabled_actions == ()
+    assert plan.plan_steps == ()
+
+
 def test_write_plan_only_uid_mismatch_is_compatible():
     original = hitag_profile("lf_hitag_hts_rdbl_original_pages_0_7.txt")
     written_blank = hitag_profile("lf_hitag_hts_rdbl_written_blank_pages_0_7.txt")
@@ -256,6 +325,7 @@ def test_write_plan_only_uid_mismatch_is_compatible():
     assert plan.compatible is True
     assert "nur UID" in plan.compatibility_message
     assert any("Nur UID" in line for line in plan.summary_lines)
+    assert plan.disabled_actions == ()
 
 
 def test_write_plan_reports_incompatible_target_chip():
