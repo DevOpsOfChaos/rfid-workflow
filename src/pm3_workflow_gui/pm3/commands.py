@@ -17,6 +17,7 @@ COMMANDS = {
     "hw_tune": CommandDefinition("Hardware tune", "hw tune", RiskLevel.READ_ONLY, "Read antenna tuning values."),
     "hf_search": CommandDefinition("HF search", "hf search", RiskLevel.READ_ONLY, "Search for HF transponders."),
     "lf_search": CommandDefinition("LF search", "lf search", RiskLevel.READ_ONLY, "Search for LF transponders."),
+    "indala_reader": CommandDefinition("Indala reader", "lf indala reader", RiskLevel.READ_ONLY, "Read public Indala identity data from the antenna."),
     "hitag_s256": CommandDefinition("Hitag S help", "lf hitag hts", RiskLevel.READ_ONLY, "Show Hitag S command family help."),
     "hitag_s256_list": CommandDefinition("Hitag S trace list", "lf hitag hts list", RiskLevel.READ_ONLY, "List Hitag S trace history."),
     "hitag_s256_read_block": CommandDefinition("Hitag S read block", "lf hitag hts rdbl", RiskLevel.READ_ONLY, "Read a Hitag S block/page."),

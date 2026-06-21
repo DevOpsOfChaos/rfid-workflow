@@ -78,6 +78,8 @@ def _message(detection: DetectedTechnology, read_status: str) -> str:
         )
     if detection.technology_id == "em410x":
         return "EM410x erkannt. Karten-ID gelesen. Für diesen Chiptyp ist kein zusätzlicher Speicherbereich vorhanden."
+    if detection.technology_id == "indala":
+        return "Indala erkannt. Öffentliche Basisdaten wurden gelesen; Schreiben und Emulation sind nicht verfügbar."
     if detection.technology_id == "t5577":
         return "T55xx/T5577 erkannt. Öffentliche Basisinformationen wurden gelesen; Schreiben ist nicht freigeschaltet."
     if detection.technology_id == "iso14443a":
@@ -92,6 +94,8 @@ def _next_step(detection: DetectedTechnology, read_status: str) -> str:
         return "Nur berechtigte Schlüssel manuell verwalten; kein automatischer Speicher-Read."
     if detection.technology_id == "em410x":
         return "ID kann dokumentiert werden; keine Template-Erstellung in V1."
+    if detection.technology_id == "indala":
+        return "ID dokumentieren; keine Template-Erstellung in V1."
     return "Analyse öffnen; Detailread und Vorlagen-Workflow sind für diesen Chiptyp noch nicht verfügbar."
 
 

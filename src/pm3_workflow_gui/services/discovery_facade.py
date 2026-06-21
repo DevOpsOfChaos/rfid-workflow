@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 from pathlib import Path
 from typing import Literal
@@ -18,8 +18,10 @@ from pm3_workflow_gui.pm3.parsers import (
     parse_hitag_s_rdbl,
     parse_hw_tune,
     parse_hw_version,
+    parse_indala_reader,
     parse_lf_search,
     parse_startup_banner,
+    IndalaReadResult,
 )
 from pm3_workflow_gui.pm3.session import Pm3LaunchConfig
 from pm3_workflow_gui.profiles.schema import HitagS256Profile
@@ -44,6 +46,7 @@ class DiscoveryTextInputs:
     lf_search: str | None = None
     hitag_reader: str | None = None
     hitag_rdbl: str | None = None
+    indala_reader: str | None = None
     reference_hitag_rdbl: str | None = None
     session_errors: tuple[str, ...] = ()
     failed_commands: tuple[str, ...] = ()
@@ -61,6 +64,7 @@ class DiscoveryParseBundle:
     lf_search: LfSearchResult | None = None
     hitag_reader: HitagReaderResult | None = None
     hitag_read: HitagSRead | None = None
+    indala_read: IndalaReadResult | None = None
     reference_profile: HitagS256Profile | None = None
     session_errors: tuple[str, ...] = ()
     failed_commands: tuple[str, ...] = ()
@@ -142,6 +146,7 @@ class DiscoveryFacade:
             lf_search=parse_lf_search(inputs.lf_search) if inputs.lf_search else None,
             hitag_reader=parse_hitag_reader(inputs.hitag_reader) if inputs.hitag_reader else None,
             hitag_read=parse_hitag_s_rdbl(inputs.hitag_rdbl) if inputs.hitag_rdbl else None,
+            indala_read=parse_indala_reader(inputs.indala_reader) if inputs.indala_reader else None,
             reference_profile=reference_profile,
             session_errors=inputs.session_errors,
             failed_commands=inputs.failed_commands,
@@ -159,6 +164,15 @@ class DiscoveryFacade:
         session_status = _session_status(bundle)
         last_error = _last_error(bundle)
         detected = None if session_status == "device_lost" else detect_technology(bundle.hf_search, bundle.lf_search, bundle.hitag_reader, bundle.hitag_read)
+        if detected and detected.technology_id == "indala" and bundle.indala_read and bundle.indala_read.false_positive_note:
+            detected = replace(
+                detected,
+                uid=None,
+                confidence="low",
+                support_level="public_details",
+                source="lf_indala_reader",
+                read_status="signal_unstable",
+            )
         tag_type_guess = _tag_type_guess(detected)
         risk_notes = tuple(_risk_notes(bundle, verification))
         connected = _connected(bundle.startup_banner)
@@ -300,6 +314,7 @@ def _discovery_data_status(bundle: DiscoveryParseBundle) -> str:
         or (bundle.lf_search and (bundle.lf_search.identification_status != "unknown" or bundle.lf_search.uid or bundle.lf_search.tag_type or bundle.lf_search.chipset or bundle.lf_search.hint))
         or bundle.hitag_reader
         or bundle.hitag_read
+        or bundle.indala_read
     ):
         return "captured"
     if bundle.hw_version and bundle.hw_tune:
@@ -320,6 +335,8 @@ def _risk_notes(bundle: DiscoveryParseBundle, verification: VerificationResult |
     notes: list[str] = []
     if bundle.lf_search and bundle.lf_search.false_positive_notes:
         notes.append("LF search included possible false positives; Hitag hint was evaluated separately.")
+    if bundle.indala_read and bundle.indala_read.false_positive_note:
+        notes.append("Indala reader reported possible false-positive sizing; repeat read and check tag position.")
     if bundle.lf_search and bundle.lf_search.identification_status == "no_chipset":
         notes.append("LF search did not identify a supported chipset.")
     if bundle.hitag_read and bundle.hitag_read.is_hitag_s256_plain_no_auth:
@@ -357,6 +374,8 @@ def _recommended_next_step(
         return "Vorlage erstellen oder Zielchip read-only vergleichen"
     if tag_type_guess == "hitag_s_candidate":
         return "Run lf hitag hts rdbl -p 0 -c 8"
+    if tag_type_guess == "indala":
+        return "Indala public identity read available; repeat if Raw ID or length is unstable"
     if tag_type_guess not in {"unknown", "none"}:
         return "Analyse öffnen; Detailread und Vorlagen-Workflow sind für diesen Chiptyp noch nicht verfügbar"
     if discovery_data_status == "not captured":
@@ -380,7 +399,7 @@ def _session_status(bundle: DiscoveryParseBundle) -> SessionStatus:
     }
     if any(error in command_failure_errors for error in bundle.session_errors):
         return "command_failed"
-    if bundle.startup_banner or bundle.hw_version or bundle.hw_tune or bundle.hf_search or bundle.lf_search or bundle.hitag_reader or bundle.hitag_read:
+    if bundle.startup_banner or bundle.hw_version or bundle.hw_tune or bundle.hf_search or bundle.lf_search or bundle.hitag_reader or bundle.hitag_read or bundle.indala_read:
         return "ok"
     return "unknown"
 
@@ -428,6 +447,7 @@ def _display_tag_type(tag_type_guess: str) -> str:
         "mifare_classic": "MIFARE Classic",
         "iso14443a": "ISO14443A",
         "em410x": "EM410x",
+        "indala": "Indala",
         "t5577": "T5577",
         "unknown_lf": "Unknown LF chip",
         "unknown_hf": "Unknown HF chip",

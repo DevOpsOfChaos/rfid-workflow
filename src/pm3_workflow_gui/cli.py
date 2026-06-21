@@ -12,7 +12,7 @@ from pm3_workflow_gui.services.discovery_facade import (
     DiscoveryFacade,
     default_launch_config,
 )
-from pm3_workflow_gui.services.live_pm3_readonly import LivePm3ReadonlyService, SAFE_HITAG_READ_COMMANDS, SAFE_LIVE_COMMANDS
+from pm3_workflow_gui.services.live_pm3_readonly import LivePm3ReadonlyService, SAFE_HITAG_READ_COMMANDS, SAFE_INDALA_READ_COMMANDS, SAFE_LIVE_COMMANDS
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "live-scan":
         print("Live read-only commands: " + ", ".join(SAFE_LIVE_COMMANDS))
         print("Gated Hitag read-only commands: " + ", ".join(SAFE_HITAG_READ_COMMANDS))
+        print("Gated Indala read-only commands: " + ", ".join(SAFE_INDALA_READ_COMMANDS))
         service = LivePm3ReadonlyService()
         return _print_capture_summary("PM3 live scan summary", service, debug=args.debug, include_hitag_debug=args.debug)
     parser.error(f"Unsupported command: {args.command}")
@@ -104,6 +105,7 @@ def _print_capture_summary(title: str, provider, debug: bool = False, include_hi
         _print_live_debug(capture)
     if include_hitag_debug and isinstance(provider, LivePm3ReadonlyService):
         _print_hitag_live_debug(provider, getattr(capture, "hitag_read_result", None))
+        _print_indala_live_debug(getattr(capture, "indala_read_result", None))
     return 0
 
 
@@ -153,6 +155,24 @@ def _print_hitag_live_debug(service: LivePm3ReadonlyService, result=None) -> Non
         for page in sorted(result.hitag_read.pages):
             if page in {4, 5, 6, 7}:
                 print(f"- block_{page}: {result.hitag_read.pages[page].data}")
+    if result.raw_results:
+        print("- gated_commands:")
+        for command_result in result.raw_results:
+            print(f"  - {command_result.command}: exit={command_result.returncode}, timeout={'yes' if command_result.timed_out else 'no'}")
+
+
+def _print_indala_live_debug(result) -> None:
+    if result is None:
+        return
+    print("Indala live read:")
+    print(f"- status: {result.status}")
+    print(f"- port: {result.port or 'unknown'}")
+    print(f"- message: {result.message or 'none'}")
+    if result.indala_read:
+        print(f"- raw_id: {result.indala_read.raw_id or 'unknown'}")
+        print(f"- bit_length: {result.indala_read.bit_length or 'unknown'}")
+        if result.indala_read.false_positive_note:
+            print(f"- note: {result.indala_read.false_positive_note}")
     if result.raw_results:
         print("- gated_commands:")
         for command_result in result.raw_results:

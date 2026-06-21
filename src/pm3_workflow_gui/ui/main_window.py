@@ -582,7 +582,9 @@ class MainWindow(QMainWindow):
             self._set_status("Chip erkannt")
         elif model.status in {"retry", "signal_unstable"}:
             self._set_status("Signal schwach · bitte Chip etwas verschieben")
-        elif model.status in {"basic_detection", "identity_read", "public_details_read", "detected_only", "read_requires_authorized_credentials", "read_not_supported_yet"}:
+        elif model.status in {"identity_read", "public_details_read"}:
+            self._set_status("Chip gelesen · verfügbare Daten angezeigt")
+        elif model.status in {"basic_detection", "detected_only", "read_requires_authorized_credentials", "read_not_supported_yet"}:
             self._set_status("Chip erkannt · Basis-Erkennung")
         elif model.status == "no_chip":
             self._set_status("Kein Chip erkannt")

@@ -86,6 +86,7 @@ class ManualTextCaptureProvider:
             lf_search=self.text_blocks.get("lf_search"),
             hitag_reader=self.text_blocks.get("hitag_reader"),
             hitag_rdbl=self.text_blocks.get("hitag_rdbl"),
+            indala_reader=self.text_blocks.get("indala_reader"),
             reference_hitag_rdbl=self.text_blocks.get("reference_hitag_rdbl"),
         )
         return CaptureResult(source="manual-text", inputs=inputs, missing_fields=_missing_fields(inputs))
@@ -190,11 +191,15 @@ def classify_pm3_command_context(command: str) -> str:
         "lf hitag hts wrbl --help",
         "lf hitag hts dump -h",
         "lf hitag hts dump --help",
+        "lf indala help",
+        "lf indala reader --help",
     }:
         return "help_capability"
     if normalized in {"hf search", "lf search", "lf search -u"}:
         return "discovery"
     if normalized.startswith("lf hitag hts reader"):
+        return "reader"
+    if normalized.startswith("lf indala reader"):
         return "reader"
     if normalized.startswith("lf hitag hts rdbl") and not _has_help_flag(normalized):
         return "read"
@@ -261,6 +266,17 @@ def latest_hitag_reader_output(
     return matches[-1].output if matches else None
 
 
+def latest_indala_reader_output(
+    command_outputs: dict[str, tuple[CapturedCommandOutput, ...]],
+) -> str | None:
+    matches = [
+        outputs[-1]
+        for command, outputs in command_outputs.items()
+        if command.startswith("lf indala reader") and outputs and outputs[-1].command_context == "reader"
+    ]
+    return matches[-1].output if matches else None
+
+
 def ignored_host_commands_from_outputs(
     command_outputs: dict[str, tuple[CapturedCommandOutput, ...]],
 ) -> tuple[str, ...]:
@@ -293,6 +309,7 @@ def discovery_inputs_from_log(
         lf_search=latest_command_output_by_context(command_outputs, {"lf search", "lf search -u"}, "discovery"),
         hitag_reader=latest_hitag_reader_output(command_outputs),
         hitag_rdbl=latest_hitag_read_output(command_outputs),
+        indala_reader=latest_indala_reader_output(command_outputs),
         session_errors=diagnostics["session_errors"],
         failed_commands=diagnostics["failed_commands"],
         cmd_prompt_detected=diagnostics["cmd_prompt_detected"],

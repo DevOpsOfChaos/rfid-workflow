@@ -10,6 +10,10 @@ from pm3_workflow_gui.pm3.risk import RiskLevel, classify_command
 PAGE_RE = re.compile(r"Page\s+(?P<page>\d+):\s+(?P<data>(?:[0-9A-Fa-f]{2}\s*){4})")
 UID_RE = re.compile(r"UID:\s*(?P<uid>(?:[0-9A-Fa-f]{2}\s*){4})")
 LABEL_RE = re.compile(r"^(?:--=\s*)?(?P<label>[A-Za-z0-9 /_-][A-Za-z0-9 /_-]*?)\.{2,}\s*(?P<value>.+)$")
+INDALA_RE = re.compile(
+    r"Indala\s+\(len\s+(?P<length>\d+)\)\s+Raw:\s*(?P<raw>[0-9A-Fa-f]+)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -80,11 +84,25 @@ class LfSearchResult:
     false_positive_notes: tuple[str, ...] = ()
     identification_status: str = "unknown"
     confidence: str = "low"
+    raw_id: str | None = None
+    bit_length: int | None = None
 
 
 @dataclass(frozen=True)
 class HitagReaderResult:
     uids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class IndalaReadResult:
+    raw_id: str | None
+    bit_length: int | None
+    false_positive_note: str | None = None
+    errors: tuple[str, ...] = ()
+
+    @property
+    def has_identity(self) -> bool:
+        return bool(self.raw_id)
 
 
 @dataclass(frozen=True)
@@ -238,9 +256,16 @@ def parse_hf_search(output: str) -> HfSearchResult:
 
 def parse_lf_search(output: str) -> LfSearchResult:
     normalized = output.lower()
+    indala = _indala_match(output)
     uid = _compact_hex(_label_value(output, "UID") or _label_value(output, "TAG ID") or _label_value(output, "ID"))
+    if uid is None and indala:
+        uid = indala.raw_id
     tag_type = _label_value(output, "TYPE")
+    if tag_type is None and indala:
+        tag_type = "Indala"
     chipset = _label_value(output, "Chipset")
+    if chipset is None and indala:
+        chipset = "Indala"
     hint = _hint_value(output)
     false_positive_notes = tuple(
         line.strip()
@@ -258,6 +283,8 @@ def parse_lf_search(output: str) -> LfSearchResult:
         false_positive_notes=false_positive_notes,
         identification_status=identification_status,
         confidence=_lf_confidence(classification, uid, tag_type, chipset, hint),
+        raw_id=indala.raw_id if indala else None,
+        bit_length=indala.bit_length if indala else None,
     )
 
 
@@ -267,6 +294,17 @@ def parse_hitag_reader(output: str) -> HitagReaderResult:
         for match in re.findall(r"UID\.*\s*([0-9A-Fa-f]{8})", output)
     ]
     return HitagReaderResult(uids=tuple(uid for uid in _dedupe_present(uids) if uid))
+
+
+def parse_indala_reader(output: str) -> IndalaReadResult:
+    indala = _indala_match(output)
+    false_positive = next((line.strip() for line in output.splitlines() if "false positive" in line.lower()), None)
+    return IndalaReadResult(
+        raw_id=indala.raw_id if indala else None,
+        bit_length=indala.bit_length if indala else None,
+        false_positive_note=false_positive,
+        errors=tuple(_known_error_lines(output)),
+    )
 
 
 def parse_hitag_s_rdbl(output: str) -> HitagSRead:
@@ -390,6 +428,8 @@ def _lf_classification(
     values = " ".join(value.lower() for value in (tag_type, chipset, hint) if value)
     if uid and "hitag" in values:
         return "hitag_candidate"
+    if "indala" in normalized or "indala" in values:
+        return "indala"
     if "em410" in normalized or "em 410" in values or "em410" in values or "unique" in values:
         return "em410x"
     if "t5577" in normalized or "t55" in values:
@@ -486,6 +526,16 @@ def _clean_status(value: str | None) -> str | None:
     if value is None:
         return None
     return value.replace("(", "").replace(")", "").strip().lower()
+
+
+def _indala_match(output: str) -> IndalaReadResult | None:
+    match = INDALA_RE.search(output)
+    if not match:
+        return None
+    return IndalaReadResult(
+        raw_id=match.group("raw").upper(),
+        bit_length=int(match.group("length")),
+    )
 
 
 def _tune_rating(tune: HwTune) -> str:

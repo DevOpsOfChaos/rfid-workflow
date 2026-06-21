@@ -12,15 +12,19 @@ from pm3_workflow_gui.technologies.base import (
 )
 from pm3_workflow_gui.technologies.generic import GenericDetectedChipAdapter
 from pm3_workflow_gui.technologies.hitag_s256 import HitagS256Adapter, hitag_s256_detection
+from pm3_workflow_gui.technologies.indala import IndalaAdapter, indala_detection
 
 
 _HITAG = HitagS256Adapter()
+_INDALA = IndalaAdapter()
 _GENERIC = GenericDetectedChipAdapter()
 
 
 def adapter_for(detection: DetectedTechnology | None) -> TechnologyAdapter:
     if detection and detection.technology_id == _HITAG.technology_id:
         return _HITAG
+    if detection and detection.technology_id == _INDALA.technology_id:
+        return _INDALA
     return _GENERIC
 
 
@@ -58,6 +62,13 @@ def detect_technology(
             support_level="candidate",
             source="lf_search",
             read_status=READ_STATUS_DETECTED_ONLY,
+        )
+    if lf_search and lf_search.classification == "indala":
+        return indala_detection(
+            raw_id=lf_search.raw_id or lf_search.uid,
+            bit_length=lf_search.bit_length,
+            confidence="medium" if lf_search.raw_id else "low",
+            read_status=READ_STATUS_IDENTITY_READ if lf_search.raw_id or lf_search.uid else READ_STATUS_PUBLIC_DETAILS_READ,
         )
     if lf_search and lf_search.classification not in {"unknown", "no_tag_found"}:
         return DetectedTechnology(
@@ -115,6 +126,7 @@ def detect_technology(
 def _lf_display_name(search: LfSearchResult) -> str:
     labels = {
         "em410x": "EM410x",
+        "indala": "Indala",
         "t5577": "T5577",
         "hitag_candidate": "Hitag S",
         "unknown_lf": "Unbekannter LF-Chip",

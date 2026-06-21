@@ -98,6 +98,37 @@ def test_facade_reports_unknown_lf_chip_with_basic_support():
     assert summary.support_level == "read_not_supported_yet"
 
 
+def test_facade_reports_indala_as_public_lf_identity():
+    summary = facade().summarize_texts(
+        DiscoveryTextInputs(
+            hf_search="[!] No known/supported 13.56 MHz tags found\n",
+            lf_search=(PM3_FIXTURES / "lf_search_indala_unstable_real.txt").read_text(encoding="utf-8"),
+        )
+    )
+
+    assert summary.tag_frequency_guess == "lf"
+    assert summary.tag_type_guess == "indala"
+    assert summary.detected_technology.technology_name == "Indala"
+    assert summary.detected_technology.uid.startswith("800000")
+    assert summary.support_level == "identity_read"
+    assert "Indala public identity read available" in summary.recommended_next_step
+
+
+def test_facade_reports_indala_reader_false_positive_as_signal_unstable():
+    summary = facade().summarize_texts(
+        DiscoveryTextInputs(
+            hf_search="[!] No known/supported 13.56 MHz tags found\n",
+            lf_search=(PM3_FIXTURES / "lf_search_indala_unstable_real.txt").read_text(encoding="utf-8"),
+            indala_reader=(PM3_FIXTURES / "lf_indala_reader_unstable_real.txt").read_text(encoding="utf-8"),
+        )
+    )
+
+    assert summary.tag_type_guess == "indala"
+    assert summary.support_level == "signal_unstable"
+    assert summary.detected_technology.uid is None
+    assert any("Indala reader reported possible false-positive sizing" in note for note in summary.risk_notes)
+
+
 def test_cli_fixture_summary_outputs_compact_diagnostics():
     completed = subprocess.run(
         [

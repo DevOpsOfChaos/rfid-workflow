@@ -2,6 +2,7 @@ from pm3_workflow_gui.services.live_pm3_readonly import (
     COMMAND_EXECUTION_FAILED,
     LiveCommandResult,
     LivePm3ReadonlyService,
+    SAFE_INDALA_READ_COMMANDS,
     SAFE_LIVE_COMMANDS,
 )
 from pm3_workflow_gui.ui.viewmodel import load_live_scan_view_model
@@ -32,6 +33,26 @@ def test_live_command_allowlist_blocks_write_like_commands():
         assert "outside read-only allowlist" in str(exc)
     else:
         raise AssertionError("write command must be blocked")
+
+
+def test_live_command_allowlist_allows_only_targeted_indala_reader():
+    calls = []
+
+    def runner(args, timeout):
+        calls.append(" ".join(args))
+        return LiveCommandResult(" ".join(args), 0, "[+] Indala (len 64)  Raw: 8000000000000000\n", "")
+
+    service = LivePm3ReadonlyService(runner=runner)
+    result = service.run_safe_command(SAFE_INDALA_READ_COMMANDS[0], port="COM16")
+
+    assert result.returncode == 0
+    assert "lf indala reader" in calls[0]
+    try:
+        service.run_safe_command("lf indala clone -r 8000000000000000", port="COM16")
+    except ValueError as exc:
+        assert "outside read-only allowlist" in str(exc)
+    else:
+        raise AssertionError("Indala clone command must be blocked")
 
 
 def test_lf_tune_diagram_starts_detached_cmd_window(monkeypatch):

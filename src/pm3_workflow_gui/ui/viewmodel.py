@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from pm3_workflow_gui.pm3.parsers import HitagSRead, HwTune, HwVersion
+from pm3_workflow_gui.pm3.parsers import HitagSRead, HwTune, HwVersion, IndalaReadResult
 from pm3_workflow_gui.profiles.schema import HitagS256Profile
 from pm3_workflow_gui.profiles.storage import TemplateRecord, save_template_record
 from pm3_workflow_gui.services.capture import (
@@ -111,6 +111,7 @@ class ChipReadViewModel:
     support_level: str = ""
     profile: HitagS256Profile | None = None
     raw_read: HitagSRead | None = None
+    public_raw_read: object | None = None
     technology: DetectedTechnology | None = None
     capabilities: TechnologyCapabilities | None = None
 
@@ -306,7 +307,10 @@ def chip_read_view_model_from_live_result(result) -> ChipReadViewModel:
             capabilities=adapter_for(detection).capabilities if detection else None,
         )
     if detection:
-        return _chip_read_view_model_from_adapter_result(detection, getattr(result, "hitag_read", None))
+        return _chip_read_view_model_from_adapter_result(
+            detection,
+            getattr(result, "hitag_read", None) or getattr(result, "indala_read", None),
+        )
     if result.status == "no_chip":
         return ChipReadViewModel(
             "no_chip",
@@ -496,6 +500,7 @@ def _display_tag_type(tag_type: str) -> str:
         "mifare_classic": "MIFARE Classic",
         "iso14443a": "ISO14443A",
         "em410x": "EM410x",
+        "indala": "Indala",
         "t5577": "T5577",
         "unknown_lf": "Unbekannter LF-Chip",
         "unknown_hf": "Unbekannter HF-Chip",
@@ -504,14 +509,14 @@ def _display_tag_type(tag_type: str) -> str:
     }.get(tag_type, tag_type)
 
 
-def _chip_read_view_model_from_adapter_result(detection: DetectedTechnology, raw_read: HitagSRead | None = None) -> ChipReadViewModel:
+def _chip_read_view_model_from_adapter_result(detection: DetectedTechnology, raw_read: object | None = None) -> ChipReadViewModel:
     adapter = adapter_for(detection)
     result = adapter.read_result(detection, raw_read)
     profile = result.template_payload if isinstance(result.template_payload, HitagS256Profile) else None
     fields = tuple(ChipFieldViewModel(field.label, field.value, field.note) for field in result.fields)
     memory_sections = tuple(ChipFieldViewModel(field.label, field.value, field.note) for field in result.memory_sections)
     public_configuration = tuple(ChipFieldViewModel(field.label, field.value, field.note) for field in result.public_configuration)
-    title = f"{detection.technology_name} erkannt" if result.is_complete_template_read else "Chip erkannt"
+    title = _chip_read_title(detection, result)
     return ChipReadViewModel(
         status=result.status,
         title=title,
@@ -524,10 +529,19 @@ def _chip_read_view_model_from_adapter_result(detection: DetectedTechnology, raw
         read_status=result.read_status,
         support_level=result.support_level,
         profile=profile,
-        raw_read=raw_read,
+        raw_read=raw_read if isinstance(raw_read, HitagSRead) else None,
+        public_raw_read=raw_read if not isinstance(raw_read, HitagSRead) else None,
         technology=detection,
         capabilities=result.capabilities,
     )
+
+
+def _chip_read_title(detection: DetectedTechnology, result) -> str:
+    if result.is_complete_template_read:
+        return f"{detection.technology_name} erkannt"
+    if result.read_status in {"identity_read", "public_details_read"}:
+        return "Chip gelesen"
+    return "Chip erkannt"
 
 
 def _compact_display(value: str | None) -> str:

@@ -7,6 +7,7 @@ from pm3_workflow_gui.pm3.parsers import (
     parse_hitag_s_rdbl,
     parse_hw_tune,
     parse_hw_version,
+    parse_indala_reader,
     parse_lf_search,
     parse_startup_banner,
 )
@@ -141,3 +142,24 @@ def test_parse_lf_search_detects_em410x_as_generic_lf_technology():
     assert lf_search.uid == "0011223344"
     assert lf_search.chipset == "EM410x"
     assert lf_search.confidence == "high"
+
+
+def test_parse_lf_search_detects_real_indala_public_identity():
+    lf_search = parse_lf_search(fixture("lf_search_indala_unstable_real.txt"))
+
+    assert lf_search.classification == "indala"
+    assert lf_search.tag_type == "Indala"
+    assert lf_search.chipset == "Indala"
+    assert lf_search.raw_id == "80000000000000000000000000000000002944452888B6D75AAAAB6B"
+    assert lf_search.uid == lf_search.raw_id
+    assert lf_search.bit_length == 157
+    assert lf_search.identification_status == "no_chipset"
+    assert lf_search.false_positive_notes
+
+
+def test_parse_indala_reader_extracts_real_readonly_output():
+    indala = parse_indala_reader(fixture("lf_indala_reader_unstable_real.txt"))
+
+    assert indala.raw_id == "800000000000000000000000000000000003FFFFC000000000000000"
+    assert indala.bit_length == 151
+    assert indala.false_positive_note == "[=] Odd size,  false positive?"

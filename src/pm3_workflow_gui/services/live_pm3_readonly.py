@@ -12,12 +12,14 @@ from typing import Callable
 from pm3_workflow_gui.pm3.parsers import (
     HfSearchResult,
     HitagSRead,
+    IndalaReadResult,
     LfSearchResult,
     parse_hf_search,
     parse_hitag_reader,
     parse_hitag_s_rdbl,
     parse_hw_tune,
     parse_hw_version,
+    parse_indala_reader,
     parse_lf_search,
 )
 from pm3_workflow_gui.services.capture import (
@@ -28,12 +30,14 @@ from pm3_workflow_gui.services.capture import (
     normalize_pm3_command,
 )
 from pm3_workflow_gui.services.discovery_facade import DiscoveryTextInputs, default_launch_config
-from pm3_workflow_gui.technologies.base import DetectedTechnology
+from pm3_workflow_gui.technologies.base import DetectedTechnology, READ_STATUS_IDENTITY_READ, READ_STATUS_SIGNAL_UNSTABLE
 from pm3_workflow_gui.technologies.registry import detect_technology
+from pm3_workflow_gui.technologies.indala import indala_detection
 
 
 SAFE_LIVE_COMMANDS = ("hw version", "hw tune", "hf search", "lf search")
 SAFE_HITAG_READ_COMMANDS = ("lf hitag hts reader -@", "lf hitag hts rdbl -p 0 -c 8")
+SAFE_INDALA_READ_COMMANDS = ("lf indala reader",)
 SAFE_HITAG_WRITE_PAGES = frozenset({1, 4, 5, 6, 7})
 DEVICE_NOT_FOUND_ERROR = "No Proxmark3 port found"
 DEVICE_RECONNECT_MESSAGE = "USB reconnect required. Reconnect the Proxmark and restart the session."
@@ -119,6 +123,7 @@ class HitagS256LiveReadResult:
     raw_results: tuple[LiveCommandResult, ...] = ()
     hf_search: HfSearchResult | None = None
     detected_technology: DetectedTechnology | None = None
+    indala_read: IndalaReadResult | None = None
 
     @property
     def success(self) -> bool:
@@ -133,6 +138,7 @@ class LiveCaptureResult(CaptureResult):
     debug_results: tuple[LiveCommandResult, ...] = ()
     connection_status: Pm3ConnectionStatus | None = None
     hitag_read_result: HitagS256LiveReadResult | None = None
+    indala_read_result: HitagS256LiveReadResult | None = None
 
 
 class LivePm3ReadonlyService:
@@ -241,8 +247,12 @@ class LivePm3ReadonlyService:
         port = status.ports[0]
         results = [self.run_safe_command(command, port=port) for command in SAFE_LIVE_COMMANDS]
         hitag_result = self.read_hitag_s256(port) if include_hitag_read else None
-        debug_results = results + list(hitag_result.raw_results if hitag_result else ())
         valid_outputs = _valid_command_outputs(results)
+        hf_search = parse_hf_search(valid_outputs["hf search"]) if "hf search" in valid_outputs else None
+        lf_search = parse_lf_search(valid_outputs["lf search"]) if "lf search" in valid_outputs else None
+        detected = detect_technology(hf_search=hf_search, lf_search=lf_search)
+        indala_result = self.read_indala(port, lf_search, hf_search) if detected and detected.technology_id == "indala" else None
+        debug_results = results + list(hitag_result.raw_results if hitag_result else ()) + list(indala_result.raw_results if indala_result else ())
         errors = _result_errors(results)
         failed_commands = _failed_commands(results)
         if not _hw_version_is_meaningful(valid_outputs.get("hw version")):
@@ -256,6 +266,7 @@ class LivePm3ReadonlyService:
             lf_search=valid_outputs.get("lf search"),
             hitag_reader=_first_combined_output(hitag_result, "lf hitag hts reader -@"),
             hitag_rdbl=_first_combined_output(hitag_result, "lf hitag hts rdbl -p 0 -c 8"),
+            indala_reader=_first_combined_output(indala_result, "lf indala reader"),
             session_errors=tuple(_dedupe(errors)),
             failed_commands=tuple(_dedupe(failed_commands)),
         )
@@ -267,6 +278,7 @@ class LivePm3ReadonlyService:
             debug_results=tuple(debug_results),
             connection_status=status,
             hitag_read_result=hitag_result,
+            indala_read_result=indala_result,
         )
 
     def read_chip(self, port: str | None = None) -> HitagS256LiveReadResult:
@@ -305,6 +317,9 @@ class LivePm3ReadonlyService:
                 full_detection or detected,
             )
 
+        if detected and detected.technology_id == "indala":
+            return self.read_indala(selected_port, lf_search, hf_search, raw_results)
+
         if detected:
             return HitagS256LiveReadResult(
                 "basic_detection",
@@ -330,7 +345,7 @@ class LivePm3ReadonlyService:
 
     def run_safe_command(self, command: str, port: str | None = None) -> LiveCommandResult:
         normalized = normalize_pm3_command(command)
-        if normalized not in SAFE_LIVE_COMMANDS and normalized not in SAFE_HITAG_READ_COMMANDS:
+        if normalized not in SAFE_LIVE_COMMANDS and normalized not in SAFE_HITAG_READ_COMMANDS and normalized not in SAFE_INDALA_READ_COMMANDS:
             raise ValueError(f"Refusing live PM3 command outside read-only allowlist: {command}")
         if port:
             result = self.runner(self._proxmark_args(port, normalized), self.timeout_seconds)
@@ -637,6 +652,57 @@ class LivePm3ReadonlyService:
                 elapsed_seconds=elapsed,
             )
 
+    def read_indala(
+        self,
+        port: str | None = None,
+        lf_search: LfSearchResult | None = None,
+        hf_search: HfSearchResult | None = None,
+        initial_results: tuple[LiveCommandResult, ...] = (),
+    ) -> HitagS256LiveReadResult:
+        selected_port = port
+        if selected_port is None:
+            status = self.connection_status()
+            if not status.connected:
+                return HitagS256LiveReadResult("device_lost", message=status.last_error or DEVICE_NOT_FOUND_ERROR)
+            selected_port = status.ports[0]
+
+        reader_results: list[LiveCommandResult] = []
+        reads: list[IndalaReadResult] = []
+        for _ in range(3):
+            reader_result = self.run_safe_command("lf indala reader", port=selected_port)
+            reader_results.append(reader_result)
+            reader_output = _combined_output(reader_result)
+            if reader_output:
+                parsed = parse_indala_reader(reader_output)
+                if parsed.has_identity:
+                    reads.append(parsed)
+            time.sleep(0.2)
+
+        stable = _stable_indala_read(reads)
+        unstable = stable is None and bool(reads)
+        fallback_raw = lf_search.raw_id if lf_search else None
+        fallback_length = lf_search.bit_length if lf_search else None
+        selected_read = stable or reads[-1] if reads else None
+        detection = indala_detection(
+            raw_id=stable.raw_id if stable else None,
+            bit_length=stable.bit_length if stable else fallback_length,
+            confidence="high" if stable else "low",
+            read_status=READ_STATUS_IDENTITY_READ if stable else READ_STATUS_SIGNAL_UNSTABLE,
+        )
+        if selected_read is None and fallback_raw:
+            selected_read = IndalaReadResult(fallback_raw, fallback_length)
+        return HitagS256LiveReadResult(
+            "identity_read" if stable else "signal_unstable" if unstable else "basic_detection",
+            selected_port,
+            lf_search,
+            None,
+            "Indala-ID gelesen" if stable else "Chip erkannt, aber Details konnten nicht stabil gelesen werden. Bitte Chip leicht verschieben und erneut scannen.",
+            tuple(initial_results + tuple(reader_results)),
+            hf_search,
+            detection,
+            selected_read,
+        )
+
     def _proxmark_env(self) -> dict[str, str]:
         env = os.environ.copy()
         home = str(self.client_dir) + "\\"
@@ -901,3 +967,17 @@ def _has_hitag_candidate_evidence(search: LfSearchResult | None) -> bool:
         value and "hitag" in value.lower()
         for value in (search.tag_type, search.chipset, search.hint)
     )
+
+
+def _stable_indala_read(reads: list[IndalaReadResult]) -> IndalaReadResult | None:
+    counts: dict[tuple[str, int | None], int] = {}
+    by_key: dict[tuple[str, int | None], IndalaReadResult] = {}
+    for read in reads:
+        if not read.raw_id:
+            continue
+        key = (read.raw_id, read.bit_length)
+        counts[key] = counts.get(key, 0) + 1
+        by_key[key] = read
+        if counts[key] >= 2:
+            return by_key[key]
+    return None
