@@ -1,0 +1,118 @@
+[=] Session log C:\Tools\proxmark3\client\/.proxmark3/logs/log_20260615084438.txt
+[+] loaded `C:\Tools\proxmark3\client\/.proxmark3/preferences.json`
+[+] Using UART port COM16
+[+] Communicating with PM3 over USB-CDC
+
+  [ Proxmark3 ]
+
+    MCU....... AT91SAM7S512 Rev B
+    Memory.... 512 KB ( 73% used )
+    Target.... PM3 GENERIC
+
+    Client.... Iceman/master/v4.21611-321-gc7b95a94e 2026-05-31 00:48:46
+    Bootrom... Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:41 9cb15bd3b
+    OS........ Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:52 9cb15bd3b
+
+[usb] pm3 --> hw version
+ [ Proxmark3 ]
+
+ [ Client ]
+  Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:48:46 9cb15bd3b
+  Compiler.................. MinGW-w64 16.1.0
+  Platform.................. Windows (64b) / x86_64
+  Lua script support........ present ( 5.4.7 )
+  Python script support..... absent
+
+ [ Model ]
+  Firmware.................. PM3 GENERIC
+
+ [ ARM ]
+  Bootrom.... Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:41 9cb15bd3b
+  OS......... Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:52 9cb15bd3b
+  Compiler... GCC 13.3.0
+
+ [ Hardware ]
+  --= Embedded flash memory 512K bytes ( 73% used )
+
+[usb] pm3 --> hw tune
+[=] -------- LF Antenna ----------
+[+] 125.00 kHz ........... 20.21 V
+[+] 134.83 kHz ........... 13.34 V
+[+] 115.38 kHz optimal.... 25.70 V
+[+] Frequency bandwidth... 6.2
+[+] Peak voltage.......... 7.5
+[+] LF antenna............ ok
+
+[=] -------- HF Antenna ----------
+[+] 13.56 MHz............. 36.28 V
+[+] Peak voltage.......... 10.5
+[+] HF antenna ( ok )
+
+[usb] pm3 --> hf search -h
+Will try to find a HF read out of the unknown tag.
+
+usage:
+    hf search [-hv]
+
+options:
+    -h, --help                     This help
+    -v, --verbose                  verbose output
+
+[usb] pm3 --> lf search -h
+Read and search for valid known tag. For offline mode, you can `data load` first then search.
+
+usage:
+    lf search [-h1cu]
+
+options:
+    -h, --help                     This help
+    -u                             Search for unknown tags
+
+[usb] pm3 --> lf search
+[=] Note: False Positives ARE possible
+[=]
+[=] Checking for known tags...
+[=]
+[=] Odd size,  false positive?
+[+] Indala (len 226)  Raw: 80000000000000000000000000000000000000000000000001656559
+
+[+] Valid Indala ID found!
+
+[=] Searching for auth LF and special cases...
+[+] UID....... A1B2C3D4
+[+] TYPE...... PCF 7952
+[+] Chipset... Hitag 1/S / 82xx
+[?] Hint: Try `lf hitag hts` commands
+
+[usb] pm3 --> lf hitag hts
+help             This help
+list             List Hitag S trace history
+rdbl             Read Hitag S page
+dump             Dump Hitag S pages to a file
+restore          Restore Hitag S memory from dump file
+wrbl             Write Hitag S page
+sim              Simulate Hitag S transponder
+
+[usb] pm3 --> lf hitag hts rdbl -p 0 -c 8
+[=] Access Hitag S in Plain mode
+
+[=] --- Tag Information ---------------------------
+[=]  Memory type...... Hitag S 256
+[=]  Authenticaion.... No
+[=]  TTF coding....... Manchester
+[=]  TTF data rate.... 2 kBit
+[=]  TTF mode......... Page 4, Page 5, Page 6, Page 7
+[=]  Config locked.... No
+[=]  Key/PWD locked... No
+
+[=] --- Tag Data ---------------------------
+[=]   # | 00 01 02 03 | ascii | perm | info
+[=] ----+-------------+-------+------+------
+[+]   0 | A1 B2 C3 D4 | ....  | RO   | UID
+[+]   1 | C9 28 00 AA | .(..  | RW   | Config
+[+]   2 | 44 45 4D 4F | DEMO  | RW   | Data
+[+]   3 | 54 45 53 54 | TEST  | RW   | Data
+[+]   4 | A4 10 B4 20 | ...   | RW   | Data
+[+]   5 | C5 30 D5 40 | .0.@  | RW   | Data
+[+]   6 | E6 50 F6 60 | .P.`  | RW   | Data
+[+]   7 | 00 00 00 00 | ....  | RW   | Data

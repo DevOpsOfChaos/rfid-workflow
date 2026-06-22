@@ -1,10 +1,10 @@
 # Development Guide
 
-RFID Workflow currently has no imported application source. This guide establishes the engineering rules that future code must follow.
+RFID Workflow now contains the public application source for the development preview. This guide establishes the engineering rules that code changes must follow.
 
 ## Design direction
 
-The future application is intended to be a Windows desktop frontend for a locally installed RRG/Iceman Proxmark3 client. It should use guided workflows, explicit capability boundaries, local-only data handling, and re-read verification after supported changes.
+The application is intended to be a Windows desktop frontend for a locally installed RRG/Iceman Proxmark3 client. It should use guided workflows, explicit capability boundaries, local-only data handling, and re-read verification after supported changes.
 
 ## Before adding a PM3 adapter
 
@@ -30,4 +30,4 @@ All visible UI text must remain i18n-ready from the first source import. Keep us
 
 ## Testing expectations
 
-The future codebase should include unit tests for parsers and capability mapping, synthetic workflow fixtures, failure-path tests, and verification-path tests. Hardware testing must always identify the exact PM3 hardware, client build, firmware build, operating system, and technology.
+The codebase should include unit tests for parsers and capability mapping, synthetic workflow fixtures, failure-path tests, and verification-path tests. Hardware testing must always identify the exact PM3 hardware, client build, firmware build, operating system, and technology.

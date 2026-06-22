@@ -1,0 +1,162 @@
+# Architecture
+
+## External Proxmark Process
+
+The GUI uses a user-selected external Proxmark3/Iceman installation. The repository must not copy Proxmark3 binaries, source, scripts, or firmware.
+
+The current target setup is rooted at `C:\Tools\proxmark3` with client files in `C:\Tools\proxmark3\client`. It starts through a Batch/MSYS flow: change into `client`, call `setup.bat`, then run `bash pm3`. Auto port detection is the recommended default:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3"
+```
+
+A forced port remains a debug override only:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 -p COM16"
+```
+
+Port diagnosis is modeled as read-only:
+
+```powershell
+cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 --list"
+```
+
+Direct `proxmark3.exe COMx` startup remains modeled for installations where it works, but it is not the reliable primary path for this setup.
+
+## Session Layer
+
+`pm3.session` owns launch configuration and conservative process execution boundaries. `Pm3LaunchConfig` models these startup modes:
+
+- `direct_exe`: direct executable startup, for example `proxmark3.exe COM16`.
+- `proxspace_bat`: existing ProxSpace/Proxmark Batch launcher in the Proxmark root.
+- `client_setup_bash`: `cmd.exe /k "cd /d <client_dir> && call setup.bat && bash pm3"` when `com_port=None`, letting the Proxmark script auto-detect the port.
+- `client_setup_bash` with `com_port="COMx"`: `cmd.exe /k "cd /d <client_dir> && call setup.bat && bash pm3 -p <COMx>"`, a forced-port debug override.
+
+For the current installation, `client_setup_bash` is the recommended mode. The existing `ProxmarkSession` class is only a small non-interactive wrapper for direct `proxmark3.exe` execution. It should not be stretched to pretend it can robustly automate an interactive MSYS shell without a tested adapter.
+
+The first read-only discovery foundation is parser-first. The project stores captured command output under `tests/fixtures/pm3/` and parses it into structured values. Live discovery is limited to short, separate, allowlisted PM3 commands through the wrapper and does not automate an interactive terminal.
+
+## Service Facade Layer
+
+`services.discovery_facade` is the stable boundary for future UI code. It accepts raw text from fixtures now and can accept captured session output later. The facade owns the orchestration across parser, profile, and workflow modules and returns `UiDiscoverySummary` fields that are already shaped for display:
+
+- connection state, launch mode, COM port, target, client, and firmware
+- LF/HF antenna status
+- tag frequency/type guesses
+- verification status when a reference profile is supplied
+- short risk notes and the recommended next manual step
+
+The PySide6 GUI calls this service layer. It should not directly run parser
+regexes or construct Proxmark command strings.
+
+The facade also owns session-health state for captured logs:
+
+- `ok`: parsed output does not show a session-level failure.
+- `command_failed`: a read/search command failed, for example `UID Request failed!`, but the client did not clearly drop.
+- `device_lost`: communication failed or the log fell back to the Windows command prompt after a PM3 prompt.
+- `unknown`: no useful PM3 session evidence is present.
+
+When `device_lost` is detected, the UI must stop workflow progress. It should
+tell the operator to reconnect USB and restart PM3; it must not keep issuing
+read/discovery steps in that session.
+
+## Capture Provider Layer
+
+`services.capture` defines read-only sources that all feed `DiscoveryFacade`:
+
+- `FixtureCaptureProvider`: loads either the default fixture directory or a scenario JSON.
+- `ManualTextCaptureProvider`: accepts already pasted text blocks from a caller.
+- `Pm3LogCaptureProvider`: reads an existing Proxmark session log and extracts command outputs.
+- `LivePm3ReadonlyService`: runs the local `bash pm3` wrapper with auto-port
+  detection and a fixed read-only allowlist.
+- `InteractivePm3Provider`: stub only. It documents the future boundary for an
+  interactive PM3 session but does not start processes.
+
+Log splitting is defensive. Prompt lines like `[usb] pm3 --> hw version` start a new section, the prompt line is excluded from captured output, command text is normalized for lookup, and repeated commands are stored as multiple captures with latest-output helpers. Incomplete logs are allowed; missing sections are reported instead of crashing.
+
+Capture also classifies command context. Hardware/status commands (`hw version`, `hw tune`) are separate from Help/Capability commands (`hf search -h`, `lf search -h`, `lf hitag hts`, and Hitag help variants), real Discovery commands (`hf search`, `lf search`, `lf search -u`), and real Read commands such as `lf hitag hts rdbl -p 0 -c 8`. This prevents a help-only log from being treated as evidence that an LF tag was found.
+
+Capture records known failure lines such as `UID Request failed!`, `Couldn't
+identify a chipset`, `timeout while waiting for reply`, `Failed to get current
+device debug level`, and `Communicating with Proxmark3 device failed`. It also
+detects a fallback to a Windows `C:\...>` prompt after PM3 output.
+
+Capture also filters host-command pollution. Commands such as `cd ...`, `dir`,
+`ls`, `python ...`, `py ...`, `powershell ...`, `cmd ...`, or drive paths like
+`D:\...` may appear when the operator accidentally types shell commands into
+the PM3 console. These are classified as `host_shell`, excluded from PM3
+command outputs, and exposed as `ignored_host_commands`.
+
+Interactive Windows automation is deliberately deferred. The current live path
+does not drive a TTY. It uses `bash pm3 --list` to detect the device and
+`bash pm3 -c "<command>"` for `hw version`, `hw tune`, `hf search`, and
+`lf search`. No caller can pass arbitrary PM3 text into that runner.
+
+## Command and Risk Layer
+
+`pm3.commands` stores known command definitions. `pm3.risk` classifies commands into read-only, write, high-risk configuration, lock/crypto, and attack/brute-force categories.
+
+## Parser Layer
+
+`pm3.parsers` extracts stable data from Proxmark output. Parsers must be tested against real captured output before being trusted in write-gated workflows.
+
+Current parser coverage:
+
+- Startup banner: COM port, target, client, bootrom, and OS versions.
+- `hw version`: client compiler/platform, firmware/model, ARM versions, flash usage, Lua support, and Python script support.
+- `hw tune`: LF/HF voltages, peak values, antenna status, and a simple `OK`/`WARN`/`FAIL` rating.
+- Command help: usage line, option lines, and registry-backed risk level.
+- `hf search`: no-tag/unsupported/unknown status.
+- `lf search`: UID, type, chipset, hint, and false-positive notes. Hitag hints are preserved even when Indala false-positive lines are present.
+- `lf hitag hts rdbl`: Hitag S tag information, compact page data, UID page, config page, permissions, and Plain/No Auth Hitag S256 detection.
+
+Help output is parsed only as capability information. Hardware OK means antenna health, not tag detection. Tag frequency and type guesses require real `hf search`/`lf search` discovery output or a real read output.
+
+`Couldn't identify a chipset` is kept as a failed LF identification, not as a
+Hitag candidate. `UID Request failed!` prevents the Hitag read from being used
+as a tag-type proof.
+
+`lf hitag hts reader -@` is supporting evidence only. UID lines from that
+command can support `tag_frequency_guess=lf` and `tag_type_guess=hitag_candidate`,
+but only a successful `lf hitag hts rdbl -p 0 -c 8` can produce
+`hitag_s256_plain`.
+
+## Workflow Layer
+
+`workflows.hitag_s256` builds structured write plans and verifies parsed reads against a profile. Execution is handled by a verified workflow runner.
+
+Verification rules:
+
+- Page 0 UID is stored but not written.
+- UID mismatch is not fatal when all non-UID profile pages match.
+- Pages 1-7 are verified for the known profile; at minimum page 1 config and pages 4-7 must match.
+- Page 1 config is treated as configuration-sensitive and is planned last.
+- Restore, simulation, emulation, and technology-specific functions are exposed only when an adapter declares their technical state.
+
+`workflows.discovery` is a read aggregation layer. It combines launch configuration and parser outputs into a summary such as `Hitag S256 Plain tag detected` plus the next recommended step. It does not automate the interactive Proxmark shell.
+
+## Profile Layer
+
+`profiles.schema` defines structured JSON-compatible profiles and write rules. Profiles store the data and the policy needed to decide what may be written: `write_uid=false`, `write_config_last=true`, and the default known write order `(4, 5, 6, 7, 1)`.
+
+## UI Layer
+
+The GUI lives under `pm3_workflow_gui.ui`.
+
+- `ui.viewmodel` converts `CaptureResult`, `UiDiscoverySummary`, and technology capabilities into display fields, normal-mode navigation, expert-mode navigation, matrix rows, and tool rows. It has no PySide6 dependency and is covered by normal tests.
+- `ui.main_window` is the PySide6 window. It renders normal mode (`Vorlage`, `Schreiben`, `Analyse`) and expert mode (`Technologien`, `Werkzeuge`, `Vorlagen & Dumps`, `Analyse`, `Protokoll`) and calls capture providers; it does not parse PM3 text directly.
+- `ui.app` is the launch entry point and prints a clear message when PySide6 is missing.
+
+The GUI can load demo scenarios, open an existing log, load the latest log
+from the configured PM3 log directory, or run the live read scan. If live
+auto-port detection cannot find a PM3, `ui.main_window` shows a full-window
+USB reconnect overlay and polls until `bash pm3 --list` reports a port. PySide6
+must be installed only in a separate `.venv-gui`, not as a required core
+dependency.
+
+Expert mode exposes registered tools with controlled parameters instead of a free PM3 shell. Write actions are shown only when the concrete adapter reports a technically available write plan.
+
+## Audit and Logs
+
+Audit logging should record launch mode, planned start command, command, timestamp, risk level, operator action, return code, parsed result, and verification outcome.

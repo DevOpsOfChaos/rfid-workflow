@@ -1,0 +1,105 @@
+[=] Session log C:\Tools\proxmark3\client\/.proxmark3/logs/log_20260615084438.txt
+[+] loaded `C:\Tools\proxmark3\client\/.proxmark3/preferences.json`
+[+] Using UART port COM16
+[+] Communicating with PM3 over USB-CDC
+
+  [ Proxmark3 ]
+
+    MCU....... AT91SAM7S512 Rev B
+    Memory.... 512 KB ( 73% used )
+    Target.... PM3 GENERIC
+
+    Client.... Iceman/master/v4.21611-321-gc7b95a94e 2026-05-31 00:48:46
+    Bootrom... Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:41 9cb15bd3b
+    OS........ Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:52 9cb15bd3b
+
+[usb] pm3 --> hw version
+ [ Proxmark3 ]
+
+ [ Client ]
+  Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:48:46 9cb15bd3b
+  Compiler.................. MinGW-w64 16.1.0
+  Platform.................. Windows (64b) / x86_64
+  Lua script support........ present ( 5.4.7 )
+  Python script support..... absent
+
+ [ Model ]
+  Firmware.................. PM3 GENERIC
+
+ [ ARM ]
+  Bootrom.... Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:41 9cb15bd3b
+  OS......... Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:52 9cb15bd3b
+  Compiler... GCC 13.3.0
+
+ [ Hardware ]
+  --= Embedded flash memory 512K bytes ( 73% used )
+
+[usb] pm3 --> hw tune
+[=] -------- LF Antenna ----------
+[+] 125.00 kHz ........... 20.21 V
+[+] 134.83 kHz ........... 13.34 V
+[+] 115.38 kHz optimal.... 25.70 V
+[+] Frequency bandwidth... 6.2
+[+] Peak voltage.......... 7.5
+[+] LF antenna............ ok
+
+[=] -------- HF Antenna ----------
+[+] 13.56 MHz............. 36.28 V
+[+] Peak voltage.......... 10.5
+[+] HF antenna ( ok )
+
+[usb] pm3 --> hf search -h
+Will try to find a HF read out of the unknown tag.
+
+usage:
+    hf search [-hv]
+
+options:
+    -h, --help                     This help
+    -v, --verbose                  verbose output
+
+[usb] pm3 --> lf search -h
+Read and search for valid known tag. For offline mode, you can `data load` first then search.
+
+usage:
+    lf search [-h1cu]
+
+options:
+    -h, --help                     This help
+    -u                             Search for unknown tags
+
+[usb] pm3 --> lf hitag hts
+help             This help
+list             List Hitag S trace history
+rdbl             Read Hitag S page
+dump             Dump Hitag S pages to a file
+restore          Restore Hitag S memory from dump file
+wrbl             Write Hitag S page
+sim              Simulate Hitag S transponder
+
+[usb] pm3 --> lf hitag hts rdbl -h
+Read Hitag S page.
+
+usage:
+    lf hitag hts rdbl [-h8] [--nrar <hex>] [--crypto] [-k <hex>] [-m <0|1|2|3>] [-p <dec>] [-c <dec>]
+
+options:
+    -h, --help                     This help
+
+[usb] pm3 --> lf hitag hts wrbl -h
+Write Hitag S page.
+
+usage:
+    lf hitag hts wrbl [-h8] [--nrar <hex>] [--crypto] [-k <hex>] [-m <dec>] -p <dec> -d <hex>
+
+options:
+    -h, --help                     This help
+
+[usb] pm3 --> lf hitag hts dump -h
+Dump Hitag S pages to a file.
+
+usage:
+    lf hitag hts dump [-h8] [--nrar <hex>] [--crypto] [-k <hex>] [-m <dec>] [-f <fn>] [--ns]
+
+options:
+    -h, --help                     This help

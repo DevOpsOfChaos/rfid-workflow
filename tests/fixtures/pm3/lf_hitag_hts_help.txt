@@ -1,0 +1,10 @@
+help             This help
+list             List Hitag S trace history
+-----------      ----------------------- General ------------------------
+reader           Act like a Hitag S reader
+rdbl             Read Hitag S page
+dump             Dump Hitag S pages to a file
+restore          Restore Hitag S memory from dump file
+wrbl             Write Hitag S page
+-----------      ----------------------- Simulation -----------------------
+sim              Simulate Hitag S transponder

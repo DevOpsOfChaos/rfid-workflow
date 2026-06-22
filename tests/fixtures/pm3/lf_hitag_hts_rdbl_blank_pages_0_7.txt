@@ -1,0 +1,27 @@
+[=] Access Hitag S in Plain mode
+
+[=] --- Tag Information ---------------------------
+[=]  Memory type...... Hitag S 256
+[=]  Authenticaion.... No
+[=]  TTF coding....... Manchester
+[=]  TTF data rate.... 4 kBit
+[=]  TTF mode......... TTF Mode disabled (= RTF Mode)
+[=]  Config locked.... No
+[=]  Key/PWD locked... No
+
+[=] --- Tag Data ---------------------------
+[=]   # | 00 01 02 03 | ascii | perm | info
+[=] ----+-------------+-------+------+------
+[+]   0 | 11 22 33 44 | ."3D  | RO   | UID
+[+]   1 | C9 00 00 AA | ....  | RW   | Config
+[+]   2 | 44 45 4D 4F | DEMO  | RW   | Data
+[+]   3 | 54 45 53 54 | TEST  | RW   | Data
+[+]   4 | 00 00 00 00 | ....  | RW   | Data
+[+]   5 | 00 00 00 00 | ....  | RW   | Data
+[+]   6 | 00 00 00 00 | ....  | RW   | Data
+[+]   7 | 52 44 59 21 | RDY!  | RW   | Data
+[=] ----+-------------+-------+------+------
+[=]  RO = Read Only, RW = Read Write
+[=]  OTP = One Time Programmable
+[=]  RO/W = Partially Read Write
+[=] ----------------------------------------

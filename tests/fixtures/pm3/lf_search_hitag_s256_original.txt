@@ -1,0 +1,14 @@
+[=] Note: False Positives ARE possible
+[=]
+[=] Checking for known tags...
+[=]
+[=] Odd size,  false positive?
+[+] Indala (len 226)  Raw: 80000000000000000000000000000000000000000000000001656559
+
+[+] Valid Indala ID found!
+
+[=] Searching for auth LF and special cases...
+[+] UID....... A1B2C3D4
+[+] TYPE...... PCF 7952
+[+] Chipset... Hitag 1/S / 82xx
+[?] Hint: Try `lf hitag hts` commands

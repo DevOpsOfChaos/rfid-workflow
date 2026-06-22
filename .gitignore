@@ -1,8 +1,14 @@
-# Python environments and bytecode
+# Python environments, build outputs, and bytecode
 .venv/
 .venv-gui/
 __pycache__/
 *.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
 
 # Local runtime and RFID/NFC data -- never commit
 runtime/
@@ -11,15 +17,25 @@ templates/
 backups/
 audit/
 logs/
+profiles/private/
+tests/private_fixtures/
+private/
+scratch/
+tmp/
+artifacts/
+release/
 *.log
 *.eml
 *.bin
 *.dump
 *.key
+*.sqlite
+*.db
 
 # Local environment and configuration
 .env
 .env.*
+.public-audit-private-patterns.txt
 config.local.*
 
 # IDE settings

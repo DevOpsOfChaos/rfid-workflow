@@ -1,0 +1,20 @@
+Read all Hitag S memory and save to file
+ Crypto mode:
+    - key format ISK high + ISK low
+    - default key 4F4E4D494B52 (ONMIKR)
+
+  8268/8310 password mode:
+    - default password BBDD3399
+
+usage:
+    lf hitag hts dump [-h8] [--nrar <hex>] [--crypto] [-k <hex>] [-m <dec>] [-f <fn>] [--ns]
+
+options:
+    -h, --help                     This help
+    -8, --82xx                     8268/8310 mode
+    --nrar <hex>                   nonce / answer writer, 8 hex bytes
+    --crypto                       crypto mode
+    -k, --key <hex>                pwd or key, 4 or 6 hex bytes
+    -m, --mode <dec>               response protocol mode. 0 (Standard 00110), 1 (Advanced 11000), 2 (Advanced 11001), 3 (Fast Advanced 11010) (def: 3)
+    -f, --file <fn>                specify file name
+    --ns                           no save to file

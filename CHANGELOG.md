@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Public application source for the RFID Workflow development preview.
+- CLI, parser, capture-provider, and read-only GUI scaffolding.
+- Synthetic fixtures and tests for PM3 discovery and Hitag S256 workflow behavior.
 - Public repository foundation for the future RFID Workflow Windows desktop application.
 - Privacy, security, contribution, and repository-hygiene policies.
 - Documentation for the planned installation, first-run flow, PM3 compatibility baseline, and technology support boundaries.
@@ -15,6 +18,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Not yet included
 
-- Application source code.
 - Installers or downloadable releases.
 - Real RFID/NFC templates, backups, dumps, UIDs, keys, logs, or hardware captures.

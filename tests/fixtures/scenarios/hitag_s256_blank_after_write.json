@@ -1,0 +1,10 @@
+{
+  "name": "hitag_s256_blank_after_write",
+  "startup_banner": "../pm3/startup_banner_com16.txt",
+  "hw_version": "../pm3/hw_version_pm3_generic.txt",
+  "hw_tune": "../pm3/hw_tune_ok_no_tag.txt",
+  "hf_search": "../pm3/hf_search_no_tag_found.txt",
+  "lf_search": "../pm3/lf_search_hitag_s256_blank.txt",
+  "hitag_rdbl": "../pm3/lf_hitag_hts_rdbl_written_blank_pages_0_7.txt",
+  "reference_hitag_rdbl": "../pm3/lf_hitag_hts_rdbl_original_pages_0_7.txt"
+}

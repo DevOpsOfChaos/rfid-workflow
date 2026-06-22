@@ -1,58 +1,108 @@
 # RFID Workflow
 
-RFID Workflow is a future independent Windows desktop application for working with **your own or otherwise authorized RFID/NFC transponders**. It is designed to use a locally installed RRG/Iceman Proxmark3 client and to provide guided, safety-oriented workflows instead of requiring routine terminal operation.
+RFID Workflow is an independent Windows desktop frontend for authorized RFID
+and NFC work with a locally installed RRG/Iceman Proxmark3 setup. It provides
+guided, safety-oriented workflows around selected Proxmark3 operations instead
+of exposing a general-purpose Proxmark terminal.
 
-> **Project status: public-source preparation in progress.**
-> **Application source import follows a privacy and repository audit.**
+Project status: development preview.
 
-There is no downloadable application release yet. This repository currently contains the public project foundation, policies, documentation, and contribution rules only.
+The application source is public. Release artifacts are not available yet.
 
-## Intended scope
+RFID Workflow is an independent desktop frontend for a locally installed
+RRG/Iceman Proxmark3 setup. It is not affiliated with or endorsed by
+RfidResearchGroup.
 
-The planned desktop application will:
+## Current Scope
 
-- detect and use a locally installed compatible RRG/Iceman Proxmark3 client;
-- guide users through supported read and verification workflows;
-- read supported chips and validate results with a second scan;
-- manage **local** templates and backups;
-- compare captured states;
-- perform supported changes only where an explicitly verified workflow exists; and
-- re-read and verify supported changes after execution, including supported automatic write plans.
+- Configure a local external Proxmark3/Iceman installation and launch mode.
+- Use the local PM3 wrapper auto-port detection by default.
+- Run read-only hardware and transponder discovery.
+- Exercise parser, facade, and UI flows from synthetic fixtures.
+- Summarize existing PM3 logs without running Proxmark.
+- Provide a read-only GUI MVP over the same capture providers and facade.
+- Model Hitag S256 read, planning, and verification logic from synthetic fixtures.
 
-All transponder data is intended to remain local to the user's computer. RFID Workflow is designed for local storage, with no cloud synchronization, no remote accounts, and no telemetry.
+Out of scope for the current preview: brute force, attacks, unauthorized access
+workflows, cloning framing, simulation, restore flows, bundling Proxmark3/Iceman,
+or executing real hardware write operations.
 
-## Important boundaries
+## Requirements
 
-- Use RFID Workflow only for transponders, systems, and environments you own or are explicitly authorized to test or administer.
-- RFID Workflow is an independent project. It is not a fork of, affiliated with, or endorsed by RfidResearchGroup.
-- RFID Workflow will not bundle or modify the RRG/Iceman Proxmark3 client or firmware. Users install and maintain those components separately.
-- A technology is not considered write-supported unless its complete workflow has been locally verified and documented.
+- Windows
+- Python 3.12 or newer
+- Separately installed RRG/Iceman Proxmark3 client for live read-only scans
 
-## Current verified baseline
+## CLI Usage
 
-The only fully verified workflow documented for the future application is **Hitag S256** under the exact compatibility baseline in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Other technologies may be detected, discussed, or planned, but they are not represented as supported write workflows.
+The fixture-backed facade can be exercised without touching hardware:
+
+```powershell
+python -m pm3_workflow_gui.cli fixture-summary --fixture-dir tests/fixtures/pm3
+```
+
+Scenario bundles can be loaded from `tests/fixtures/scenarios/`:
+
+```powershell
+python -m pm3_workflow_gui.cli scenario-summary --scenario tests/fixtures/scenarios/hitag_s256_original_discovery.json
+```
+
+Existing PM3 session logs can be summarized without running Proxmark:
+
+```powershell
+python -m pm3_workflow_gui.cli log-summary --log tests/fixtures/pm3/session_log_discovery_sample.txt
+```
+
+The live read-only scan path runs only allowlisted commands through the PM3
+wrapper: `hw version`, `hw tune`, `hf search`, and `lf search`. It is not a
+Proxmark terminal and it does not accept arbitrary command text.
+
+```powershell
+python -m pm3_workflow_gui.cli live-scan
+```
+
+## GUI Preview
+
+The GUI can be launched as a read-only viewer over the same capture providers:
+
+```powershell
+python -m pm3_workflow_gui.ui.app
+```
+
+Install optional GUI dependencies only in a local virtual environment:
+
+```powershell
+python -m venv .venv-gui
+.\.venv-gui\Scripts\python -m pip install --upgrade pip
+.\.venv-gui\Scripts\python -m pip install -e .[gui]
+.\.venv-gui\Scripts\python -m pm3_workflow_gui.ui.app
+```
+
+## Development
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -e .[dev]
+.\.venv\Scripts\python -m pytest -q
+```
+
+No Proxmark3 source code, firmware, binaries, local runtime data, real
+RFID/NFC templates, dumps, keys, screenshots, logs, or private configuration
+belong in this repository.
 
 ## Documentation
 
-- [Windows installation plan](docs/INSTALL_WINDOWS.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [CLI usage](docs/CLI_USAGE.md)
+- [Windows installation](docs/INSTALL_WINDOWS.md)
 - [First-run flow](docs/FIRST_RUN.md)
 - [PM3 setup and flashing](docs/PM3_SETUP_AND_FLASHING.md)
 - [Compatibility matrix](docs/COMPATIBILITY.md)
 - [Supported technologies](docs/SUPPORTED_TECHNOLOGIES.md)
-- [Backups and templates](docs/BACKUPS_AND_TEMPLATES.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Hitag S256 workflow](docs/HITAG_S256_WORKFLOW.md)
 - [Development guide](docs/DEVELOPMENT.md)
-- [Release process](docs/RELEASE_PROCESS.md)
 - [Public repository audit](docs/PUBLIC_REPOSITORY_AUDIT.md)
-
-## Privacy and safe contributions
-
-Do **not** commit real RFID/NFC data. This includes real templates, backups, UIDs, dumps, BIN/EML files, keys, audit logs, screenshots containing card data, personal paths, environment files, or local configuration. See [PRIVACY.md](PRIVACY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and the [public repository audit](docs/PUBLIC_REPOSITORY_AUDIT.md).
 
 ## License
 
-RFID Workflow is licensed under the [GNU General Public License, version 3 or later](LICENSE).
-
-## Third-party components
-
-Planned integrations and runtime dependencies are acknowledged in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). They are not bundled by this repository at this stage.
+RFID Workflow is licensed under the [MIT License](LICENSE).
