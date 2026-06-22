@@ -19,7 +19,7 @@ The planned desktop application will:
 - perform supported changes only where an explicitly verified workflow exists; and
 - re-read and verify supported changes after execution, including supported automatic write plans.
 
-All transponder data is intended to remain local to the user's computer. RFID Workflow is designed without cloud synchronization, remote accounts, or telemetry.
+All transponder data is intended to remain local to the user's computer. RFID Workflow is designed for local storage, with no cloud synchronization, no remote accounts, and no telemetry.
 
 ## Important boundaries
 
