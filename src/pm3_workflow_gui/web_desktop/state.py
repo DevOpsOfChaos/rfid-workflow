@@ -16,6 +16,10 @@ class ConnectionSnapshot:
     port: str | None = None
     target: str | None = None
     client_version: str | None = None
+    compatibility: str = "unknown"
+    compatibility_label: str = "Unknown"
+    firmware_version: str | None = None
+    platform: str | None = None
 
 
 @dataclass(frozen=True)

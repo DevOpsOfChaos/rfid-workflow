@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pm3_workflow_gui.profiles.settings import load_settings
+from pm3_workflow_gui.services.live_pm3_readonly import LivePm3ReadonlyService
 from pm3_workflow_gui.web_desktop.bridge import WebDesktopBridge
 
 
@@ -16,7 +18,9 @@ def main() -> None:
 
     assets_dir = Path(__file__).resolve().parent / "assets"
     index_path = assets_dir / "index.html"
-    bridge = WebDesktopBridge()
+    settings = load_settings()
+    service = LivePm3ReadonlyService(client_dir=settings.last_known_pm3_path)
+    bridge = WebDesktopBridge(service=service)
     webview.create_window(
         "RFID Workflow",
         index_path.as_uri(),

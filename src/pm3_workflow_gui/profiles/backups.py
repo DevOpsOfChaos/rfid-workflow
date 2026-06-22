@@ -9,6 +9,7 @@ import re
 from uuid import uuid4
 
 from pm3_workflow_gui.profiles.schema import HitagS256Profile
+from pm3_workflow_gui.profiles.settings import local_data_dir
 
 
 @dataclass(frozen=True)
@@ -32,10 +33,7 @@ class BackupRecord:
 
 
 def default_backup_dir() -> Path:
-    base = os.environ.get("LOCALAPPDATA")
-    if base:
-        return Path(base) / "PM3Workflow" / "backups"
-    return Path.home() / ".pm3-workflow" / "backups"
+    return local_data_dir() / "backups"
 
 
 def save_backup_record(record: BackupRecord, directory: str | Path | None = None) -> Path:

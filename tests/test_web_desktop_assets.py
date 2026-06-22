@@ -35,3 +35,20 @@ def test_index_exposes_analysis_navigation() -> None:
 
     assert 'data-view="analysis"' in html
     assert ">Analyse<" in html
+
+
+def test_index_exposes_overview_navigation() -> None:
+    html = (ASSETS / "index.html").read_text(encoding="utf-8")
+
+    assert 'data-view="overview"' in html
+    assert 'data-i18n="nav.overview"' in html
+
+
+def test_assets_and_locales_do_not_contain_mojibake_sequences() -> None:
+    bad_sequences = ("Ã", "â€", "�")
+    files = [ASSETS / "app.js", ASSETS / "index.html", ASSETS / "styles.css"]
+    files.extend((ASSETS / "locales").glob("*.json"))
+
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        assert not any(sequence in text for sequence in bad_sequences), path

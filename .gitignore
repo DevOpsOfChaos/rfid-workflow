@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.public-audit-private-patterns.txt
 .mypy_cache/
 .ruff_cache/
 build/
@@ -13,4 +14,3 @@ profiles/private/
 *.db
 *.log
 .env
-

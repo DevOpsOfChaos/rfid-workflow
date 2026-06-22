@@ -1,0 +1,4 @@
+# Copy this file to .public-audit-private-patterns.txt for local private checks.
+# Keep the real file ignored and uncommitted.
+# Add private RFID test values, local client paths, operator names, and other denylisted strings here.
+EXAMPLE_PRIVATE_PATTERN_DO_NOT_USE

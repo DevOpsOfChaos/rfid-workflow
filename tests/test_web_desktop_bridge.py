@@ -176,6 +176,39 @@ def test_refresh_connection_without_pm3_never_reports_connected(tmp_path):
     assert state["port"] is None
 
 
+def test_refresh_connection_reports_verified_pm3_baseline(tmp_path):
+    hw_version_output = (FIXTURES / "hw_version_pm3_generic.txt").read_text(encoding="utf-8")
+
+    class BaselineService(FakeService):
+        def startup_check(self):
+            return Pm3StartupCheck(
+                True,
+                "COM16",
+                "PM3 GENERIC",
+                "Iceman/master/v4.21611-321-gc7b95a94e-suspect",
+                "Proxmark erkannt",
+                hw_version=LiveCommandResult("hw version", 0, hw_version_output, ""),
+            )
+
+    bridge = WebDesktopBridge(BaselineService(), template_dir=tmp_path, backup_dir=tmp_path)
+
+    state = bridge.refresh_connection()
+
+    assert state["connected"] is True
+    assert state["compatibility"] == "verified"
+
+
+def test_refresh_connection_does_not_block_recognized_untested_pm3(tmp_path):
+    bridge = WebDesktopBridge(FakeService(connected=True), template_dir=tmp_path, backup_dir=tmp_path)
+
+    state = bridge.refresh_connection()
+
+    assert state["connected"] is True
+    assert state["can_read"] is True
+    assert state["can_write"] is True
+    assert state["compatibility"] == "recognized_untested"
+
+
 def test_scan_requires_matching_second_read_before_template_save(tmp_path):
     bridge = WebDesktopBridge(
         FakeService(

@@ -9,7 +9,7 @@ import re
 import shutil
 from typing import Any
 
-from pm3_workflow_gui.pm3.parsers import parse_hf_search, parse_hw_tune
+from pm3_workflow_gui.pm3.parsers import parse_hf_search, parse_hw_tune, parse_hw_version
 from pm3_workflow_gui.profiles.backups import (
     BackupRecord,
     default_backup_dir,
@@ -25,6 +25,7 @@ from pm3_workflow_gui.profiles.storage import (
     load_template_records,
     save_template_record,
 )
+from pm3_workflow_gui.profiles.settings import load_settings, settings_payload, update_settings
 from pm3_workflow_gui.services.live_pm3_readonly import (
     HitagS256LiveReadResult,
     LivePm3ReadonlyService,
@@ -48,6 +49,10 @@ from pm3_workflow_gui.web_desktop.operation_manager import (
 from pm3_workflow_gui.web_desktop.state import ConnectionSnapshot, TargetSnapshot, WebDesktopState
 
 
+VERIFIED_CLIENT_BASELINE = "v4.21611-321-gc7b95a94e"
+VERIFIED_TARGET = "PM3 GENERIC"
+
+
 class WebDesktopBridge:
     def __init__(
         self,
@@ -61,10 +66,21 @@ class WebDesktopBridge:
         self.operations = OperationManager()
         self.state = WebDesktopState()
 
+    def get_app_settings(self) -> dict:
+        return {"ok": True, "settings": settings_payload(load_settings())}
+
+    def update_app_settings(self, updates: dict) -> dict:
+        return {"ok": True, "settings": settings_payload(update_settings(updates))}
+
+    def complete_first_run(self) -> dict:
+        return {"ok": True, "settings": settings_payload(update_settings({"first_run_completed": True}))}
+
     def refresh_connection(self) -> dict:
         check = self.service.startup_check()
         snapshot = _connection_from_startup(check)
         self.state.set_connection(snapshot)
+        if check.connected and getattr(self.service, "client_dir", None):
+            update_settings({"last_known_pm3_path": str(self.service.client_dir)})
         return self.get_connection_state()
 
     def get_connection_state(self) -> dict:
@@ -561,6 +577,7 @@ class WebDesktopBridge:
 
 
 def _connection_from_startup(check: Pm3StartupCheck) -> ConnectionSnapshot:
+    compatibility = _compatibility_from_startup(check)
     if check.connected:
         return ConnectionSnapshot(
             "connected",
@@ -569,6 +586,10 @@ def _connection_from_startup(check: Pm3StartupCheck) -> ConnectionSnapshot:
             port=check.port,
             target=check.target or "PM3 Generic",
             client_version=check.client_version,
+            compatibility=compatibility["status"],
+            compatibility_label=compatibility["label"],
+            firmware_version=compatibility["firmware_version"],
+            platform=compatibility["platform"],
         )
     return ConnectionSnapshot(
         "disconnected",
@@ -588,9 +609,54 @@ def _connection_to_payload(snapshot: ConnectionSnapshot) -> dict:
         "port": snapshot.port,
         "target": snapshot.target,
         "client_version": snapshot.client_version,
+        "compatibility": snapshot.compatibility,
+        "compatibility_label": snapshot.compatibility_label,
+        "firmware_version": snapshot.firmware_version,
+        "platform": snapshot.platform,
         "can_read": snapshot.connected,
         "can_write": snapshot.connected,
     }
+
+
+def _compatibility_from_startup(check: Pm3StartupCheck) -> dict[str, str | None]:
+    payload: dict[str, str | None] = {
+        "status": "unknown",
+        "label": "Unknown",
+        "firmware_version": None,
+        "platform": None,
+    }
+    if not check.connected:
+        payload["status"] = "no_device"
+        payload["label"] = "No compatible device found"
+        return payload
+    output = _combined_output(check.hw_version) if check.hw_version else ""
+    parsed = parse_hw_version(output) if output else None
+    client = parsed.client_version if parsed else check.client_version
+    firmware = parsed.firmware if parsed else check.target
+    bootrom = parsed.bootrom if parsed else None
+    os_version = parsed.os if parsed else None
+    platform = parsed.platform if parsed else None
+    payload["firmware_version"] = firmware
+    payload["platform"] = platform
+
+    combined = "\n".join(value or "" for value in (client, firmware, bootrom, os_version, platform, output)).lower()
+    if "mismatch" in combined or "doesn't match" in combined or "does not match" in combined:
+        payload["status"] = "client_firmware_mismatch"
+        payload["label"] = "Client / firmware mismatch"
+        return payload
+
+    target = (firmware or check.target or "").upper()
+    has_verified_client = VERIFIED_CLIENT_BASELINE.lower() in (client or "").lower()
+    has_verified_arm = VERIFIED_CLIENT_BASELINE.lower() in ((bootrom or "") + " " + (os_version or "")).lower()
+    has_verified_target = VERIFIED_TARGET in target
+    if has_verified_client and has_verified_target and (has_verified_arm or not output):
+        payload["status"] = "verified"
+        payload["label"] = "Verified"
+        return payload
+
+    payload["status"] = "recognized_untested"
+    payload["label"] = "Recognized but untested"
+    return payload
 
 
 def _scan_payload(

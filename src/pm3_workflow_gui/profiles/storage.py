@@ -9,6 +9,7 @@ import re
 from uuid import uuid4
 
 from pm3_workflow_gui.profiles.schema import HitagS256Profile
+from pm3_workflow_gui.profiles.settings import local_data_dir
 
 
 def save_hitag_s256_profile(profile: HitagS256Profile, path: str | Path) -> None:
@@ -98,10 +99,7 @@ class TemplateRecord:
 
 
 def default_template_dir() -> Path:
-    base = os.environ.get("LOCALAPPDATA")
-    if base:
-        return Path(base) / "PM3Workflow" / "templates"
-    return Path.home() / ".pm3-workflow" / "templates"
+    return local_data_dir() / "templates"
 
 
 def save_template_record(record: TemplateRecord, directory: str | Path | None = None) -> Path:
