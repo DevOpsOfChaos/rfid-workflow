@@ -1,0 +1,41 @@
+name: Documentation issue
+description: Report unclear, inaccurate, missing, or privacy-sensitive documentation.
+title: "[Docs]: "
+labels: [documentation]
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Documentation page or section
+      placeholder: "Example: docs/COMPATIBILITY.md"
+    validations:
+      required: true
+  - type: dropdown
+    id: issue_type
+    attributes:
+      label: Issue type
+      options:
+        - Unclear wording
+        - Incorrect information
+        - Missing information
+        - Privacy or security concern
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is the problem?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I confirm that I did not include real RFID/NFC data, local paths, credentials, or unsanitized logs.
+          required: true

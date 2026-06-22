@@ -1,0 +1,51 @@
+name: Technology request
+description: Propose a future RFID/NFC technology adapter without claiming unsupported capabilities.
+title: "[Technology]: "
+labels: [technology-request]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include real RFID/NFC credentials, dumps, UIDs, keys, templates, backups, or private system details.
+  - type: input
+    id: technology_name
+    attributes:
+      label: Technology name
+      placeholder: "Example: ISO14443A"
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Authorized use case
+      description: Describe the intended legitimate workflow without publishing sensitive data.
+    validations:
+      required: true
+  - type: textarea
+    id: requested_capability
+    attributes:
+      label: Requested capability
+      description: Clearly distinguish detection, read-only, comparison, export, and write needs.
+    validations:
+      required: true
+  - type: textarea
+    id: pm3_evidence
+    attributes:
+      label: PM3 client evidence
+      description: Provide sanitized local-help or official documentation references. Do not assume command availability across versions.
+    validations:
+      required: true
+  - type: textarea
+    id: safety_notes
+    attributes:
+      label: Safety and verification notes
+      description: Explain required preconditions and how a future workflow could verify results.
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: I understand that this request does not establish write support or compatibility.
+          required: true

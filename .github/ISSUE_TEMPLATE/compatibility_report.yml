@@ -1,0 +1,65 @@
+name: Compatibility report
+description: Report a PM3 setup and tested RFID Workflow features using sanitized information only.
+title: "[Compatibility]: "
+labels: [compatibility]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report only authorized testing and sanitized information. Do not attach real transponder data, UIDs, keys, dumps, backups, local paths, or raw logs.
+  - type: input
+    id: client_build
+    attributes:
+      label: Client build
+      placeholder: "Example: Iceman v..."
+    validations:
+      required: true
+  - type: input
+    id: firmware_build
+    attributes:
+      label: Firmware build
+      placeholder: "Exact matching or detected build"
+    validations:
+      required: true
+  - type: input
+    id: hardware_model
+    attributes:
+      label: Hardware model
+      placeholder: "Example: Proxmark3 Generic"
+    validations:
+      required: true
+  - type: input
+    id: operating_system
+    attributes:
+      label: Operating system
+      placeholder: "Example: Windows 10 22H2"
+    validations:
+      required: true
+  - type: textarea
+    id: tested_features
+    attributes:
+      label: Tested features
+      description: List only observed feature categories, not real card data.
+    validations:
+      required: true
+  - type: textarea
+    id: readonly_result
+    attributes:
+      label: Read-only result
+      placeholder: "Pass, fail, partial, or not tested, with sanitized notes."
+    validations:
+      required: true
+  - type: textarea
+    id: write_result
+    attributes:
+      label: Write result
+      placeholder: "Pass, fail, partial, or not tested, with sanitized notes."
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: I used only authorized hardware/transponders and included no real RFID/NFC data.
+          required: true
