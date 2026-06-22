@@ -106,9 +106,9 @@ class WebDesktopBridge:
         snapshot = self.state.snapshot()
         scan = snapshot["last_scan"]
         if not snapshot["last_scan_confirmed"] or scan is None or scan.profile is None:
-            return _error("Vorlage kann erst nach einem bestaetigten zweiten Scan gespeichert werden.")
+            return _error("Vorlage kann erst nach einem bestaetigten zweiten Scan gespeichert werden.", "template.errorNeedsConfirmedScan")
         if not name.strip():
-            return _error("Name ist erforderlich.")
+            return _error("Name ist erforderlich.", "error.nameRequired")
         record = TemplateRecord.from_hitag_s256_profile(name, description, scan.profile)
         path = save_template_record(record, self.template_dir)
         if category.strip():
@@ -116,7 +116,7 @@ class WebDesktopBridge:
             payload["category"] = category.strip()
             path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         saved = load_template_record(path)
-        return {"ok": True, "message": "Vorlage gespeichert", "template": self._template_payload(path, saved)}
+        return {"ok": True, "message": "Vorlage gespeichert", "message_key": "template.saved", "template": self._template_payload(path, saved)}
 
     def list_templates(self) -> dict:
         return {"ok": True, "templates": [self._template_payload(path, record) for path, record in self._template_entries()]}
@@ -124,22 +124,22 @@ class WebDesktopBridge:
     def update_template(self, template_id: str, metadata: dict) -> dict:
         path = self._find_template_path(template_id)
         if path is None:
-            return _error("Vorlage nicht gefunden.")
+            return _error("Vorlage nicht gefunden.", "template.errorNotFound")
         payload = json.loads(path.read_text(encoding="utf-8"))
         title = str(metadata.get("name") or metadata.get("title") or payload.get("title") or "").strip()
         if not title:
-            return _error("Name ist erforderlich.")
+            return _error("Name ist erforderlich.", "error.nameRequired")
         payload["title"] = title
         payload["description"] = str(metadata.get("description", payload.get("description", ""))).strip()
         payload["category"] = str(metadata.get("category", payload.get("category", ""))).strip()
         path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         record = load_template_record(path)
-        return {"ok": True, "message": "Vorlage aktualisiert", "template": self._template_payload(path, record)}
+        return {"ok": True, "message": "Vorlage aktualisiert", "message_key": "template.updated", "template": self._template_payload(path, record)}
 
     def duplicate_template(self, template_id: str) -> dict:
         source = self._find_template_path(template_id)
         if source is None:
-            return _error("Vorlage nicht gefunden.")
+            return _error("Vorlage nicht gefunden.", "template.errorNotFound")
         payload = json.loads(source.read_text(encoding="utf-8"))
         payload["template_id"] = f"tmpl_{_slug(payload.get('title', 'template'))}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
         payload["title"] = f"{payload.get('title', 'Vorlage')} Kopie"
@@ -148,17 +148,17 @@ class WebDesktopBridge:
         self.template_dir.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         record = load_template_record(target)
-        return {"ok": True, "message": "Vorlage dupliziert", "template": self._template_payload(target, record)}
+        return {"ok": True, "message": "Vorlage dupliziert", "message_key": "template.duplicated", "template": self._template_payload(target, record)}
 
     def delete_template(self, template_id: str) -> dict:
         path = self._find_template_path(template_id)
         if path is None:
-            return _error("Vorlage nicht gefunden.")
+            return _error("Vorlage nicht gefunden.", "template.errorNotFound")
         path.unlink()
         target = self.state.snapshot()["target"]
         if target and target.kind == "template" and target.item_id == template_id:
             self.state.set_target(None)
-        return {"ok": True, "message": "Vorlage geloescht"}
+        return {"ok": True, "message": "Vorlage geloescht", "message_key": "template.deleted"}
 
     def import_existing_templates(self) -> dict:
         self.template_dir.mkdir(parents=True, exist_ok=True)
@@ -186,6 +186,8 @@ class WebDesktopBridge:
         return {
             "ok": True,
             "message": f"{imported} Vorlagen importiert, {already_present} bereits vorhanden",
+            "message_key": "template.importSummary",
+            "message_args": {"imported": imported, "already_present": already_present},
             "imported": imported,
             "already_present": already_present,
             "checked": checked,
@@ -211,29 +213,29 @@ class WebDesktopBridge:
     def delete_backup(self, backup_id: str) -> dict:
         path = self._find_backup_path(backup_id)
         if path is None:
-            return _error("Backup nicht gefunden.")
+            return _error("Backup nicht gefunden.", "backup.errorNotFound")
         path.unlink()
         target = self.state.snapshot()["target"]
         if target and target.kind == "backup" and target.item_id == backup_id:
             self.state.set_target(None)
-        return {"ok": True, "message": "Backup geloescht"}
+        return {"ok": True, "message": "Backup geloescht", "message_key": "backup.deleted"}
 
     def use_backup_as_target(self, backup_id: str) -> dict:
         path = self._find_backup_path(backup_id)
         if path is None:
-            return _error("Backup nicht gefunden.")
+            return _error("Backup nicht gefunden.", "backup.errorNotFound")
         record = load_backup_record(path)
         target = TargetSnapshot("backup", record.backup_id, _display_datetime(record.created_at), backup=record)
         self.state.set_target(target)
-        return {"ok": True, "message": "Backup als Zielzustand verwendet", "target": self.get_target_state()["target"]}
+        return {"ok": True, "message": "Backup als Zielzustand verwendet", "message_key": "backup.usedAsTarget", "target": self.get_target_state()["target"]}
 
     def set_target_template(self, template_id: str) -> dict:
         path = self._find_template_path(template_id)
         if path is None:
-            return _error("Vorlage nicht gefunden.")
+            return _error("Vorlage nicht gefunden.", "template.errorNotFound")
         record = load_template_record(path)
         self.state.set_target(TargetSnapshot("template", record.template_id, record.title, template=record))
-        return {"ok": True, "message": "Vorlage als Zielzustand verwendet", "target": self.get_target_state()["target"]}
+        return {"ok": True, "message": "Vorlage als Zielzustand verwendet", "message_key": "template.usedAsTarget", "target": self.get_target_state()["target"]}
 
     def get_target_state(self) -> dict:
         target = self.state.snapshot()["target"]
@@ -244,10 +246,10 @@ class WebDesktopBridge:
         current = snapshot["current_chip"]
         target = snapshot["target"]
         if current is None or current.profile is None:
-            return _error("Kein real gelesener aktueller Chip vorhanden.")
+            return _error("Kein real gelesener aktueller Chip vorhanden.", "write.errorNoCurrentChip")
         target_profile = _target_profile(target)
         if target_profile is None:
-            return _error("Kein realer Zielzustand ausgewaehlt.")
+            return _error("Kein realer Zielzustand ausgewaehlt.", "write.errorNoTarget")
         plan = build_write_plan_view_model(current.profile, target_profile)
         return {"ok": True, "comparison": _comparison_payload(plan)}
 
@@ -1017,5 +1019,8 @@ def _slug(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value).strip().lower()).strip("-") or "item"
 
 
-def _error(message: str) -> dict:
-    return {"ok": False, "message": message, "error": message}
+def _error(message: str, message_key: str | None = None) -> dict:
+    payload = {"ok": False, "message": message, "error": message}
+    if message_key:
+        payload["message_key"] = message_key
+    return payload

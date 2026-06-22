@@ -28,7 +28,9 @@ class Operation:
     kind: str
     state: str = "queued"
     message: str = "Wartet ..."
+    message_key: str = "operation.waiting"
     progress: list[str] = field(default_factory=list)
+    progress_keys: list[str] = field(default_factory=list)
     details: dict[str, Any] = field(default_factory=dict)
     result: dict | None = None
     error: str | None = None
@@ -41,7 +43,9 @@ class Operation:
             "kind": self.kind,
             "state": self.state,
             "message": self.message,
+            "message_key": self.message_key,
             "progress": list(self.progress),
+            "progress_keys": list(self.progress_keys),
             "details": dict(self.details),
             "result": self.result,
             "error": self.error,
@@ -73,7 +77,9 @@ class OperationManager:
                     "kind": "unknown",
                     "state": "failed",
                     "message": "Unbekannte Operation",
+                    "message_key": "operation.unknown",
                     "progress": [],
+                    "progress_keys": [],
                     "result": None,
                     "error": "unknown operation",
                 }
@@ -88,20 +94,22 @@ class OperationManager:
         try:
             result = callback(progress)
         except ConnectionLostError as exc:
-            self._finish(operation_id, "connection_lost", "Verbindung verloren · Bitte PM3 neu verbinden.", None, str(exc))
+            self._finish(operation_id, "connection_lost", "Verbindung verloren · Bitte PM3 neu verbinden.", None, str(exc), "connection.reconnect")
         except VerificationFailedError as exc:
             self._finish(operation_id, "verification_failed", str(exc), None, str(exc))
         except Exception as exc:  # pragma: no cover - kept as operation boundary.
-            self._finish(operation_id, "failed", "Operation fehlgeschlagen.", None, str(exc))
+            self._finish(operation_id, "failed", "Operation fehlgeschlagen.", None, str(exc), "operation.failed")
         else:
             message = result.get("message", "Operation abgeschlossen") if isinstance(result, dict) else "Operation abgeschlossen"
-            self._finish(operation_id, "succeeded", message, result, None)
+            message_key = result.get("message_key") if isinstance(result, dict) else None
+            self._finish(operation_id, "succeeded", message, result, None, message_key)
 
     def _set_running(self, operation_id: str) -> None:
         with self._lock:
             operation = self._operations[operation_id]
             operation.state = "running"
             operation.message = "Operation läuft ..."
+            operation.message_key = "operation.running"
             operation.updated_at = _now()
 
     def _set_progress(self, operation_id: str, payload: str | dict[str, Any]) -> None:
@@ -109,12 +117,16 @@ class OperationManager:
             operation = self._operations[operation_id]
             if isinstance(payload, dict):
                 message = str(payload.get("message") or operation.message)
-                details = {key: value for key, value in payload.items() if key != "message"}
+                message_key = str(payload.get("message_key") or _message_key(message) or operation.message_key)
+                details = {key: value for key, value in payload.items() if key not in {"message", "message_key"}}
                 operation.details.update(details)
             else:
                 message = payload
+                message_key = _message_key(message) or operation.message_key
             operation.message = message
+            operation.message_key = message_key
             operation.progress.append(message)
+            operation.progress_keys.append(message_key)
             operation.updated_at = _now()
 
     def _finish(
@@ -124,11 +136,13 @@ class OperationManager:
         message: str,
         result: dict | None,
         error: str | None,
+        message_key: str | None = None,
     ) -> None:
         with self._lock:
             operation = self._operations[operation_id]
             operation.state = state
             operation.message = message
+            operation.message_key = message_key or _message_key(message) or operation.message_key
             operation.result = result
             operation.error = error
             operation.updated_at = _now()
@@ -136,3 +150,20 @@ class OperationManager:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _message_key(message: str) -> str | None:
+    return {
+        "Wartet ...": "operation.waiting",
+        "Operation läuft ...": "operation.running",
+        "Operation abgeschlossen": "operation.completed",
+        "Operation fehlgeschlagen.": "operation.failed",
+        "PM3 wird geprueft ...": "operation.pm3Checking",
+        "Scan wird gestartet ...": "operation.scanStarting",
+        "Aktueller Chip wird gelesen ...": "operation.currentChipReading",
+        "Backup wird gespeichert ...": "operation.backupSaving",
+        "Antennenpruefung laeuft ...": "operation.antennaRunning",
+        "Antennenprüfung läuft ...": "operation.antennaRunning",
+        "Position wird mit echten Read-only-Messungen geprueft ...": "operation.positionRunning",
+        "Verbindung verloren · Bitte PM3 neu verbinden.": "connection.reconnect",
+    }.get(message)

@@ -17,56 +17,47 @@ const HELP_TOPICS = [
   "saveFails",
   "writeVerifyFails",
 ];
+const LEGACY_MESSAGE_KEYS = new Map([
+  ["Verbindung wird geprüft ...", "connection.checking"],
+  ["Verbindung verloren", "connection.lost"],
+  ["Verbindung verloren · Bitte PM3 neu verbinden.", "connection.reconnect"],
+  ["Operation läuft ...", "operation.running"],
+  ["Operation abgeschlossen", "operation.completed"],
+  ["Operation fehlgeschlagen.", "operation.failed"],
+  ["Scan wird gestartet ...", "operation.scanStarting"],
+  ["Chip wird gelesen ...", "operation.chipReading"],
+  ["Aktueller Chip wird gelesen ...", "operation.currentChipReading"],
+  ["Backup wird gespeichert ...", "operation.backupSaving"],
+  ["Backup erstellt", "operation.backupCreated"],
+  ["Antennenprüfung läuft ...", "operation.antennaRunning"],
+  ["Antennenpruefung laeuft ...", "operation.antennaRunning"],
+  ["Antennenpruefung abgeschlossen", "operation.antennaCompleted"],
+  ["Position wird geprüft ...", "operation.positionRunning"],
+  ["Position wird mit echten Read-only-Messungen geprueft ...", "operation.positionRunning"],
+  ["PM3 wird geprueft ...", "operation.pm3Checking"],
+  ["PM3 verbunden", "connection.pm3Connected"],
+  ["Kein kompatibles Gerät gefunden", "connection.noDevice"],
+  ["Kein Proxmark erkannt. Bitte PM3 verbinden und erneut pruefen.", "connection.noDeviceReconnect"],
+  ["Noch kein Scan vorhanden.", "read.noScan"],
+  ["nicht ausgefuehrt", "read.secondScanNotRun"],
+  ["nicht bestaetigt", "read.secondScanUnconfirmed"],
+  ["Vorlage gespeichert", "template.saved"],
+  ["Vorlage aktualisiert", "template.updated"],
+  ["Vorlage dupliziert", "template.duplicated"],
+  ["Vorlage geloescht", "template.deleted"],
+  ["Backup geloescht", "backup.deleted"],
+  ["Vorlage als Zielzustand verwendet", "template.usedAsTarget"],
+  ["Backup als Zielzustand verwendet", "backup.usedAsTarget"],
+  ["Import abgeschlossen", "template.importCompleted"],
+  ["Schreibaktion gestartet", "write.actionStarted"],
+  ["Schreibaktion verifiziert", "write.actionVerified"],
+  ["Alle Unterschiede werden übernommen", "write.allStarting"],
+  ["Alle Unterschiede uebernommen und verifiziert", "write.allVerified"],
+  ["Alle Unterschiede verifiziert", "write.allVerified"],
+  ["Keine offenen Unterschiede", "write.noOpenDifferences"],
+]);
 
-const fallbackLocales = {
-  de: {
-    "action.close": "Schließen",
-    "action.continueOverview": "Zur Übersicht",
-    "action.retry": "Erneut versuchen",
-    "action.runStartupCheck": "Startprüfung ausführen",
-    "action.startAntennaCheck": "Antennentest starten",
-    "antenna.body": "Entferne alle Transponder von der Antenne.",
-    "antenna.error": "Antennentest konnte nicht abgeschlossen werden.",
-    "antenna.hf": "HF-Antenne",
-    "antenna.lf": "LF-Antenne",
-    "antenna.title": "Antennentest",
-    "app.ready": "Bereit",
-    "compat.clientFirmwareMismatch": "Client-/Firmware-Konflikt",
-    "compat.recognizedUntested": "Erkannt, aber nicht verifiziert",
-    "compat.unknown": "Unbekannt",
-    "compat.verified": "Verifiziert",
-    "connection.checking": "Proxmark3-Verbindung wird geprüft ...",
-    "connection.deviceConnected": "Gerät verbunden",
-    "connection.failed": "Verbindungsprüfung fehlgeschlagen",
-    "connection.found": "Proxmark3 gefunden",
-    "connection.lost": "Verbindung verloren",
-    "connection.noDevice": "Kein kompatibles Gerät gefunden",
-    "connection.notAvailable": "nicht verfügbar",
-    "language.de": "Deutsch",
-    "language.en": "English",
-    "language.label": "Sprache",
-    "language.title": "Choose your language",
-    "nav.analysis": "Analyse",
-    "nav.backups": "Backups",
-    "nav.overview": "Übersicht",
-    "nav.read": "Lesen",
-    "nav.templates": "Vorlagen",
-    "nav.write": "Schreiben",
-    "overview.help": "Hilfe",
-    "overview.quickStart": "Quick Start",
-    "overview.system": "Systemstatus",
-    "overview.title": "Übersicht",
-    "settings.showStartup": "Startprüfung beim Programmstart anzeigen",
-    "status.antennaIdle": "Noch kein Antennentest in dieser Sitzung.",
-    "status.client": "Client",
-    "status.compatibility": "Kompatibilität",
-    "status.connected": "Verbunden",
-    "status.device": "Gerät",
-    "status.disconnected": "Getrennt",
-    "status.pm3": "Proxmark3",
-  },
-  en: {},
-};
+const fallbackLocales = { en: {} };
 
 let statusTimer = null;
 let toastTimer = null;
@@ -95,7 +86,7 @@ const state = {
   connection: {
     status: "checking",
     connected: false,
-    message: "Verbindung wird geprüft ...",
+    message_key: "connection.checking",
   },
   templates: [],
   backups: [],
@@ -116,6 +107,7 @@ const state = {
   antennaOperation: null,
   antennaResult: null,
   activePopover: null,
+  activeModal: null,
 };
 
 function bridge() {
@@ -125,7 +117,7 @@ function bridge() {
 async function callBridge(method, ...args) {
   const api = bridge();
   if (!api || typeof api[method] !== "function") {
-    throw new Error("pywebview Bridge nicht verfügbar.");
+    throw new Error("pywebview bridge unavailable.");
   }
   return api[method](...args);
 }
@@ -141,6 +133,36 @@ function escapeHtml(value) {
 
 function t(key, fallback = "") {
   return state.locales[state.language]?.[key] || state.locales.en?.[key] || state.locales.de?.[key] || fallback || key;
+}
+
+function uiMessage(source, fallbackKey = "", fallback = "") {
+  if (!source) return fallbackKey ? t(fallbackKey, fallback) : fallback;
+  const payload = typeof source === "string" ? { message: source } : source;
+  const message = String(payload.message || payload.error || fallback || "");
+  const key = payload.message_key || payload.messageKey || payload.status_key || LEGACY_MESSAGE_KEYS.get(message);
+  if (!key) return message;
+  return formatTemplate(t(key, message), payload.message_args || payload.messageArgs || {});
+}
+
+function formatTemplate(template, args) {
+  return Object.entries(args || {}).reduce(
+    (text, [key, value]) => text.replaceAll(`{${key}}`, String(value)),
+    template,
+  );
+}
+
+function operationProgress(operation, fallbackKey = "operation.running") {
+  const progress = operation?.progress?.length ? operation.progress : [operation?.message || ""];
+  return progress.map((step, index) => uiMessage({ message: step, message_key: operation?.progress_keys?.[index] }, fallbackKey));
+}
+
+function setConnectionLost(operation) {
+  state.connection = {
+    status: "lost",
+    connected: false,
+    message: operation?.message,
+    message_key: operation?.message_key || LEGACY_MESSAGE_KEYS.get(operation?.message || "") || "connection.lost",
+  };
 }
 
 function applyStaticTranslations() {
@@ -175,6 +197,8 @@ async function setLanguage(language, persist = true) {
   applyStaticTranslations();
   renderedScreenKey = "";
   render();
+  rerenderActiveModal();
+  resetStatusForView();
 }
 
 function isOperationBusy(operation) {
@@ -186,16 +210,16 @@ function anyWriteBusy() {
 }
 
 function neutralStatusMessage() {
-  if (!state.bridgeReady) return t("app.ready", "Bereit");
-  if (state.connection.status === "lost") return t("connection.lost", "Verbindung verloren");
-  if (!state.connection.connected && state.connection.message) return state.connection.message;
-  return t("app.ready", "Bereit");
+  if (!state.bridgeReady) return t("app.ready", "Ready");
+  if (state.connection.status === "lost") return t("connection.lost", "Connection lost");
+  if (!state.connection.connected && (state.connection.message || state.connection.message_key)) return uiMessage(state.connection, "connection.noDevice");
+  return t("app.ready", "Ready");
 }
 
 function setStatus(message, options = {}) {
   window.clearTimeout(statusTimer);
   statusTimer = null;
-  statusText.textContent = message || neutralStatusMessage();
+  statusText.textContent = message ? uiMessage(message) : neutralStatusMessage();
   if (options.temporary) {
     statusTimer = window.setTimeout(() => {
       statusText.textContent = neutralStatusMessage();
@@ -210,28 +234,28 @@ function setTransientStatus(message, timeout) {
 
 function resetStatusForView() {
   if (isOperationBusy(state.readOperation)) {
-    setStatus(state.readOperation.message);
+    setStatus(state.readOperation);
     return;
   }
   if (isOperationBusy(state.currentScanOperation)) {
-    setStatus(state.currentScanOperation.message);
+    setStatus(state.currentScanOperation);
     return;
   }
   if (isOperationBusy(state.autoWriteOperation)) {
-    setStatus(state.autoWriteOperation.message);
+    setStatus(state.autoWriteOperation);
     return;
   }
   const activeWrite = Object.values(state.writeOperations).find(isOperationBusy);
   if (activeWrite) {
-    setStatus(activeWrite.message);
+    setStatus(activeWrite);
     return;
   }
   if (isOperationBusy(state.positionOperation)) {
-    setStatus(state.positionOperation.message);
+    setStatus(state.positionOperation);
     return;
   }
   if (isOperationBusy(state.antennaOperation)) {
-    setStatus(state.antennaOperation.message);
+    setStatus(state.antennaOperation);
     return;
   }
   setStatus(neutralStatusMessage());
@@ -243,12 +267,12 @@ function updateConnectionStatus() {
   deviceStatus.classList.toggle("is-offline", !connection.connected && connection.status !== "checking");
   deviceStatus.classList.toggle("is-lost", connection.status === "lost");
   const label = connection.connected
-    ? `${t("connection.found", "Proxmark3 gefunden")} · ${connection.port || "auto"} · ${connection.target || "PM3"}`
+    ? `${t("connection.found", "Proxmark3 found")} · ${connection.port || "auto"} · ${connection.target || "PM3"}`
     : connection.status === "lost"
-      ? t("connection.lost", "Verbindung verloren")
+      ? t("connection.lost", "Connection lost")
       : connection.status === "checking"
-        ? t("connection.checking", "Verbindung wird geprüft ...")
-        : t("connection.noDevice", "Kein kompatibles Gerät gefunden");
+        ? t("connection.checking", "Checking Proxmark3 connection ...")
+        : t("connection.noDevice", "No compatible device found");
   if (deviceStatus.dataset.label !== label) {
     deviceStatus.dataset.label = label;
     deviceStatus.innerHTML = `<span class="status-dot" aria-hidden="true"></span>${escapeHtml(label)}`;
@@ -332,8 +356,8 @@ function renderBridgeMissing() {
       <div class="empty-start">
         <div class="scan-card">
           <div class="scan-icon" aria-hidden="true"></div>
-          <h1>Desktop-Bridge nicht verfügbar</h1>
-          <p>Diese Oberfläche muss im pywebview-Fenster gestartet werden. Ohne Python-Bridge werden keine PM3-Zustände angezeigt.</p>
+          <h1>${escapeHtml(t("bridgeMissing.title", "Desktop bridge unavailable"))}</h1>
+          <p>${escapeHtml(t("bridgeMissing.body", "Start this interface in the pywebview window. Without the Python bridge no PM3 states are shown."))}</p>
         </div>
       </div>
     </section>
@@ -388,7 +412,7 @@ function renderStartupAntennaRunning() {
       <div class="startup-card">
         <div class="startup-spinner" aria-hidden="true"></div>
         <h1 id="startupAntennaRunningTitle">${escapeHtml(t("antenna.title", "Antenna check"))}</h1>
-        <p>${escapeHtml(state.antennaOperation?.message || "Antennenprüfung läuft ...")}</p>
+        <p>${escapeHtml(uiMessage(state.antennaOperation, "operation.antennaRunning"))}</p>
       </div>
     </section>
   `;
@@ -412,7 +436,7 @@ function renderStartupAntennaError() {
       <div class="startup-card">
         <div class="startup-status is-warn">${escapeHtml(t("connection.failed", "Connection check failed"))}</div>
         <h1 id="startupAntennaErrorTitle">${escapeHtml(t("antenna.error", "Antenna check could not be completed."))}</h1>
-        <p>${escapeHtml(state.antennaOperation?.message || state.connection.message || "")}</p>
+        <p>${escapeHtml(uiMessage(state.antennaOperation || state.connection, "antenna.error"))}</p>
         <div class="startup-actions">
           <button class="button" type="button" data-startup-antenna>${escapeHtml(t("action.retry", "Retry"))}</button>
           <button class="button button-secondary" type="button" data-continue-overview>${escapeHtml(t("action.continueOverview", "Continue to overview"))}</button>
@@ -506,9 +530,9 @@ function renderReadStart() {
       <div class="empty-start">
         <div class="scan-card">
           <div class="scan-icon" aria-hidden="true"></div>
-          <h1 id="readTitle">Chip lesen</h1>
-          <p>Erstelle eine geprüfte Vorlage aus einem RFID- oder NFC-Chip.</p>
-          <div class="segmented" role="tablist" aria-label="Scan-Frequenz" data-read-mode-tabs></div>
+          <h1 id="readTitle">${escapeHtml(t("read.title", "Read chip"))}</h1>
+          <p>${escapeHtml(t("read.body", "Create a verified template from a supported RFID or NFC chip."))}</p>
+          <div class="segmented" role="tablist" aria-label="${escapeHtml(t("read.modeLabel", "Scan frequency"))}" data-read-mode-tabs></div>
           <div class="scan-actions" data-read-actions></div>
           <p class="connection-note" data-read-connection-note></p>
         </div>
@@ -525,13 +549,13 @@ function patchReadStart() {
     </button>
   `).join(""));
   replaceHtml("[data-read-actions]", `
-    <button class="button" type="button" data-read-scan ${connected ? "" : "disabled"}>Chip scannen</button>
-    ${connected ? "" : `<button class="button button-secondary" type="button" data-refresh-connection>Verbindung erneut prüfen</button>`}
+    <button class="button" type="button" data-read-scan ${connected ? "" : "disabled"}>${escapeHtml(t("read.scanChip", "Scan chip"))}</button>
+    ${connected ? "" : `<button class="button button-secondary" type="button" data-refresh-connection>${escapeHtml(t("connection.retryCheck", "Check connection again"))}</button>`}
   `);
   const note = appView.querySelector("[data-read-connection-note]");
   if (note) {
     note.hidden = connected;
-    note.textContent = connected ? "" : state.connection.message || "Bitte PM3 verbinden und erneut prüfen.";
+    note.textContent = connected ? "" : uiMessage(state.connection, "connection.noDeviceReconnect");
   }
 }
 
@@ -543,8 +567,8 @@ function renderReadScanning() {
           <div class="antenna"><div class="chip-mini"></div></div>
         </div>
         <div>
-          <h1 id="scanTitle">Chip wird gelesen</h1>
-          <p class="screen-subtitle">Statuswechsel kommen aus dem Python-OperationManager.</p>
+          <h1 id="scanTitle">${escapeHtml(t("read.scanningTitle", "Reading chip"))}</h1>
+          <p class="screen-subtitle">${escapeHtml(t("read.scanningSubtitle", "Status updates come from the Python operation manager."))}</p>
           <div class="scan-step-list" data-read-progress></div>
         </div>
       </div>
@@ -554,7 +578,7 @@ function renderReadScanning() {
 
 function patchReadScanning() {
   const operation = state.readOperation;
-  const progress = operation?.progress?.length ? operation.progress : [operation?.message || "Operation läuft ..."];
+  const progress = operationProgress(operation, "operation.running");
   replaceHtml("[data-read-progress]", progress.map((step, index) => `
     <div class="scan-step ${index < progress.length - 1 ? "is-done" : "is-active"}">
       <span class="step-bullet">${index < progress.length - 1 ? "✓" : index + 1}</span>
@@ -571,14 +595,14 @@ function renderReadUnstable() {
           <div class="antenna"><div class="chip-mini"></div></div>
         </div>
         <div>
-          <h1 id="unstableTitle">Signal gefunden</h1>
+          <h1 id="unstableTitle">${escapeHtml(t("read.unstableTitle", "Signal found"))}</h1>
           <div class="signal-banner">
-            <strong>Chip leicht verschieben oder drehen</strong>
-            <span>${escapeHtml(state.lastScan?.message || "Das Signal reicht noch nicht für eine sichere Vorlage.")}</span>
+            <strong>${escapeHtml(t("read.unstableHint", "Move or rotate the chip slightly"))}</strong>
+            <span>${escapeHtml(uiMessage(state.lastScan, "read.unstableBody"))}</span>
           </div>
           <div class="scan-actions">
-            <button class="button" type="button" data-read-scan ${state.connection.connected ? "" : "disabled"}>Weiter messen</button>
-            <button class="button button-secondary" type="button" data-read-scan ${state.connection.connected ? "" : "disabled"}>Erneut scannen</button>
+            <button class="button" type="button" data-read-scan ${state.connection.connected ? "" : "disabled"}>${escapeHtml(t("read.continueMeasuring", "Continue measuring"))}</button>
+            <button class="button button-secondary" type="button" data-read-scan ${state.connection.connected ? "" : "disabled"}>${escapeHtml(t("read.scanAgain", "Scan again"))}</button>
           </div>
         </div>
       </div>
@@ -591,7 +615,7 @@ function renderReadResult() {
     <section class="screen" aria-labelledby="resultTitle">
       <div class="result-summary">
         <div>
-          <h1 id="resultTitle" class="screen-title">Chip gelesen</h1>
+          <h1 id="resultTitle" class="screen-title">${escapeHtml(t("read.resultTitle", "Chip read"))}</h1>
           <p class="screen-subtitle" data-read-result-subtitle></p>
         </div>
         <div class="result-actions" data-read-result-actions></div>
@@ -601,8 +625,8 @@ function renderReadResult() {
         <div class="panel panel-fit">
           <div class="panel-header">
             <div>
-              <h2>Speicherbereiche</h2>
-              <div class="meta-line">nur tatsächlich gelesene Bereiche</div>
+              <h2>${escapeHtml(t("chip.memoryAreas", "Memory areas"))}</h2>
+              <div class="meta-line">${escapeHtml(t("read.memorySubtitle", "only areas actually read"))}</div>
             </div>
           </div>
           <div class="data-overview" data-read-memory></div>
@@ -617,15 +641,15 @@ function patchReadResult() {
   if (!scan?.chip) return;
   const chip = scan.chip;
   const subtitle = scan.confirmed
-    ? `${chip.technology || scan.title || "Chip"} · ${chip.frequency || ""} · zweiter Scan bestätigt`
-    : `${chip.frequency || ""} · ${scan.message || "nicht als Vorlage bestätigt"}`;
+    ? `${chip.technology || scan.title || t("chip.generic", "Chip")} · ${chip.frequency || ""} · ${t("read.secondScanConfirmed", "second scan confirmed")}`
+    : `${chip.frequency || ""} · ${uiMessage(scan, "read.notTemplateConfirmed")}`;
   const subtitleNode = appView.querySelector("[data-read-result-subtitle]");
   if (subtitleNode) subtitleNode.textContent = subtitle;
   const scanBusy = isOperationBusy(state.readOperation);
   replaceHtml("[data-read-result-actions]", `
-    <button class="info-button" type="button" data-info-chip="lastScan" aria-label="Details anzeigen">i</button>
-    <button class="button" type="button" data-read-scan ${state.connection.connected && !scanBusy ? "" : "disabled"}>Neuen Chip scannen</button>
-    <button class="button" type="button" data-open-save-template ${scan.canSave ? "" : "disabled"}>Als Vorlage speichern</button>
+    <button class="info-button" type="button" data-info-chip="lastScan" aria-label="${escapeHtml(t("action.showDetails", "Show details"))}">i</button>
+    <button class="button" type="button" data-read-scan ${state.connection.connected && !scanBusy ? "" : "disabled"}>${escapeHtml(t("read.scanNewChip", "Scan new chip"))}</button>
+    <button class="button" type="button" data-open-save-template ${scan.canSave ? "" : "disabled"}>${escapeHtml(t("template.saveAs", "Save as template"))}</button>
   `);
   replaceHtml("[data-read-chip-card]", renderChipCard(chip, { infoKey: "lastScan" }));
   replaceHtml("[data-read-memory]", renderDataRows(chip.memoryRegions));
@@ -638,17 +662,17 @@ function renderWriteView() {
         <div data-compat-container></div>
         <div class="write-columns">
           <div class="panel write-column">
-            <div class="panel-header"><h2>Aktueller Chip</h2></div>
+            <div class="panel-header"><h2>${escapeHtml(t("write.currentChip", "Current chip"))}</h2></div>
             <div data-current-chip-slot></div>
             <button class="button button-secondary current-scan-button" type="button" data-write-scan></button>
             <div class="backup-line" data-current-backup-line></div>
           </div>
           <div class="panel write-column changes-column">
-            <div class="panel-header"><h2>Änderungen</h2></div>
+            <div class="panel-header"><h2>${escapeHtml(t("write.changes", "Changes"))}</h2></div>
             <div data-change-list></div>
           </div>
           <div class="panel write-column">
-            <div class="panel-header"><h2>Zielzustand</h2></div>
+            <div class="panel-header"><h2>${escapeHtml(t("write.targetState", "Target state"))}</h2></div>
             <div data-target-control></div>
             <div data-target-chip-slot></div>
             <div class="backup-line" data-target-source-line></div>
@@ -661,12 +685,12 @@ function renderWriteView() {
 
 function patchWriteView() {
   replaceHtml("[data-compat-container]", renderCompatibilityBar());
-  replaceHtml("[data-current-chip-slot]", state.currentChip ? renderChipCard(state.currentChip, { infoKey: "currentChip" }) : renderEmptyChip("Noch kein Chip gelesen"));
+  replaceHtml("[data-current-chip-slot]", state.currentChip ? renderChipCard(state.currentChip, { infoKey: "currentChip" }) : renderEmptyChip(t("write.noCurrentChip", "No chip read yet")));
   const scanButton = appView.querySelector("[data-write-scan]");
   const busy = isOperationBusy(state.currentScanOperation);
   if (scanButton) {
     scanButton.disabled = !state.connection.connected || busy;
-    scanButton.textContent = busy ? "Scan läuft ..." : "Aktuellen Chip scannen";
+    scanButton.textContent = busy ? t("operation.scanRunning", "Scan running ...") : t("write.scanCurrentChip", "Scan current chip");
   }
   const backupLine = appView.querySelector("[data-current-backup-line]");
   if (backupLine) {
@@ -674,9 +698,9 @@ function patchWriteView() {
     backupLine.textContent = state.currentBackup ? `Backup · ${state.currentBackup.created_display}` : "";
   }
   patchTargetControl();
-  replaceHtml("[data-target-chip-slot]", state.target?.chip ? renderChipCard(state.target.chip, { infoKey: "target" }) : renderEmptyChip("Zielzustand auswählen"));
+  replaceHtml("[data-target-chip-slot]", state.target?.chip ? renderChipCard(state.target.chip, { infoKey: "target" }) : renderEmptyChip(t("write.chooseTargetState", "Choose target state")));
   const targetLine = appView.querySelector("[data-target-source-line]");
-  if (targetLine) targetLine.textContent = state.target ? `Quelle: ${state.target.source}` : "Quelle: nicht ausgewählt";
+  if (targetLine) targetLine.textContent = state.target ? `${t("label.source", "Source")}: ${state.target.source}` : t("write.sourceNotSelected", "Source: not selected");
   replaceHtml("[data-change-list]", renderChangeList());
 }
 
@@ -689,11 +713,11 @@ function patchTargetControl() {
   `).join("");
   const html = `
     <div class="target-control">
-      <select class="target-select" id="targetSelect" data-target-select aria-label="Zielvorlage">
-        <option value="">Vorlage auswählen</option>
+      <select class="target-select" id="targetSelect" data-target-select aria-label="${escapeHtml(t("write.targetTemplateLabel", "Target template"))}">
+        <option value="">${escapeHtml(t("write.chooseTemplate", "Choose template"))}</option>
         ${options}
       </select>
-      <button class="link-action" type="button" data-open-backup-targets>↶ Backup als Zielzustand verwenden</button>
+      <button class="link-action" type="button" data-open-backup-targets>${escapeHtml(t("write.useBackupTarget", "Use backup as target state"))}</button>
     </div>
   `;
   if (container.dataset.html !== html && document.activeElement?.dataset?.targetSelect === undefined) {
@@ -704,25 +728,25 @@ function patchTargetControl() {
 
 function renderCompatibilityBar() {
   if (state.comparison) {
-    return `<div class="compat-bar is-${state.comparison.status === "danger" ? "danger" : "success"}">${escapeHtml(state.comparison.message)}</div>`;
+    return `<div class="compat-bar is-${state.comparison.status === "danger" ? "danger" : "success"}">${escapeHtml(comparisonMessage(state.comparison))}</div>`;
   }
-  if (!state.currentChip) return `<div class="compat-bar is-neutral">Aktuellen Chip scannen</div>`;
-  if (!state.target) return `<div class="compat-bar is-neutral">Zielzustand auswählen</div>`;
-  return `<div class="compat-bar is-neutral">Vergleich nicht verfügbar</div>`;
+  if (!state.currentChip) return `<div class="compat-bar is-neutral">${escapeHtml(t("write.scanCurrentChip", "Scan current chip"))}</div>`;
+  if (!state.target) return `<div class="compat-bar is-neutral">${escapeHtml(t("write.chooseTargetState", "Choose target state"))}</div>`;
+  return `<div class="compat-bar is-neutral">${escapeHtml(t("write.comparisonUnavailable", "Comparison unavailable"))}</div>`;
 }
 
 function renderChangeList() {
-  if (!state.currentChip) return `<div class="no-actions">Scanne zuerst den aktuellen Chip. Danach wird automatisch ein Backup erstellt, falls der Adapter den Chip vollständig lesen kann.</div>`;
-  if (!state.target) return `<div class="no-actions">Wähle rechts eine Vorlage oder ein Backup als Zielzustand.</div>`;
-  if (!state.comparison) return `<div class="no-actions">Vergleich konnte für diese Kombination nicht berechnet werden.</div>`;
-  if (state.comparison.status === "danger") return `<div class="no-actions">Dieser Zielzustand passt nicht zum aktuellen Chip.</div>`;
+  if (!state.currentChip) return `<div class="no-actions">${escapeHtml(t("write.emptyCurrent", "Scan the current chip first. A backup is created automatically when the adapter can read the chip completely."))}</div>`;
+  if (!state.target) return `<div class="no-actions">${escapeHtml(t("write.emptyTarget", "Choose a template or backup as the target state."))}</div>`;
+  if (!state.comparison) return `<div class="no-actions">${escapeHtml(t("write.emptyComparison", "The comparison could not be calculated for this combination."))}</div>`;
+  if (state.comparison.status === "danger") return `<div class="no-actions">${escapeHtml(t("write.incompatibleTarget", "This target state does not match the current chip."))}</div>`;
 
   const actions = state.comparison.actions || [];
   actions.forEach((action) => {
     state.knownActions[action.region_id] = action;
   });
   const rows = orderedActionRows(actions);
-  if (!rows.length) return `<div class="no-actions no-actions-success">✓ Aktueller Chip entspricht dem Zielzustand.</div>`;
+  if (!rows.length) return `<div class="no-actions no-actions-success">✓ ${escapeHtml(t("write.matchesTarget", "Current chip matches the target state."))}</div>`;
   const openCount = actions.filter((action) => action.enabled).length;
   const autoBusy = isOperationBusy(state.autoWriteOperation);
   return `
@@ -732,7 +756,7 @@ function renderChangeList() {
           <div class="difference-count">${escapeHtml(formatOpenCount(openCount))}</div>
           ${autoBusy ? `<div class="change-status">${escapeHtml(autoProgressText())}</div>` : ""}
         </div>
-        ${openCount ? `<button class="button button-small" type="button" data-write-all ${state.connection.connected && !anyWriteBusy() ? "" : "disabled"}>Alle Unterschiede übernehmen</button>` : ""}
+        ${openCount ? `<button class="button button-small" type="button" data-write-all ${state.connection.connected && !anyWriteBusy() ? "" : "disabled"}>${escapeHtml(t("write.applyAll", "Apply all differences"))}</button>` : ""}
       </div>
       <div class="change-list">
         ${rows.map(renderChangeRow).join("")}
@@ -768,11 +792,11 @@ function renderChangeRow(action) {
   const done = action.uiState === "done" || operation?.state === "succeeded" || (autoDetails.completed_regions || []).includes(action.region_id);
   const failed = state.failedRegionId === action.region_id || (operation && TERMINAL_STATES.has(operation.state) && operation.state !== "succeeded");
   const status = running
-    ? (operation?.message || state.autoWriteOperation?.message || `${action.label} wird übernommen ...`)
+    ? uiMessage(operation || state.autoWriteOperation, "write.regionApplying", `${action.label} is being applied ...`)
     : done
-      ? `✓ ${action.label} übernommen`
+      ? `✓ ${action.label} ${t("write.regionAppliedSuffix", "applied")}`
       : failed
-        ? (operation?.message || state.autoWriteOperation?.message || `${action.label} konnte nicht verifiziert werden`)
+        ? uiMessage(operation || state.autoWriteOperation, "write.regionVerifyFailed", `${action.label} konnte nicht verifiziert werden`)
         : action.reason || "";
   return `
     <div class="change-row ${running ? "is-working" : ""} ${done ? "is-done" : ""} ${failed ? "is-failed" : ""}">
@@ -786,8 +810,8 @@ function renderChangeRow(action) {
         ${status ? `<div class="change-status">${escapeHtml(status)}</div>` : ""}
       </div>
       ${action.enabled && !done ? `
-        <button class="button button-secondary button-small" type="button" data-write-action="${escapeHtml(action.region_id)}" ${state.connection.connected && !anyWriteBusy() ? "" : "disabled"}>Übernehmen</button>
-      ` : done ? `<span class="done-label">Verifiziert</span>` : `<span class="blocked-label">Gesperrt</span>`}
+        <button class="button button-secondary button-small" type="button" data-write-action="${escapeHtml(action.region_id)}" ${state.connection.connected && !anyWriteBusy() ? "" : "disabled"}>${escapeHtml(t("action.apply", "Apply"))}</button>
+      ` : done ? `<span class="done-label">${escapeHtml(t("write.verified", "Verified"))}</span>` : `<span class="blocked-label">${escapeHtml(t("write.blocked", "Blocked"))}</span>`}
     </div>
   `;
 }
@@ -796,7 +820,15 @@ function autoProgressText() {
   const details = state.autoWriteOperation?.details || {};
   const total = details.total_steps || state.comparison?.writable_difference_count || 0;
   const done = details.completed_steps || 0;
-  return `${done} / ${total} Bereiche übernommen`;
+  return t("write.autoProgress", "{done} / {total} areas applied").replace("{done}", done).replace("{total}", total);
+}
+
+function comparisonMessage(comparison) {
+  if (!comparison.compatible) return t("write.comparisonIncompatible", "Not compatible · target state does not match current chip");
+  if (comparison.writable_difference_count) {
+    return t("write.comparisonWritable", "Compatible · {count} applicable changes").replace("{count}", comparison.writable_difference_count);
+  }
+  return t("write.comparisonNoOpen", "Compatible · no open writable changes");
 }
 
 function renderAnalysisView() {
@@ -804,8 +836,8 @@ function renderAnalysisView() {
     <section class="screen" aria-labelledby="analysisTitle">
       <div class="screen-head">
         <div>
-          <h1 id="analysisTitle" class="screen-title">Analyse</h1>
-          <p class="screen-subtitle">Nur echte PM3-Read-only-Pfade und zuletzt real gelesene Chipdaten.</p>
+          <h1 id="analysisTitle" class="screen-title">${escapeHtml(t("analysis.title", "Analysis"))}</h1>
+          <p class="screen-subtitle">${escapeHtml(t("analysis.subtitle", "Only real PM3 read-only paths and the last real chip data read."))}</p>
         </div>
       </div>
       <div class="analysis-grid">
@@ -829,13 +861,13 @@ function renderPositionPanel() {
   return `
     <div class="panel-header">
       <div>
-        <h2>Position optimieren</h2>
-        <div class="meta-line">begrenzte Read-only-Messserie</div>
+        <h2>${escapeHtml(t("analysis.positionTitle", "Optimize position"))}</h2>
+        <div class="meta-line">${escapeHtml(t("analysis.positionMeta", "limited read-only measurement series"))}</div>
       </div>
-      <button class="button button-small" type="button" data-start-position ${state.connection.connected && !busy ? "" : "disabled"}>${busy ? "Messung läuft ..." : "Starten"}</button>
+      <button class="button button-small" type="button" data-start-position ${state.connection.connected && !busy ? "" : "disabled"}>${escapeHtml(busy ? t("operation.measurementRunning", "Measurement running ...") : t("action.start", "Start"))}</button>
     </div>
-    <p class="analysis-copy">Lege den Chip mittig auf und bewege ihn langsam wenige Millimeter.</p>
-    ${busy ? `<div class="no-actions">${escapeHtml(state.positionOperation.message || "Messung läuft ...")}</div>` : ""}
+    <p class="analysis-copy">${escapeHtml(t("analysis.positionCopy", "Place the chip centered and move it slowly by a few millimeters."))}</p>
+    ${busy ? `<div class="no-actions">${escapeHtml(uiMessage(state.positionOperation, "operation.measurementRunning"))}</div>` : ""}
     ${result ? renderPositionResult(result) : ""}
   `;
 }
@@ -866,13 +898,13 @@ function renderAntennaPanel() {
   return `
     <div class="panel-header">
       <div>
-        <h2>Antenne prüfen</h2>
-        <div class="meta-line">nutzt echten hw tune-Pfad</div>
+        <h2>${escapeHtml(t("analysis.antennaTitle", "Check antenna"))}</h2>
+        <div class="meta-line">${escapeHtml(t("analysis.antennaMeta", "uses the real hw tune path"))}</div>
       </div>
-      <button class="button button-small" type="button" data-start-antenna ${state.connection.connected && !busy ? "" : "disabled"}>${busy ? "Prüfung läuft ..." : "Prüfen"}</button>
+      <button class="button button-small" type="button" data-start-antenna ${state.connection.connected && !busy ? "" : "disabled"}>${escapeHtml(busy ? t("operation.checkRunning", "Check running ...") : t("action.check", "Check"))}</button>
     </div>
-    ${busy ? `<div class="no-actions">${escapeHtml(state.antennaOperation.message || "Antennenprüfung läuft ...")}</div>` : ""}
-    ${state.antennaResult ? renderAntennaResult(state.antennaResult) : `<div class="no-actions">Noch keine Antennenprüfung in dieser Sitzung.</div>`}
+    ${busy ? `<div class="no-actions">${escapeHtml(uiMessage(state.antennaOperation, "operation.antennaRunning"))}</div>` : ""}
+    ${state.antennaResult ? renderAntennaResult(state.antennaResult) : `<div class="no-actions">${escapeHtml(t("status.antennaIdle", "No antenna check in this session."))}</div>`}
   `;
 }
 
@@ -883,7 +915,7 @@ function renderAntennaResult(result) {
     <div class="detail-list">
       <div class="detail-row"><span>${escapeHtml(t("antenna.lf", "LF antenna"))}</span><span>${escapeHtml(lf.status || t("compat.unknown", "Unknown"))}</span></div>
       ${lf.voltage_125khz ? `<div class="detail-row"><span>125 kHz</span><span>${escapeHtml(lf.voltage_125khz)}</span></div>` : ""}
-      ${lf.optimal_frequency || lf.optimal_voltage ? `<div class="detail-row"><span>Optimalbereich</span><span>${escapeHtml([lf.optimal_frequency, lf.optimal_voltage].filter(Boolean).join(" · "))}</span></div>` : ""}
+      ${lf.optimal_frequency || lf.optimal_voltage ? `<div class="detail-row"><span>${escapeHtml(t("antenna.optimalRange", "Optimal range"))}</span><span>${escapeHtml([lf.optimal_frequency, lf.optimal_voltage].filter(Boolean).join(" · "))}</span></div>` : ""}
       <div class="detail-row"><span>${escapeHtml(t("antenna.hf", "HF antenna"))}</span><span>${escapeHtml(hf.status || t("compat.unknown", "Unknown"))}</span></div>
       ${hf.voltage_13_56mhz ? `<div class="detail-row"><span>13.56 MHz</span><span>${escapeHtml(hf.voltage_13_56mhz)}</span></div>` : ""}
     </div>
@@ -897,8 +929,8 @@ function renderTechnicalPanel() {
   return `
     <div class="panel-header">
       <div>
-        <h2>Technische Details</h2>
-        <div class="meta-line">zuletzt real gelesener Chip</div>
+        <h2>${escapeHtml(t("analysis.technicalTitle", "Technical details"))}</h2>
+        <div class="meta-line">${escapeHtml(t("analysis.technicalMeta", "last real chip read"))}</div>
       </div>
     </div>
     ${rows.length ? `
@@ -907,7 +939,7 @@ function renderTechnicalPanel() {
           <div class="detail-row"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>
         `).join("")}
       </div>
-    ` : `<div class="no-actions">Noch kein real gelesener Chip in dieser Sitzung.</div>`}
+    ` : `<div class="no-actions">${escapeHtml(t("analysis.noRealChip", "No real chip read in this session yet."))}</div>`}
   `;
 }
 
@@ -916,16 +948,16 @@ function renderTemplatesView() {
     <section class="screen" aria-labelledby="templatesTitle">
       <div class="screen-head">
         <div>
-          <h1 id="templatesTitle" class="screen-title">Vorlagen</h1>
-          <p class="screen-subtitle">Vorlagen kommen aus dem echten Storage.</p>
+          <h1 id="templatesTitle" class="screen-title">${escapeHtml(t("templates.title", "Templates"))}</h1>
+          <p class="screen-subtitle">${escapeHtml(t("templates.subtitle", "Templates come from real local storage."))}</p>
         </div>
         <div class="template-toolbar">
-          <input class="search-input" type="search" placeholder="Vorlagen durchsuchen ..." value="${escapeHtml(state.templateSearch)}" data-template-search />
-          <select class="compact-select" data-template-type-filter aria-label="Chiptyp filtern"></select>
-          <select class="compact-select" data-template-sort aria-label="Vorlagen sortieren">
+          <input class="search-input" type="search" placeholder="${escapeHtml(t("templates.searchPlaceholder", "Search templates ..."))}" value="${escapeHtml(state.templateSearch)}" data-template-search />
+          <select class="compact-select" data-template-type-filter aria-label="${escapeHtml(t("templates.filterType", "Filter chip type"))}"></select>
+          <select class="compact-select" data-template-sort aria-label="${escapeHtml(t("templates.sort", "Sort templates"))}">
             ${templateSortOptions().map(([value, label]) => `<option value="${value}" ${state.templateSort === value ? "selected" : ""}>${label}</option>`).join("")}
           </select>
-          <button class="button button-secondary" type="button" data-import-templates>Importieren</button>
+          <button class="button button-secondary" type="button" data-import-templates>${escapeHtml(t("action.import", "Import"))}</button>
         </div>
       </div>
       <div class="management-list" data-template-list></div>
@@ -936,7 +968,7 @@ function renderTemplatesView() {
 function patchTemplatesView() {
   const typeFilter = appView.querySelector("[data-template-type-filter]");
   if (typeFilter) {
-    const options = [["all", "Alle Chiptypen"], ...templateTypes().map((type) => [type, type])];
+    const options = [["all", t("templates.allTypes", "All chip types")], ...templateTypes().map((type) => [type, type])];
     const html = options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${state.templateTypeFilter === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
     if (typeFilter.dataset.html !== html) {
       typeFilter.dataset.html = html;
@@ -950,7 +982,7 @@ function renderTemplateList() {
   const templates = getVisibleTemplates();
   return templates.length
     ? templates.map(renderTemplateItem).join("")
-    : `<div class="no-actions">Keine passenden Vorlagen im Storage gefunden.</div>`;
+    : `<div class="no-actions">${escapeHtml(t("templates.empty", "No matching templates found in storage."))}</div>`;
 }
 
 function renderTemplateItem(template) {
@@ -959,13 +991,13 @@ function renderTemplateItem(template) {
       <div class="management-main">
         <h2>${escapeHtml(template.name)}</h2>
         <div class="item-meta">${escapeHtml(template.technology)} · ${escapeHtml(template.frequency)} · UID ${escapeHtml(template.uid || "")}</div>
-        <div class="item-meta">Erstellt: ${escapeHtml(template.created_display || "")}</div>
+        <div class="item-meta">${escapeHtml(t("label.created", "Created"))}: ${escapeHtml(template.created_display || "")}</div>
         ${template.description ? `<p>${escapeHtml(template.description)}</p>` : ""}
-        ${template.category ? `<p>Kategorie / Notiz: ${escapeHtml(template.category)}</p>` : ""}
+        ${template.category ? `<p>${escapeHtml(t("template.categoryNote", "Category / note"))}: ${escapeHtml(template.category)}</p>` : ""}
       </div>
       <div class="item-actions">
-        <button class="button button-small" type="button" data-use-template-target="${escapeHtml(template.id)}">Als Zielzustand verwenden</button>
-        <button class="kebab-button" type="button" data-template-menu="${escapeHtml(template.id)}" aria-label="Weitere Aktionen">⋯</button>
+        <button class="button button-small" type="button" data-use-template-target="${escapeHtml(template.id)}">${escapeHtml(t("write.useAsTarget", "Use as target state"))}</button>
+        <button class="kebab-button" type="button" data-template-menu="${escapeHtml(template.id)}" aria-label="${escapeHtml(t("action.moreActions", "More actions"))}">⋯</button>
       </div>
     </article>
   `;
@@ -976,12 +1008,12 @@ function renderBackupsView() {
     <section class="screen" aria-labelledby="backupsTitle">
       <div class="screen-head">
         <div>
-          <h1 id="backupsTitle" class="screen-title">Backups</h1>
-          <p class="screen-subtitle">Backups werden erst nach einem tatsächlichen Chip-Read gespeichert.</p>
+          <h1 id="backupsTitle" class="screen-title">${escapeHtml(t("backups.title", "Backups"))}</h1>
+          <p class="screen-subtitle">${escapeHtml(t("backups.subtitle", "Backups are saved only after an actual chip read."))}</p>
         </div>
         <div class="template-toolbar">
-          <input class="search-input" type="search" placeholder="Backups durchsuchen ..." value="${escapeHtml(state.backupSearch)}" data-backup-search />
-          <select class="compact-select" data-backup-sort aria-label="Backups sortieren">
+          <input class="search-input" type="search" placeholder="${escapeHtml(t("backups.searchPlaceholder", "Search backups ..."))}" value="${escapeHtml(state.backupSearch)}" data-backup-search />
+          <select class="compact-select" data-backup-sort aria-label="${escapeHtml(t("backups.sort", "Sort backups"))}">
             ${backupSortOptions().map(([value, label]) => `<option value="${value}" ${state.backupSort === value ? "selected" : ""}>${label}</option>`).join("")}
           </select>
         </div>
@@ -999,7 +1031,7 @@ function renderBackupList() {
   const backups = getVisibleBackups();
   return backups.length
     ? backups.map(renderBackupItem).join("")
-    : `<div class="no-actions">Keine passenden Backups im Storage gefunden.</div>`;
+    : `<div class="no-actions">${escapeHtml(t("backups.empty", "No matching backups found in storage."))}</div>`;
 }
 
 function renderBackupItem(backup) {
@@ -1008,12 +1040,12 @@ function renderBackupItem(backup) {
       <div class="management-main">
         <h2>${escapeHtml(backup.technology)}</h2>
         <div class="item-meta">UID: ${escapeHtml(backup.uid || "")}</div>
-        <div class="item-meta">Erstellt: ${escapeHtml(backup.created_display || "")}</div>
-        <p>Quelle: ${escapeHtml(backup.source || "Backup")}</p>
+        <div class="item-meta">${escapeHtml(t("label.created", "Created"))}: ${escapeHtml(backup.created_display || "")}</div>
+        <p>${escapeHtml(t("label.source", "Source"))}: ${escapeHtml(backup.source || t("backups.title", "Backup"))}</p>
       </div>
       <div class="item-actions">
-        <button class="button button-small" type="button" data-use-backup-target="${escapeHtml(backup.id)}">Als Zielzustand verwenden</button>
-        <button class="kebab-button" type="button" data-backup-menu="${escapeHtml(backup.id)}" aria-label="Weitere Aktionen">⋯</button>
+        <button class="button button-small" type="button" data-use-backup-target="${escapeHtml(backup.id)}">${escapeHtml(t("write.useAsTarget", "Use as target state"))}</button>
+        <button class="kebab-button" type="button" data-backup-menu="${escapeHtml(backup.id)}" aria-label="${escapeHtml(t("action.moreActions", "More actions"))}">⋯</button>
       </div>
     </article>
   `;
@@ -1021,19 +1053,19 @@ function renderBackupItem(backup) {
 
 function templateSortOptions() {
   return [
-    ["newest", "Neueste zuerst"],
-    ["oldest", "Älteste zuerst"],
+    ["newest", t("sort.newest", "Newest first")],
+    ["oldest", t("sort.oldest", "Oldest first")],
     ["name_asc", "Name A-Z"],
     ["name_desc", "Name Z-A"],
-    ["technology", "Chiptyp"],
+    ["technology", t("chip.type", "Chip type")],
   ];
 }
 
 function backupSortOptions() {
   return [
-    ["newest", "Neueste zuerst"],
-    ["oldest", "Älteste zuerst"],
-    ["technology", "Chiptyp"],
+    ["newest", t("sort.newest", "Newest first")],
+    ["oldest", t("sort.oldest", "Oldest first")],
+    ["technology", t("chip.type", "Chip type")],
     ["uid", "UID"],
   ];
 }
@@ -1096,11 +1128,11 @@ function renderChipCard(chip, options = {}) {
     <article class="chip-card">
       <div class="chip-card-head">
         <div>
-          <strong>${escapeHtml(chip.technology || "Chip")}</strong>
+          <strong>${escapeHtml(chip.technology || t("chip.generic", "Chip"))}</strong>
           <span>${escapeHtml(chip.frequency || "")}</span>
         </div>
         <span class="chip-status-badge">${escapeHtml(statusLabel(chip))}</span>
-        ${options.infoKey ? `<button class="info-button" type="button" data-info-chip="${escapeHtml(options.infoKey)}" aria-label="Details anzeigen">i</button>` : ""}
+        ${options.infoKey ? `<button class="info-button" type="button" data-info-chip="${escapeHtml(options.infoKey)}" aria-label="${escapeHtml(t("action.showDetails", "Show details"))}">i</button>` : ""}
       </div>
       <div class="chip-facts">
         ${facts.map((field) => `
@@ -1113,7 +1145,7 @@ function renderChipCard(chip, options = {}) {
       ${regions.length ? `
         <div class="segment-block">
           <div class="chip-core" aria-hidden="true"><div class="chip-core-inner"></div></div>
-          <div class="memory-segments" aria-label="Speichersegmente">
+          <div class="memory-segments" aria-label="${escapeHtml(t("chip.memorySegments", "Memory segments"))}">
             ${regions.map((region) => `<div class="memory-segment is-${memorySegmentState(region)}">${escapeHtml(memorySegmentLabel(region))}</div>`).join("")}
           </div>
         </div>
@@ -1126,15 +1158,15 @@ function chipFacts(chip) {
   return [
     { label: "UID", value: chip.uid },
     { label: "Config", value: chip.config },
-    { label: "Frequenz", value: chip.frequency },
-    { label: "Speicher", value: chip.memoryRange },
+    { label: t("chip.frequency", "Frequency"), value: chip.frequency },
+    { label: t("chip.memory", "Memory"), value: chip.memoryRange },
   ].filter((field) => field.value);
 }
 
 function statusLabel(chip) {
-  if (chip.read_status === "identity_read") return "ID gelesen";
-  if (chip.support_level === "detected_only") return "erkannt";
-  return chip.config ? "Details gelesen" : "bereit";
+  if (chip.read_status === "identity_read") return t("chip.statusIdRead", "ID read");
+  if (chip.support_level === "detected_only") return t("chip.statusDetected", "detected");
+  return chip.config ? t("chip.statusDetailsRead", "Details read") : t("antenna.ready", "ready");
 }
 
 function memorySegmentState(region) {
@@ -1156,7 +1188,7 @@ function memorySegmentLabel(region) {
 
 function renderDataRows(regions) {
   if (!Array.isArray(regions) || !regions.length) {
-    return `<div class="no-actions">Keine Speicherbereiche gelesen.</div>`;
+    return `<div class="no-actions">${escapeHtml(t("chip.noMemoryRead", "No memory areas read."))}</div>`;
   }
   return regions.map((region) => `
     <div class="data-row">
@@ -1176,7 +1208,7 @@ function renderEmptyChip(label) {
 }
 
 function formatOpenCount(count) {
-  return count === 1 ? "1 offene Änderung" : `${count || 0} offene Änderungen`;
+  return count === 1 ? t("write.openChangeOne", "1 open change") : t("write.openChangeMany", "{count} open changes").replace("{count}", count || 0);
 }
 
 async function boot() {
@@ -1202,12 +1234,12 @@ async function boot() {
 }
 
 async function refreshConnection() {
-  state.connection = { status: "checking", connected: false, message: t("connection.checking", "Verbindung wird geprüft ...") };
-  setStatus(t("connection.checking", "Verbindung wird geprüft ..."));
+  state.connection = { status: "checking", connected: false, message_key: "connection.checking" };
+  setStatus(t("connection.checking", "Checking Proxmark3 connection ..."));
   render();
   try {
     state.connection = await callBridge("refresh_connection");
-    setStatus(state.connection.connected ? t("app.ready", "Bereit") : state.connection.message);
+    setStatus(state.connection.connected ? t("app.ready", "Ready") : state.connection);
   } catch (error) {
     state.connection = { status: "disconnected", connected: false, message: error.message };
     setStatus(error.message);
@@ -1228,7 +1260,7 @@ async function runStartupCheck() {
     setStatus(t("connection.deviceConnected", "Device connected"));
   } else {
     state.startupFlow = "antenna-error";
-    setStatus(state.connection.message || t("connection.noDevice", "No compatible device found"));
+    setStatus(state.connection);
   }
   render();
 }
@@ -1287,19 +1319,19 @@ async function startReadScan() {
   if (!state.connection.connected) return;
   if (isOperationBusy(state.readOperation)) return;
   state.lastScan = null;
-  state.readOperation = { operation_id: "pending", state: "queued", message: "Scan wird gestartet ...", progress: ["Scan wird gestartet ..."] };
-  setStatus("Chip wird gelesen ...");
+  state.readOperation = { operation_id: "pending", state: "queued", message_key: "operation.scanStarting", progress: ["Starting scan ..."], progress_keys: ["operation.scanStarting"] };
+  setStatus(t("operation.chipReading", "Reading chip ..."));
   render();
   const response = await callBridge("start_scan", state.readMode);
-  state.readOperation = { operation_id: response.operation_id, state: "queued", message: "Scan wird gestartet ...", progress: [] };
+  state.readOperation = { operation_id: response.operation_id, state: "queued", message_key: "operation.scanStarting", progress: [] };
   pollOperation(response.operation_id, "readOperation", async (operation) => {
     if (operation.state === "succeeded") {
       state.lastScan = operation.result;
-      setTransientStatus(operation.result?.message || operation.message);
+      setTransientStatus(uiMessage(operation.result || operation));
     } else {
-      setStatus(operation.message);
+      setStatus(operation);
       if (operation.state === "connection_lost") {
-        state.connection = { status: "lost", connected: false, message: operation.message };
+        setConnectionLost(operation);
       }
     }
   });
@@ -1313,22 +1345,22 @@ async function startCurrentChipScan() {
   state.comparison = null;
   state.completedActions = {};
   state.failedRegionId = null;
-  state.currentScanOperation = { operation_id: "pending", state: "queued", message: "Aktueller Chip wird gelesen ...", progress: ["Scan wird gestartet ..."] };
-  setStatus("Aktueller Chip wird gelesen ...");
+  state.currentScanOperation = { operation_id: "pending", state: "queued", message_key: "operation.currentChipReading", progress: ["Starting scan ..."], progress_keys: ["operation.scanStarting"] };
+  setStatus(t("operation.currentChipReading", "Current chip is being read ..."));
   render();
   const response = await callBridge("start_current_chip_scan");
-  state.currentScanOperation = { operation_id: response.operation_id, state: "queued", message: "Aktueller Chip wird gelesen ...", progress: [] };
+  state.currentScanOperation = { operation_id: response.operation_id, state: "queued", message_key: "operation.currentChipReading", progress: [] };
   pollOperation(response.operation_id, "currentScanOperation", async (operation) => {
     if (operation.state === "succeeded") {
       state.currentChip = operation.result.chip;
       state.currentBackup = operation.result.backup;
       await loadCollections();
       await refreshComparison();
-      setTransientStatus(operation.result.message);
+      setTransientStatus(uiMessage(operation.result));
     } else {
-      setStatus(operation.message);
+      setStatus(operation);
       if (operation.state === "connection_lost") {
-        state.connection = { status: "lost", connected: false, message: operation.message };
+        setConnectionLost(operation);
       }
     }
   });
@@ -1338,7 +1370,7 @@ async function startWriteAction(regionId) {
   if (isOperationBusy(state.writeOperations[regionId]) || anyWriteBusy()) return;
   const response = await callBridge("start_write_region", regionId);
   state.writeOperations[regionId] = { operation_id: response.operation_id, state: "queued", progress: [] };
-  setStatus("Schreibaktion gestartet");
+  setStatus(t("write.actionStarted", "Write action started"));
   render();
   pollWriteOperation(response.operation_id, regionId);
 }
@@ -1349,7 +1381,7 @@ async function startWriteAll() {
   state.failedRegionId = null;
   const response = await callBridge("start_write_all");
   state.autoWriteOperation = { operation_id: response.operation_id, state: "queued", progress: [], details: {} };
-  setStatus("Alle Unterschiede werden übernommen");
+  setStatus(t("write.allStarting", "All differences are being applied"));
   render();
   pollAutoWriteOperation(response.operation_id);
 }
@@ -1357,7 +1389,7 @@ async function startWriteAll() {
 async function pollOperation(operationId, stateKey, done) {
   const operation = await callBridge("get_operation_state", operationId);
   state[stateKey] = operation;
-  setStatus(operation.message);
+  setStatus(operation);
   render();
   if (!TERMINAL_STATES.has(operation.state)) {
     window.setTimeout(() => pollOperation(operationId, stateKey, done), 500);
@@ -1370,7 +1402,7 @@ async function pollOperation(operationId, stateKey, done) {
 async function pollWriteOperation(operationId, regionId) {
   const operation = await callBridge("get_write_operation_state", operationId);
   state.writeOperations[regionId] = operation;
-  setStatus(operation.message);
+  setStatus(operation);
   render();
   if (!TERMINAL_STATES.has(operation.state)) {
     window.setTimeout(() => pollWriteOperation(operationId, regionId), 500);
@@ -1379,14 +1411,14 @@ async function pollWriteOperation(operationId, regionId) {
   if (operation.state === "succeeded") {
     state.completedActions[regionId] = state.knownActions[regionId] || { region_id: regionId, label: regionId };
     await syncCurrentAndComparison();
-    showToast(operation.result?.message || "Schreibaktion verifiziert");
-    setTransientStatus(operation.result?.message || operation.message);
+    showToast(uiMessage(operation.result || operation, "write.actionVerified"));
+    setTransientStatus(uiMessage(operation.result || operation, "write.actionVerified"));
   } else {
     state.failedRegionId = regionId;
-    setStatus(operation.message);
+    setStatus(operation);
   }
   if (operation.state === "connection_lost") {
-    state.connection = { status: "lost", connected: false, message: operation.message };
+    setConnectionLost(operation);
     state.currentChip = null;
     state.currentBackup = null;
     state.comparison = null;
@@ -1407,22 +1439,22 @@ async function pollAutoWriteOperation(operationId) {
   if (completedChanged || TERMINAL_STATES.has(operation.state)) {
     await syncCurrentAndComparison(true);
   }
-  setStatus(operation.message);
+  setStatus(operation);
   render();
   if (!TERMINAL_STATES.has(operation.state)) {
     window.setTimeout(() => pollAutoWriteOperation(operationId), 500);
     return;
   }
   if (operation.state === "succeeded") {
-    showToast(operation.result?.message || "Alle Unterschiede verifiziert");
-    setTransientStatus(operation.result?.message || operation.message);
+    showToast(uiMessage(operation.result || operation, "write.allVerified"));
+    setTransientStatus(uiMessage(operation.result || operation, "write.allVerified"));
   } else if (operation.state === "connection_lost") {
-    state.connection = { status: "lost", connected: false, message: operation.message };
+    setConnectionLost(operation);
     state.currentChip = null;
     state.currentBackup = null;
     state.comparison = null;
   } else {
-    setStatus(operation.message);
+    setStatus(operation);
   }
   render();
 }
@@ -1431,17 +1463,17 @@ async function startPositionCheck() {
   if (isOperationBusy(state.positionOperation)) return;
   const response = await callBridge("start_position_check");
   state.positionOperation = { operation_id: response.operation_id, state: "queued", progress: [] };
-  setStatus("Position wird geprüft ...");
+  setStatus(t("operation.positionRunning", "Position is being checked ..."));
   render();
   pollOperation(response.operation_id, "positionOperation", async (operation) => {
     if (operation.state === "succeeded") {
       state.positionResult = operation.result.position;
-      setTransientStatus(operation.result.message);
+      setTransientStatus(uiMessage(operation.result));
     } else if (operation.state === "connection_lost") {
-      state.connection = { status: "lost", connected: false, message: operation.message };
-      setStatus(operation.message);
+      setConnectionLost(operation);
+      setStatus(operation);
     } else {
-      setStatus(operation.message);
+      setStatus(operation);
     }
   });
 }
@@ -1451,12 +1483,12 @@ async function startAntennaCheck(options = {}) {
   const response = await callBridge("start_antenna_check");
   state.antennaOperation = { operation_id: response.operation_id, state: "queued", progress: [] };
   if (options.startup) state.startupFlow = "antenna-running";
-  setStatus("Antennenprüfung läuft ...");
+  setStatus(t("operation.antennaRunning", "Antenna check running ..."));
   render();
   pollOperation(response.operation_id, "antennaOperation", async (operation) => {
     if (operation.state === "succeeded") {
       state.antennaResult = operation.result.antenna;
-      setTransientStatus(operation.result.message);
+      setTransientStatus(uiMessage(operation.result));
       if (options.startup) {
         state.startupFlow = "antenna-result";
         window.setTimeout(() => {
@@ -1464,12 +1496,12 @@ async function startAntennaCheck(options = {}) {
         }, TRANSIENT_STATUS_MS);
       }
     } else if (operation.state === "connection_lost") {
-      state.connection = { status: "lost", connected: false, message: operation.message };
+      setConnectionLost(operation);
       if (options.startup) state.startupFlow = "antenna-error";
-      setStatus(operation.message);
+      setStatus(operation);
     } else {
       if (options.startup) state.startupFlow = "antenna-error";
-      setStatus(operation.message);
+      setStatus(operation);
     }
   });
 }
@@ -1483,13 +1515,13 @@ async function saveTemplate(form) {
     String(formData.get("category") || ""),
   );
   if (!response.ok) {
-    showToast(response.message);
+    showToast(uiMessage(response));
     return;
   }
   closeModal();
   await loadCollections();
-  showToast("Vorlage gespeichert");
-  setTransientStatus("Vorlage gespeichert");
+  showToast(t("template.saved", "Template saved"));
+  setTransientStatus(t("template.saved", "Template saved"));
   render();
 }
 
@@ -1501,19 +1533,19 @@ async function updateTemplate(form) {
     category: String(formData.get("category") || ""),
   });
   if (!response.ok) {
-    showToast(response.message);
+    showToast(uiMessage(response));
     return;
   }
   closeModal();
   await loadCollections();
-  setTransientStatus("Vorlage aktualisiert");
+  setTransientStatus(t("template.updated", "Template updated"));
   render();
 }
 
 async function useTemplateTarget(templateId) {
   const response = await callBridge("set_target_template", templateId);
   if (!response.ok) {
-    showToast(response.message);
+    showToast(uiMessage(response));
     return;
   }
   state.target = response.target;
@@ -1521,13 +1553,13 @@ async function useTemplateTarget(templateId) {
   state.failedRegionId = null;
   await refreshComparison();
   setActiveView("write");
-  setTransientStatus("Vorlage als Zielzustand verwendet");
+  setTransientStatus(t("template.usedAsTarget", "Template used as target state"));
 }
 
 async function useBackupTarget(backupId) {
   const response = await callBridge("use_backup_as_target", backupId);
   if (!response.ok) {
-    showToast(response.message);
+    showToast(uiMessage(response));
     return;
   }
   state.target = response.target;
@@ -1535,54 +1567,54 @@ async function useBackupTarget(backupId) {
   state.failedRegionId = null;
   await refreshComparison();
   setActiveView("write");
-  setTransientStatus("Backup als Zielzustand verwendet");
+  setTransientStatus(t("backup.usedAsTarget", "Backup used as target state"));
 }
 
 async function deleteTemplate(templateId) {
   const response = await callBridge("delete_template", templateId);
   if (!response.ok) {
-    showToast(response.message);
+    showToast(uiMessage(response));
     return;
   }
   closeModal();
   await loadCollections();
   await loadTarget();
   await refreshComparison();
-  setTransientStatus("Vorlage gelöscht");
+  setTransientStatus(t("template.deleted", "Template deleted"));
   render();
 }
 
 async function duplicateTemplate(templateId) {
   const response = await callBridge("duplicate_template", templateId);
   if (!response.ok) {
-    showToast(response.message);
+    showToast(uiMessage(response));
     return;
   }
   clearPopover();
   await loadCollections();
-  setTransientStatus("Vorlage dupliziert");
+  setTransientStatus(t("template.duplicated", "Template duplicated"));
   render();
 }
 
 async function deleteBackup(backupId) {
   const response = await callBridge("delete_backup", backupId);
   if (!response.ok) {
-    showToast(response.message);
+    showToast(uiMessage(response));
     return;
   }
   closeModal();
   await loadCollections();
   await loadTarget();
   await refreshComparison();
-  setTransientStatus("Backup gelöscht");
+  setTransientStatus(t("backup.deleted", "Backup deleted"));
   render();
 }
 
 async function importTemplates() {
   const response = await callBridge("import_existing_templates");
   await loadCollections();
-  showToast(response.message || "Import abgeschlossen");
-  setTransientStatus(response.message || "Import abgeschlossen");
+  showToast(uiMessage(response, "template.importCompleted"));
+  setTransientStatus(uiMessage(response, "template.importCompleted"));
   render();
 }
 
@@ -1599,26 +1631,27 @@ function setActiveView(view) {
 
 function openSaveTemplateModal() {
   if (!state.lastScan?.canSave) return;
+  state.activeModal = { type: "saveTemplate" };
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="saveTitle">
-      <h2 id="saveTitle">Vorlage speichern</h2>
+      <h2 id="saveTitle">${escapeHtml(t("template.saveTitle", "Save template"))}</h2>
       <form class="form-grid" data-save-template-form>
         <div class="form-field">
-          <label for="templateName">Name</label>
+          <label for="templateName">${escapeHtml(t("field.name", "Name"))}</label>
           <input id="templateName" name="name" autocomplete="off" required />
         </div>
         <div class="form-field">
-          <label for="templateDescription">Beschreibung</label>
+          <label for="templateDescription">${escapeHtml(t("field.description", "Description"))}</label>
           <textarea id="templateDescription" name="description"></textarea>
         </div>
         <div class="form-field">
-          <label for="templateCategory">Kategorie / Notiz</label>
+          <label for="templateCategory">${escapeHtml(t("template.categoryNote", "Category / note"))}</label>
           <input id="templateCategory" name="category" autocomplete="off" />
         </div>
         <div class="modal-actions">
-          <button class="button button-secondary" type="button" data-close-modal>Abbrechen</button>
-          <button class="button" type="submit">Speichern</button>
+          <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.cancel", "Cancel"))}</button>
+          <button class="button" type="submit">${escapeHtml(t("action.save", "Save"))}</button>
         </div>
       </form>
     </div>
@@ -1630,26 +1663,27 @@ function openEditTemplateModal(templateId) {
   clearPopover();
   const template = state.templates.find((item) => item.id === templateId);
   if (!template) return;
+  state.activeModal = { type: "editTemplate", id: templateId };
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editTitle">
-      <h2 id="editTitle">Vorlage bearbeiten</h2>
+      <h2 id="editTitle">${escapeHtml(t("template.editTitle", "Edit template"))}</h2>
       <form class="form-grid" data-edit-template-form data-template-id="${escapeHtml(template.id)}">
         <div class="form-field">
-          <label for="editName">Name</label>
+          <label for="editName">${escapeHtml(t("field.name", "Name"))}</label>
           <input id="editName" name="name" value="${escapeHtml(template.name)}" autocomplete="off" required />
         </div>
         <div class="form-field">
-          <label for="editDescription">Beschreibung</label>
+          <label for="editDescription">${escapeHtml(t("field.description", "Description"))}</label>
           <textarea id="editDescription" name="description">${escapeHtml(template.description || "")}</textarea>
         </div>
         <div class="form-field">
-          <label for="editCategory">Kategorie / Notiz</label>
+          <label for="editCategory">${escapeHtml(t("template.categoryNote", "Category / note"))}</label>
           <input id="editCategory" name="category" value="${escapeHtml(template.category || "")}" autocomplete="off" />
         </div>
         <div class="modal-actions">
-          <button class="button button-secondary" type="button" data-close-modal>Abbrechen</button>
-          <button class="button" type="submit">Speichern</button>
+          <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.cancel", "Cancel"))}</button>
+          <button class="button" type="submit">${escapeHtml(t("action.save", "Save"))}</button>
         </div>
       </form>
     </div>
@@ -1659,13 +1693,14 @@ function openEditTemplateModal(templateId) {
 
 function openConfirmDeleteTemplate(templateId) {
   clearPopover();
+  state.activeModal = { type: "deleteTemplate", id: templateId };
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
     <div class="modal modal-small" role="dialog" aria-modal="true" aria-labelledby="deleteTemplateTitle">
-      <h2 id="deleteTemplateTitle">Vorlage wirklich löschen?</h2>
+      <h2 id="deleteTemplateTitle">${escapeHtml(t("template.confirmDelete", "Delete template?"))}</h2>
       <div class="modal-actions">
-        <button class="button button-secondary" type="button" data-close-modal>Abbrechen</button>
-        <button class="button button-danger" type="button" data-confirm-delete-template="${escapeHtml(templateId)}">Löschen</button>
+        <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.cancel", "Cancel"))}</button>
+        <button class="button button-danger" type="button" data-confirm-delete-template="${escapeHtml(templateId)}">${escapeHtml(t("action.delete", "Delete"))}</button>
       </div>
     </div>
   `;
@@ -1673,13 +1708,14 @@ function openConfirmDeleteTemplate(templateId) {
 
 function openConfirmDeleteBackup(backupId) {
   clearPopover();
+  state.activeModal = { type: "deleteBackup", id: backupId };
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
     <div class="modal modal-small" role="dialog" aria-modal="true" aria-labelledby="deleteBackupTitle">
-      <h2 id="deleteBackupTitle">Backup wirklich löschen?</h2>
+      <h2 id="deleteBackupTitle">${escapeHtml(t("backup.confirmDelete", "Delete backup?"))}</h2>
       <div class="modal-actions">
-        <button class="button button-secondary" type="button" data-close-modal>Abbrechen</button>
-        <button class="button button-danger" type="button" data-confirm-delete-backup="${escapeHtml(backupId)}">Löschen</button>
+        <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.cancel", "Cancel"))}</button>
+        <button class="button button-danger" type="button" data-confirm-delete-backup="${escapeHtml(backupId)}">${escapeHtml(t("action.delete", "Delete"))}</button>
       </div>
     </div>
   `;
@@ -1689,23 +1725,24 @@ function openBackupDetails(backupId) {
   clearPopover();
   const backup = state.backups.find((item) => item.id === backupId);
   if (!backup) return;
+  state.activeModal = { type: "backupDetails", id: backupId };
   const chip = backup.chip || {};
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="backupDetailsTitle">
-      <h2 id="backupDetailsTitle">Backupdetails</h2>
+      <h2 id="backupDetailsTitle">${escapeHtml(t("backup.detailsTitle", "Backup details"))}</h2>
       <div class="detail-list">
-        <div class="detail-row"><span>Chiptyp</span><span>${escapeHtml(backup.technology || "")}</span></div>
+        <div class="detail-row"><span>${escapeHtml(t("chip.type", "Chip type"))}</span><span>${escapeHtml(backup.technology || "")}</span></div>
         <div class="detail-row"><span>UID</span><span>${escapeHtml(backup.uid || "")}</span></div>
         <div class="detail-row"><span>Config</span><span>${escapeHtml(chip.config || "")}</span></div>
-        <div class="detail-row"><span>Zeitpunkt</span><span>${escapeHtml(backup.created_display || "")}</span></div>
-        <div class="detail-row"><span>Quelle</span><span>${escapeHtml(backup.source || "")}</span></div>
+        <div class="detail-row"><span>${escapeHtml(t("label.timestamp", "Timestamp"))}</span><span>${escapeHtml(backup.created_display || "")}</span></div>
+        <div class="detail-row"><span>${escapeHtml(t("label.source", "Source"))}</span><span>${escapeHtml(backup.source || "")}</span></div>
       </div>
       <div class="data-overview modal-data">
         ${renderDataRows(chip.memoryRegions)}
       </div>
       <div class="modal-actions">
-        <button class="button button-secondary" type="button" data-close-modal>Schließen</button>
+        <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.close", "Close"))}</button>
       </div>
     </div>
   `;
@@ -1714,6 +1751,7 @@ function openBackupDetails(backupId) {
 function closeModal() {
   modalRoot.hidden = true;
   modalRoot.innerHTML = "";
+  state.activeModal = null;
 }
 
 function openBackupTargetPopover(trigger) {
@@ -1723,16 +1761,16 @@ function openBackupTargetPopover(trigger) {
       <strong>${escapeHtml(backup.technology)}</strong>
       <span>${escapeHtml(backup.created_display || "")} · UID ${escapeHtml(backup.uid || "")}</span>
     </button>
-  `).join("") : `<div class="no-actions">Keine Backups vorhanden.</div>`;
-  openPopover(trigger, `<h3>Backup wählen</h3><div class="popover-list">${items}</div>`);
+  `).join("") : `<div class="no-actions">${escapeHtml(t("backups.none", "No backups available."))}</div>`;
+  openPopover(trigger, `<h3>${escapeHtml(t("backup.choose", "Choose backup"))}</h3><div class="popover-list">${items}</div>`);
 }
 
 function openTemplateMenu(trigger, templateId) {
   openPopover(trigger, `
     <div class="popover-list">
-      <button class="popover-option" type="button" data-edit-template="${escapeHtml(templateId)}">Bearbeiten</button>
-      <button class="popover-option" type="button" data-duplicate-template="${escapeHtml(templateId)}">Duplizieren</button>
-      <button class="popover-option is-danger" type="button" data-delete-template="${escapeHtml(templateId)}">Löschen</button>
+      <button class="popover-option" type="button" data-edit-template="${escapeHtml(templateId)}">${escapeHtml(t("action.edit", "Edit"))}</button>
+      <button class="popover-option" type="button" data-duplicate-template="${escapeHtml(templateId)}">${escapeHtml(t("action.duplicate", "Duplicate"))}</button>
+      <button class="popover-option is-danger" type="button" data-delete-template="${escapeHtml(templateId)}">${escapeHtml(t("action.delete", "Delete"))}</button>
     </div>
   `);
 }
@@ -1740,8 +1778,8 @@ function openTemplateMenu(trigger, templateId) {
 function openBackupMenu(trigger, backupId) {
   openPopover(trigger, `
     <div class="popover-list">
-      <button class="popover-option" type="button" data-backup-details="${escapeHtml(backupId)}">Details anzeigen</button>
-      <button class="popover-option is-danger" type="button" data-delete-backup="${escapeHtml(backupId)}">Löschen</button>
+      <button class="popover-option" type="button" data-backup-details="${escapeHtml(backupId)}">${escapeHtml(t("action.showDetails", "Show details"))}</button>
+      <button class="popover-option is-danger" type="button" data-delete-backup="${escapeHtml(backupId)}">${escapeHtml(t("action.delete", "Delete"))}</button>
     </div>
   `);
 }
@@ -1750,7 +1788,7 @@ function openInfoPopover(trigger) {
   const details = detailsForKey(trigger.dataset.infoChip);
   if (!details) return;
   openPopover(trigger, `
-    <h3>Details</h3>
+    <h3>${escapeHtml(t("action.details", "Details"))}</h3>
     <div class="detail-list">
       ${Object.entries(details).map(([label, value]) => `
         <div class="detail-row">
@@ -1784,6 +1822,7 @@ function detailsForKey(key) {
 }
 
 function openHelpModal(topic) {
+  state.activeModal = { type: "help", topic };
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
     <div class="modal modal-small" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
@@ -1798,17 +1837,18 @@ function openHelpModal(topic) {
 
 function showStatusModal() {
   const connection = state.connection;
+  state.activeModal = { type: "status" };
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pm3StatusTitle">
-      <h2 id="pm3StatusTitle">PM3-Status</h2>
+      <h2 id="pm3StatusTitle">${escapeHtml(t("settings.pm3Status", "PM3 status"))}</h2>
       <div class="detail-list">
-        <div class="detail-row"><span>Status</span><span>${escapeHtml(connection.connected ? t("status.connected", "Connected") : connection.status)}</span></div>
+        <div class="detail-row"><span>${escapeHtml(t("label.status", "Status"))}</span><span>${escapeHtml(connection.connected ? t("status.connected", "Connected") : connection.status)}</span></div>
         <div class="detail-row"><span>Port</span><span>${escapeHtml(connection.port || t("connection.notAvailable", "not available"))}</span></div>
         <div class="detail-row"><span>${escapeHtml(t("status.device", "Device"))}</span><span>${escapeHtml(connection.target || t("connection.notAvailable", "not available"))}</span></div>
         <div class="detail-row"><span>${escapeHtml(t("status.client", "Client"))}</span><span>${escapeHtml(connection.client_version || t("connection.notAvailable", "not available"))}</span></div>
         <div class="detail-row"><span>${escapeHtml(t("status.compatibility", "Compatibility"))}</span><span>${escapeHtml(compatibilityLabel(connection.compatibility))}</span></div>
-        <div class="detail-row"><span>Meldung</span><span>${escapeHtml(connection.message || "")}</span></div>
+        <div class="detail-row"><span>${escapeHtml(t("label.message", "Message"))}</span><span>${escapeHtml(uiMessage(connection))}</span></div>
       </div>
       <div class="modal-actions">
         <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.close", "Close"))}</button>
@@ -1818,6 +1858,7 @@ function showStatusModal() {
 }
 
 function showAboutModal() {
+  state.activeModal = { type: "about" };
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
@@ -1845,6 +1886,19 @@ function showToast(message) {
     toastRoot.hidden = true;
     toastRoot.innerHTML = "";
   }, 3200);
+}
+
+function rerenderActiveModal() {
+  const modal = state.activeModal;
+  if (!modal || modalRoot.hidden) return;
+  if (modal.type === "saveTemplate") openSaveTemplateModal();
+  else if (modal.type === "editTemplate") openEditTemplateModal(modal.id);
+  else if (modal.type === "deleteTemplate") openConfirmDeleteTemplate(modal.id);
+  else if (modal.type === "deleteBackup") openConfirmDeleteBackup(modal.id);
+  else if (modal.type === "backupDetails") openBackupDetails(modal.id);
+  else if (modal.type === "help") openHelpModal(modal.topic);
+  else if (modal.type === "status") showStatusModal();
+  else if (modal.type === "about") showAboutModal();
 }
 
 document.addEventListener("click", async (event) => {
@@ -1908,7 +1962,7 @@ document.addEventListener("click", async (event) => {
     return;
   }
   if (target.closest("[data-advanced-tools]")) {
-    showToast("Erweiterte Werkzeuge sind in dieser echten App nicht freigeschaltet.");
+    showToast(t("settings.advancedUnavailable", "Advanced tools are not enabled in this real app."));
     return;
   }
   if (target.closest("[data-about]")) {
@@ -1919,7 +1973,7 @@ document.addEventListener("click", async (event) => {
   const readMode = target.closest("[data-read-mode]");
   if (readMode) {
     state.readMode = readMode.dataset.readMode;
-    setTransientStatus(`Scanmodus ${state.readMode.toUpperCase()}`);
+    setTransientStatus(t("read.modeSelected", "Scan mode {mode}").replace("{mode}", state.readMode.toUpperCase()));
     render();
     return;
   }

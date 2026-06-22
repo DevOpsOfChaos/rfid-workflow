@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -15,9 +15,9 @@
         </div>
         <div id="deviceStatus" class="device-status is-checking" aria-live="polite">
           <span class="status-dot" aria-hidden="true"></span>
-          Verbindung wird geprüft ...
+          Checking Proxmark3 connection ...
         </div>
-        <button class="icon-button" type="button" data-settings-toggle aria-label="Einstellungen öffnen" title="Einstellungen">
+        <button class="icon-button" type="button" data-settings-toggle aria-label="Open settings" title="Settings">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 8.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Zm8.1 3.6c0-.5 0-1-.1-1.4l2-1.5-2-3.5-2.4 1a8.9 8.9 0 0 0-2.3-1.4L15 2.6H9l-.3 2.6a8.9 8.9 0 0 0-2.3 1.4l-2.4-1-2 3.5 2 1.5a9.6 9.6 0 0 0 0 2.8l-2 1.5 2 3.5 2.4-1a8.9 8.9 0 0 0 2.3 1.4L9 21.4h6l.3-2.6a8.9 8.9 0 0 0 2.3-1.4l2.4 1 2-3.5-2-1.5c.1-.4.1-.9.1-1.4Z" />
           </svg>
@@ -39,11 +39,11 @@
           <button type="button" data-refresh-connection data-i18n="settings.refresh">Verbindung prüfen</button>
           <button type="button" data-import-templates data-i18n="settings.importTemplates">Vorlagen importieren</button>
           <button type="button" data-advanced-tools data-i18n="settings.advanced">Erweiterte Werkzeuge anzeigen</button>
-          <button type="button" data-about>Über</button>
+          <button type="button" data-about data-i18n="about.button">About</button>
         </div>
       </header>
 
-      <aside class="side-nav" aria-label="Hauptnavigation">
+      <aside class="side-nav" aria-label="Primary navigation">
         <nav class="primary-nav">
           <button class="nav-item is-active" type="button" data-view="overview" data-i18n="nav.overview">Übersicht</button>
           <button class="nav-item" type="button" data-view="read" data-i18n="nav.read">Lesen</button>
@@ -59,7 +59,7 @@
 
       <footer class="status-bar" aria-live="polite">
         <span class="status-bar-dot" aria-hidden="true"></span>
-        <span id="statusText">Verbindung wird geprüft ...</span>
+        <span id="statusText">Checking Proxmark3 connection ...</span>
       </footer>
     </div>
 
