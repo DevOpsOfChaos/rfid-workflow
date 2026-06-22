@@ -1,0 +1,31 @@
+# Python environments and bytecode
+.venv/
+.venv-gui/
+__pycache__/
+*.py[cod]
+
+# Local runtime and RFID/NFC data -- never commit
+runtime/
+local-data/
+templates/
+backups/
+audit/
+logs/
+*.log
+*.eml
+*.bin
+*.dump
+*.key
+
+# Local environment and configuration
+.env
+.env.*
+config.local.*
+
+# IDE settings
+.vscode/
+.idea/
+
+# Operating system files
+.DS_Store
+Thumbs.db
