@@ -9,6 +9,7 @@ import re
 import shutil
 from typing import Any
 
+from pm3_workflow_gui.pm3.compatibility import classify_pm3_compatibility
 from pm3_workflow_gui.pm3.parsers import parse_hf_search, parse_hw_tune, parse_hw_version
 from pm3_workflow_gui.profiles.backups import (
     BackupRecord,
@@ -48,9 +49,6 @@ from pm3_workflow_gui.web_desktop.operation_manager import (
 )
 from pm3_workflow_gui.web_desktop.state import ConnectionSnapshot, TargetSnapshot, WebDesktopState
 
-
-VERIFIED_CLIENT_BASELINE = "v4.21611-321-gc7b95a94e"
-VERIFIED_TARGET = "PM3 GENERIC"
 
 
 class WebDesktopBridge:
@@ -633,31 +631,16 @@ def _compatibility_from_startup(check: Pm3StartupCheck) -> dict[str, str | None]
         return payload
     output = _combined_output(check.hw_version) if check.hw_version else ""
     parsed = parse_hw_version(output) if output else None
-    client = parsed.client_version if parsed else check.client_version
-    firmware = parsed.firmware if parsed else check.target
-    bootrom = parsed.bootrom if parsed else None
-    os_version = parsed.os if parsed else None
-    platform = parsed.platform if parsed else None
-    payload["firmware_version"] = firmware
-    payload["platform"] = platform
-
-    combined = "\n".join(value or "" for value in (client, firmware, bootrom, os_version, platform, output)).lower()
-    if "mismatch" in combined or "doesn't match" in combined or "does not match" in combined:
-        payload["status"] = "client_firmware_mismatch"
-        payload["label"] = "Client / firmware mismatch"
+    if parsed is None:
+        payload["status"] = "recognized_untested"
+        payload["label"] = "Recognized but untested"
+        payload["firmware_version"] = check.target
         return payload
-
-    target = (firmware or check.target or "").upper()
-    has_verified_client = VERIFIED_CLIENT_BASELINE.lower() in (client or "").lower()
-    has_verified_arm = VERIFIED_CLIENT_BASELINE.lower() in ((bootrom or "") + " " + (os_version or "")).lower()
-    has_verified_target = VERIFIED_TARGET in target
-    if has_verified_client and has_verified_target and (has_verified_arm or not output):
-        payload["status"] = "verified"
-        payload["label"] = "Verified"
-        return payload
-
-    payload["status"] = "recognized_untested"
-    payload["label"] = "Recognized but untested"
+    compatibility = classify_pm3_compatibility(parsed, output, check.target)
+    payload["firmware_version"] = compatibility.firmware_version
+    payload["platform"] = compatibility.platform
+    payload["status"] = compatibility.status
+    payload["label"] = compatibility.label
     return payload
 
 

@@ -11,16 +11,29 @@ import sys
 
 FORBIDDEN_GLOBS = (
     "*.bin",
-    "*.eml",
     "*.dump",
+    "*.eml",
+    "*.gif",
+    "*.jpeg",
+    "*.jpg",
     "*.key",
     "*.log",
+    "*.png",
+    "*.webp",
     ".env",
     ".env.*",
 )
 FORBIDDEN_DIRS = (
+    ".git",
+    ".idea",
+    ".venv",
+    ".venv-gui",
+    ".vscode",
+    "__pycache__",
     "templates",
     "backups",
+    "build",
+    "dist",
     "audit",
     "logs",
     "runtime",
@@ -141,7 +154,7 @@ def _candidate_files(root: Path, args: argparse.Namespace) -> list[AuditFile]:
     return [
         AuditFile(_as_posix(path.relative_to(root)), path=path)
         for path in root.rglob("*")
-        if path.is_file() and ".git" not in path.parts
+        if path.is_file()
     ]
 
 
