@@ -1,0 +1,77 @@
+name: Documentation and repository hygiene
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-hygiene:
+    name: Documentation and repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check required documentation and prohibited tracked paths
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          required_markdown = {
+              "README.md",
+              "CHANGELOG.md",
+              "CONTRIBUTING.md",
+              "SECURITY.md",
+              "CODE_OF_CONDUCT.md",
+              "PRIVACY.md",
+              "THIRD_PARTY_NOTICES.md",
+              "docs/INSTALL_WINDOWS.md",
+              "docs/FIRST_RUN.md",
+              "docs/PM3_SETUP_AND_FLASHING.md",
+              "docs/COMPATIBILITY.md",
+              "docs/SUPPORTED_TECHNOLOGIES.md",
+              "docs/BACKUPS_AND_TEMPLATES.md",
+              "docs/TROUBLESHOOTING.md",
+              "docs/DEVELOPMENT.md",
+              "docs/RELEASE_PROCESS.md",
+              "docs/PUBLIC_REPOSITORY_AUDIT.md",
+          }
+          prohibited_suffixes = {".eml", ".bin", ".dump", ".key"}
+          prohibited_top_level_dirs = {
+              "runtime", "local-data", "templates", "backups", "audit", "logs"
+          }
+
+          tracked = subprocess.check_output(
+              ["git", "ls-files"], text=True
+          ).splitlines()
+          failures = []
+
+          missing = sorted(path for path in required_markdown if not Path(path).is_file())
+          if missing:
+              failures.append("Missing required Markdown files: " + ", ".join(missing))
+
+          for name in tracked:
+              path = Path(name)
+              if path.suffix.lower() in prohibited_suffixes:
+                  failures.append(f"Prohibited tracked file extension: {name}")
+              if path.name == ".env" or path.name.startswith(".env."):
+                  failures.append(f"Prohibited environment file: {name}")
+              if path.parts and path.parts[0] in prohibited_top_level_dirs:
+                  failures.append(f"Prohibited local-data directory tracked: {name}")
+
+          if failures:
+              print("Repository hygiene check failed:")
+              for item in failures:
+                  print(f"- {item}")
+              sys.exit(1)
+
+          print("Documentation and repository hygiene check passed.")
+          print("No application tests were run because application source is not yet imported.")
