@@ -1,0 +1,77 @@
+[=] Session log C:\Tools\proxmark3\client\/.proxmark3/logs/log_20260615102745.txt
+[+] loaded `C:\Tools\proxmark3\client\/.proxmark3/preferences.json`
+[+] Using UART port COM16
+[+] Communicating with PM3 over USB-CDC
+
+  [ Proxmark3 ]
+
+    MCU....... AT91SAM7S512 Rev B
+    Memory.... 512 KB ( 73% used )
+    Target.... PM3 GENERIC
+
+    Client.... Iceman/master/v4.21611-321-gc7b95a94e 2026-05-31 00:48:46
+    Bootrom... Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:41 9cb15bd3b
+    OS........ Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:52 9cb15bd3b
+
+[usb] pm3 --> hw version
+ [ Proxmark3 ]
+
+ [ Client ]
+  Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:48:46 9cb15bd3b
+  Compiler.................. MinGW-w64 16.1.0
+  Platform.................. Windows (64b) / x86_64
+  Lua script support........ present ( 5.4.7 )
+  Python script support..... absent
+
+ [ Model ]
+  Firmware.................. PM3 GENERIC
+
+ [ ARM ]
+  Bootrom.... Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:41 9cb15bd3b
+  OS......... Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:52 9cb15bd3b
+  Compiler... GCC 13.3.0
+
+ [ Hardware ]
+  --= Embedded flash memory 512K bytes ( 73% used )
+
+[usb] pm3 --> hw tune
+[=] -------- LF Antenna ----------
+[+] 125.00 kHz ........... 20.21 V
+[+] 134.83 kHz ........... 13.34 V
+[+] 115.38 kHz optimal.... 25.70 V
+[+] Frequency bandwidth... 6.2
+[+] Peak voltage.......... 7.5
+[+] LF antenna............ ok
+
+[=] -------- HF Antenna ----------
+[+] 13.56 MHz............. 36.28 V
+[+] Peak voltage.......... 10.5
+[+] HF antenna ( ok )
+
+[usb] pm3 --> hf search
+[!] No known/supported 13.56 MHz tags found
+
+[usb] pm3 --> lf search
+
+[=] Note: False Positives ARE possible
+[=]
+[=] Checking for known tags...
+[=]
+[\]Searching for COTAG tag......
+
+[=] Searching for auth LF and special cases...
+[=] Couldn't identify a chipset
+[?] Hint: try `hf search` - since tag might not be LF
+
+[usb] pm3 --> lf hitag hts rdbl -p 0 -c 8
+[=] Access Hitag S in Plain mode
+[-] UID Request failed!
+
+[usb] pm3 --> hf search
+[/] Searching for ThinFilm tag...[!] timeout while waiting for reply
+[\] Searching for ISO14443-A tag...[!] Failed to get current device debug level
+[/] Searching for Fuji/Xerox tag...
+[!] Communicating with Proxmark3 device failed
+
+[\] Searching for ISO14443-B tag...
+C:\Tools\proxmark3\client>

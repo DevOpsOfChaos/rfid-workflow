@@ -1,0 +1,14 @@
+[=] Session log C:\Tools\proxmark3\client\/.proxmark3/logs/log_20260615084438.txt
+[+] loaded `C:\Tools\proxmark3\client\/.proxmark3/preferences.json`
+[+] Using UART port COM16
+[+] Communicating with PM3 over USB-CDC
+
+  [ Proxmark3 ]
+
+    MCU....... AT91SAM7S512 Rev B
+    Memory.... 512 KB ( 73% used )
+    Target.... PM3 GENERIC
+
+    Client.... Iceman/master/v4.21611-321-gc7b95a94e 2026-05-31 00:48:46
+    Bootrom... Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:41 9cb15bd3b
+    OS........ Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:52 9cb15bd3b

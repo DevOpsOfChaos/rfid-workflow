@@ -1,0 +1,34 @@
+ [ Proxmark3 ]
+
+ [ Client ]
+  Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:48:46 9cb15bd3b
+  Compiler.................. MinGW-w64 16.1.0
+  Platform.................. Windows (64b) / x86_64
+  Readline support.......... present
+  QT GUI support............ present
+  Native BT support......... absent
+  Python script support..... absent
+  Python SWIG support....... absent
+  Lua script support........ present ( 5.4.7 )
+  Lua SWIG support.......... present
+
+ [ Model ]
+  Firmware.................. PM3 GENERIC
+
+ [ ARM ]
+  Bootrom.... Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:41 9cb15bd3b
+  OS......... Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:52 9cb15bd3b
+  Compiler... GCC 13.3.0
+
+ [ FPGA ]
+ fpga_pm3_hf.ncd image 2s30vq100 28-05-2026 22:05:13
+ fpga_pm3_lf.ncd image 2s30vq100 28-05-2026 22:05:13
+ fpga_pm3_felica.ncd image 2s30vq100 28-05-2026 22:05:13
+ fpga_pm3_hf_15.ncd image 2s30vq100 28-05-2026 22:05:13
+
+ [ Hardware ]
+  --= uC: AT91SAM7S512 Rev B
+  --= Embedded Processor: ARM7TDMI
+  --= Internal SRAM size: 64K bytes
+  --= Architecture identifier: AT91SAM7Sxx Series
+  --= Embedded flash memory 512K bytes ( 73% used )

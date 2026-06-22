@@ -1,0 +1,28 @@
+[=] -------- Reminder ----------------------------
+[=] `hw tune` doesn't actively tune your antennas.
+[=] It's only informative.
+[=] Measuring antenna characteristics...
+[-]  9
+
+[=] -------- LF Antenna ----------
+[+] 125.00 kHz ........... 20.21 V
+[+] 134.83 kHz ........... 13.34 V
+[+] 115.38 kHz optimal.... 25.70 V
+[+]
+[+] Approx. Q factor measurement
+[+] Frequency bandwidth... 6.2
+[+] Peak voltage.......... 7.5
+[+] LF antenna............ ok
+
+[=] -------- HF Antenna ----------
+[+] 13.56 MHz............. 36.28 V
+[+]
+[+] Approx. Q factor measurement
+[+] Peak voltage.......... 10.5
+[+] HF antenna ( ok )
+
+[=] -------- LF tuning graph ------------
+[+] Orange line - divisor 95 / 125.00 kHz
+[+] Blue line - divisor   88 / 134.83 kHz
+
+[=] Q factor must be measured without tag on the antenna

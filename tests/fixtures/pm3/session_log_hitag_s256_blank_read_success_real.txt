@@ -1,0 +1,56 @@
+[=] Waiting for Proxmark3 to appear...
+[=] Session log C:\Tools\proxmark3\client\/.proxmark3/logs/log_20260615104940.txt
+[+] loaded `C:\Tools\proxmark3\client\/.proxmark3/preferences.json`
+[+] Using UART port COM16
+[+] Communicating with PM3 over USB-CDC
+
+  [ Proxmark3 ]
+
+    MCU....... AT91SAM7S512 Rev B
+    Memory.... 512 KB ( 73% used )
+    Target.... PM3 GENERIC
+
+    Client.... Iceman/master/v4.21611-321-gc7b95a94e 2026-05-31 00:48:46
+    Bootrom... Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:41 9cb15bd3b
+    OS........ Iceman/master/v4.21611-321-gc7b95a94e-suspect 2026-05-31 00:47:52 9cb15bd3b
+
+[usb] pm3 --> cd <PROJECT_ROOT>
+[!] Unknown command `cd`
+
+[usb] pm3 --> lf hitag hts reader -@
+[=] Press <Enter> to exit
+[+] UID.... 55667788
+[+] UID.... 55667788
+[+] UID.... 55667788
+
+[usb] pm3 --> py -3.14 -m pm3_workflow_gui.cli latest-log-summary --log-dir "C:\Tools\proxmark3\client\.proxmark3\logs"
+[!] Unknown command `py`
+
+[usb] pm3 --> lf hitag hts rdbl -p 0 -c 8
+[=] Access Hitag S in Plain mode
+
+[=] --- Tag Information ---------------------------
+[=]  Memory type...... Hitag S 256
+[=]  Authenticaion.... No
+[=]  TTF coding....... Manchester
+[=]  TTF data rate.... 4 kBit
+[=]  TTF mode......... TTF Mode disabled (= RTF Mode)
+[=]  Config locked.... No
+[=]  Key/PWD locked... No
+
+[=] --- Tag Data ---------------------------
+[=]   # | 00 01 02 03 | ascii | perm | info
+[=] ----+-------------+-------+------+------
+[+]   0 | 55 66 77 88 | Ufw.  | RO   | UID
+[+]   1 | C9 00 00 AA | ....  | RW   | Config
+[+]   2 | 44 45 4D 4F | DEMO  | RW   | Data
+[+]   3 | 54 45 53 54 | TEST  | RW   | Data
+[+]   4 | 00 00 00 00 | ....  | RW   | Data
+[+]   5 | 00 00 00 00 | ....  | RW   | Data
+[+]   6 | 00 00 00 00 | ....  | RW   | Data
+[+]   7 | 52 44 59 21 | RDY!  | RW   | Data
+[=] ----+-------------+-------+------+------
+[=]  RO = Read Only, RW = Read Write
+[=]  OTP = One Time Programmable
+[=]  RO/W = Partially Read Write
+[=] ----------------------------------------
