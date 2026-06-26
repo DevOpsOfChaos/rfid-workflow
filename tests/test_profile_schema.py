@@ -27,28 +27,31 @@ def test_hitag_s256_profile_accepts_known_plain_profile():
     assert profile.can_be_full_profile_template is True
 
 
-def test_hitag_s256_profile_missing_page_2_or_3_is_not_full_profile_capable():
+def test_hitag_s256_profile_missing_page_2_or_3_keeps_managed_template_scope():
     pages = dict(KNOWN_PAGES)
     pages.pop(2)
     profile = HitagS256Profile(uid="A1 B2 C3 D4", pages=pages)
 
     assert profile.is_complete_snapshot is False
-    assert profile.can_be_full_profile_template is False
+    assert profile.can_be_full_profile_template is True
+    assert profile.managed_pages == (1, 3, 4, 5, 6, 7)
+    assert profile.equivalence_pages == (1, 3, 4, 5, 6, 7)
     assert profile.missing_expected_pages == (2,)
 
 
-def test_hitag_s256_profile_missing_page_5_is_not_full_profile_capable():
+def test_hitag_s256_profile_missing_managed_page_is_partial_snapshot_but_valid_template_source():
     pages = dict(KNOWN_PAGES)
     pages.pop(5)
     profile = HitagS256Profile(uid="A1 B2 C3 D4", pages=pages)
 
     assert profile.is_complete_snapshot is False
-    assert profile.can_be_full_profile_template is False
+    assert profile.can_be_full_profile_template is True
     assert profile.missing_expected_pages == (5,)
 
 
-def test_full_profile_template_saves_and_loads_pages_0_to_7(tmp_path):
-    profile = HitagS256Profile(uid="A1 B2 C3 D4", pages=KNOWN_PAGES)
+def test_full_profile_template_saves_and_loads_only_managed_pages(tmp_path):
+    pages = {page: KNOWN_PAGES[page] for page in (0, 1, 4, 5, 6, 7)}
+    profile = HitagS256Profile(uid="A1 B2 C3 D4", pages=pages)
     record = TemplateRecord.from_hitag_s256_profile("Synthetic", "", profile)
 
     path = save_template_record(record, tmp_path)
@@ -56,8 +59,10 @@ def test_full_profile_template_saves_and_loads_pages_0_to_7(tmp_path):
 
     assert loaded.template_scope == "full_profile"
     assert loaded.profile.template_scope == "full_profile"
-    assert set(loaded.profile.pages) == set(range(8))
-    assert loaded.profile.pages[2] == "44 45 4D 4F"
+    assert set(loaded.profile.pages) == {0, 1, 4, 5, 6, 7}
+    assert set(loaded.relevant_pages) == {1, 4, 5, 6, 7}
+    assert 2 not in loaded.profile.pages
+    assert 3 not in loaded.profile.pages
 
 
 def test_legacy_template_without_scope_loads_as_legacy_partial(tmp_path):
@@ -75,6 +80,7 @@ def test_legacy_template_without_scope_loads_as_legacy_partial(tmp_path):
 
     assert loaded.template_scope == "legacy_partial"
     assert loaded.profile.template_scope == "legacy_partial"
+    assert loaded.profile.managed_pages == (1, 2, 3, 4, 5, 6, 7)
 
 
 def test_hitag_s256_profile_rejects_uid_page_mismatch():

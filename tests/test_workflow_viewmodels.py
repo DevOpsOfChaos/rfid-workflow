@@ -334,7 +334,7 @@ def test_write_plan_only_uid_mismatch_is_compatible():
     plan = build_write_plan_view_model(written_blank, original)
 
     assert plan.compatible is True
-    assert "nur UID" in plan.compatibility_message
+    assert plan.compatibility_message == "Vorlage bereit"
     assert any("Nur UID" in line for line in plan.summary_lines)
     assert plan.disabled_actions == ()
 
@@ -354,7 +354,7 @@ def test_write_plan_reports_incompatible_target_chip():
     plan = build_write_plan_view_model(incompatible, original)
 
     assert plan.compatible is False
-    assert any("Zielscan unvollständig" in line for line in plan.summary_lines)
+    assert any("Erforderliche Page ist nicht schreibbar" in line for line in plan.summary_lines)
 
 
 def test_write_plan_allows_individual_config_when_full_target_is_incomplete():
@@ -407,6 +407,92 @@ def test_partial_update_allows_page_1_when_page_2_or_3_is_missing_or_different()
     assert actions[1].enabled is True
     assert 2 not in actions
     assert plan.writable_difference_count == 1
+
+
+def test_managed_template_without_pages_2_and_3_is_valid_and_ignores_target_extras():
+    current_pages = {
+        0: "11 22 33 44",
+        1: "C9 28 00 AA",
+        2: "22 22 22 22",
+        3: "33 33 33 33",
+        4: "A4 10 B4 20",
+        5: "C5 30 D5 40",
+        6: "E6 50 F6 60",
+        7: "00 00 00 00",
+    }
+    template_pages = {page: current_pages[page] for page in (0, 1, 4, 5, 6, 7)}
+    current = HitagS256Profile(uid="11 22 33 44", pages=current_pages, template_scope="full_profile")
+    template = HitagS256Profile(uid="11 22 33 44", pages=template_pages, template_scope="full_profile")
+
+    plan = build_write_plan_view_model(current, template)
+    rows = {row.page: row for row in plan.page_matrix}
+
+    assert plan.compatible is True
+    assert plan.equivalence_status_key == "write.equivalence.verified"
+    assert rows[2].included_in_profile is False
+    assert rows[3].included_in_profile is False
+    assert plan.writable_difference_count == 0
+
+
+def test_managed_template_blocks_when_required_page_is_missing_on_target():
+    template = HitagS256Profile(
+        uid="11 22 33 44",
+        pages={
+            0: "11 22 33 44",
+            1: "C9 28 00 AA",
+            4: "A4 10 B4 20",
+            5: "C5 30 D5 40",
+        },
+        template_scope="full_profile",
+    )
+    current = HitagS256Profile(
+        uid="11 22 33 44",
+        pages={
+            0: "11 22 33 44",
+            1: "C9 28 00 AA",
+            4: "A4 10 B4 20",
+        },
+        template_scope="full_profile",
+    )
+
+    plan = build_write_plan_view_model(current, template)
+    page5 = next(row for row in plan.page_matrix if row.page == 5)
+
+    assert plan.compatible is False
+    assert page5.included_in_profile is True
+    assert page5.present_on_target is False
+    assert plan.equivalence_status_key == "write.equivalence.requiredPageNotWritable"
+
+
+def test_managed_template_plans_writable_difference_without_pages_2_and_3():
+    template = HitagS256Profile(
+        uid="11 22 33 44",
+        pages={
+            0: "11 22 33 44",
+            1: "C9 28 00 AA",
+            4: "A4 10 B4 20",
+            5: "C5 30 D5 40",
+        },
+        template_scope="full_profile",
+    )
+    current = HitagS256Profile(
+        uid="11 22 33 44",
+        pages={
+            0: "11 22 33 44",
+            1: "C9 28 00 AA",
+            4: "00 00 00 00",
+            5: "C5 30 D5 40",
+        },
+        template_scope="full_profile",
+    )
+
+    plan = build_write_plan_view_model(current, template)
+    actions = {action.page: action for action in plan.disabled_actions}
+
+    assert plan.compatible is True
+    assert actions[4].enabled is True
+    assert 2 not in actions
+    assert 3 not in actions
 
 
 def test_full_profile_detects_page_2_difference_and_blocks_full_equivalence_when_not_writable():

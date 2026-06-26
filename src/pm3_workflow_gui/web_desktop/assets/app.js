@@ -63,6 +63,10 @@ const LEGACY_MESSAGE_KEYS = new Map([
   ["Alle Unterschiede uebernommen und verifiziert", "write.allVerified"],
   ["Alle Unterschiede verifiziert", "write.allVerified"],
   ["Keine offenen Unterschiede", "write.noOpenDifferences"],
+  ["Der Transponder entspricht der Vorlage.", "write.matchesTemplate"],
+  ["Vorlage erfolgreich übernommen und geprüft.", "write.templateAppliedVerified"],
+  ["Änderung erfolgreich geprüft.", "write.singleChangeVerified"],
+  ["Die Vorlage kann mit diesem Transponder nicht vollständig übernommen werden.", "write.templateCannotBeFullyApplied"],
 ]);
 
 const fallbackLocales = { en: {} };
@@ -110,6 +114,7 @@ const state = {
   knownActions: {},
   completedActions: {},
   failedRegionId: null,
+  writeShowDetails: false,
   positionOperation: null,
   positionResult: null,
   antennaOperation: null,
@@ -1075,6 +1080,15 @@ function renderPageMatrix() {
   const comparison = state.comparison;
   const rows = comparison?.page_rows || [];
   if (!rows.length) return "";
+  if (!state.writeShowDetails) {
+    return `
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+        <button class="btn btn-ghost btn-sm" type="button" data-write-details>
+          ${escapeHtml(t("write.showTechnicalDetails", "Technische Details anzeigen"))}
+        </button>
+      </div>
+    `;
+  }
   const scopeKey = comparison.profile_scope === "full_profile"
     ? "write.scope.fullProfile"
     : comparison.profile_scope === "legacy_partial"
@@ -1121,7 +1135,10 @@ function renderPageMatrix() {
           <div style="font-size:13px;font-weight:700;color:#F1F5F9;">${escapeHtml(t("write.pageTable.title"))}</div>
           <div style="font-size:11px;color:#94A3B8;margin-top:3px;">${escapeHtml(t(scopeKey))} · ${escapeHtml(t(uidKey))}</div>
         </div>
-        <div style="font-size:11px;color:#CBD5E1;text-align:right;max-width:280px;">${escapeHtml(equivalence || "")}</div>
+        <div style="display:flex;align-items:flex-start;gap:10px;">
+          <div style="font-size:11px;color:#CBD5E1;text-align:right;max-width:280px;">${escapeHtml(equivalence || "")}</div>
+          <button class="btn btn-ghost btn-sm" type="button" data-write-details>${escapeHtml(t("action.hideDetails", "Details ausblenden"))}</button>
+        </div>
       </div>
       <div style="overflow:auto;">
         <table style="width:100%;border-collapse:collapse;font-size:11.5px;min-width:760px;">
@@ -2625,6 +2642,11 @@ document.addEventListener("click", async (event) => {
   const writeActionBtn = target.closest("[data-write-action]");
   if (writeActionBtn) {
     await startWriteAction(writeActionBtn.dataset.writeAction);
+    return;
+  }
+  if (target.closest("[data-write-details]")) {
+    state.writeShowDetails = !state.writeShowDetails;
+    renderWriteView();
     return;
   }
 

@@ -83,6 +83,8 @@ def test_page_table_locale_keys_are_used_and_translated() -> None:
         "write.table.reread",
         "write.scope.fullProfile",
         "write.uidPolicy.mustMatch",
+        "write.showTechnicalDetails",
+        "action.hideDetails",
     )
     dynamic_required = ("write.pageStatus.differentNotWritable",)
 
@@ -93,6 +95,14 @@ def test_page_table_locale_keys_are_used_and_translated() -> None:
     for key in dynamic_required:
         assert key in en
         assert key in de
+
+
+def test_page_table_is_hidden_behind_technical_details_by_default() -> None:
+    script = (ASSETS / "app.js").read_text(encoding="utf-8")
+
+    assert "writeShowDetails: false" in script
+    assert "data-write-details" in script
+    assert "if (!state.writeShowDetails)" in script
 
 
 def test_new_page_table_labels_are_not_hardcoded_in_app_renderer() -> None:

@@ -376,7 +376,8 @@ class WebDesktopBridge:
         progress(f"{label} verifiziert")
         return {
             "ok": True,
-            "message": f"{label} uebernommen",
+            "message": "Änderung erfolgreich geprüft.",
+            "message_key": "write.singleChangeVerified",
             "region_id": region_id,
             "page": page,
             "verification_value": _compact(result.verification_value),
@@ -396,13 +397,25 @@ class WebDesktopBridge:
             raise ValueError("Kein Zielzustand ausgewaehlt.")
 
         plan = build_write_plan_view_model(current.profile, target_profile)
+        if not plan.compatible:
+            raise VerificationFailedError("Die Vorlage kann mit diesem Transponder nicht vollständig übernommen werden.")
         actions = tuple(action for action in plan.disabled_actions if action.enabled and action.page != 0)
         if not actions:
+            full_equivalence = plan.equivalence_status_key in {
+                "write.equivalence.verified",
+                "write.equivalence.verifiedUidReference",
+            }
             return {
                 "ok": True,
-                "message": "Keine offenen Unterschiede",
+                "message": "Der Transponder entspricht der Vorlage." if full_equivalence else "Keine offenen Unterschiede",
+                "message_key": "write.matchesTemplate" if full_equivalence else "write.noOpenDifferences",
                 "completed_regions": [],
                 "comparison": _comparison_payload(plan),
+                "final_verification": {
+                    "full_equivalence": full_equivalence,
+                    "status": plan.equivalence_status,
+                    "status_key": plan.equivalence_status_key,
+                },
             }
 
         check = self._verify_connection(progress)
@@ -484,8 +497,8 @@ class WebDesktopBridge:
         }
         return {
             "ok": True,
-            "message": "Alle Unterschiede uebernommen und verifiziert" if full_equivalence else "Teiländerung erfolgreich - vollständige Gleichwertigkeit nicht bestätigt",
-            "message_key": "write.allVerified" if full_equivalence else "write.partialSuccessNotFull",
+            "message": "Vorlage erfolgreich übernommen und geprüft." if full_equivalence else "Änderung erfolgreich geprüft.",
+            "message_key": "write.templateAppliedVerified" if full_equivalence else "write.singleChangeVerified",
             "completed_regions": completed,
             "comparison": final_comparison,
             "final_verification": {
@@ -792,16 +805,16 @@ def _chip_from_profile(
 def _comparison_payload(plan) -> dict:
     if not plan.compatible and plan.writable_difference_count:
         status = "danger"
-        message = f"Teilweise beschreibbar · {plan.writable_difference_count} freigegebene {_plural(plan.writable_difference_count, 'Aenderung', 'Aenderungen')}"
+        message = "Die Vorlage kann mit diesem Transponder nicht vollständig übernommen werden."
     elif not plan.compatible:
         status = "danger"
-        message = "Nicht kompatibel · keine freigegebenen Schreibbereiche"
+        message = "Die Vorlage kann mit diesem Transponder nicht vollständig übernommen werden."
     elif plan.writable_difference_count:
         status = "success"
-        message = f"Kompatibel · {plan.writable_difference_count} {_plural(plan.writable_difference_count, 'uebernehmbare Aenderung', 'uebernehmbare Aenderungen')}"
+        message = "Anpassung möglich"
     else:
         status = "success"
-        message = "Kompatibel · keine offenen schreibbaren Aenderungen"
+        message = "Der Transponder entspricht der Vorlage."
     return {
         "compatible": plan.compatible,
         "status": status,
@@ -1042,10 +1055,6 @@ def _page_from_region(region_id: str) -> int | None:
 def _normalize_mode(mode: str) -> str:
     normalized = (mode or "auto").strip().lower()
     return normalized if normalized in {"auto", "lf", "hf"} else "auto"
-
-
-def _plural(count: int, singular: str, plural: str) -> str:
-    return singular if count == 1 else plural
 
 
 def _slug(value: str) -> str:

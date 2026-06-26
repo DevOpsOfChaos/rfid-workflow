@@ -166,4 +166,8 @@ def _message_key(message: str) -> str | None:
         "Antennenprüfung läuft ...": "operation.antennaRunning",
         "Position wird mit echten Read-only-Messungen geprueft ...": "operation.positionRunning",
         "Verbindung verloren · Bitte PM3 neu verbinden.": "connection.reconnect",
+        "Der Transponder entspricht der Vorlage.": "write.matchesTemplate",
+        "Vorlage erfolgreich übernommen und geprüft.": "write.templateAppliedVerified",
+        "Änderung erfolgreich geprüft.": "write.singleChangeVerified",
+        "Die Vorlage kann mit diesem Transponder nicht vollständig übernommen werden.": "write.templateCannotBeFullyApplied",
     }.get(message)

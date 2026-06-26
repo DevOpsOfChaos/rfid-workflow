@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from pm3_workflow_gui.pm3.parsers import (
+    HitagSRead,
     parse_hf_search,
     parse_hitag_s_rdbl,
     parse_hw_tune,
@@ -23,6 +24,21 @@ CLIENT_DIR = PROXMARK_ROOT / "client"
 
 def fixture(name: str) -> str:
     return (FIXTURES / name).read_text(encoding="utf-8")
+
+
+def read_with_pages(source: HitagSRead, pages: dict[int, object]) -> HitagSRead:
+    return HitagSRead(
+        source.memory_type,
+        source.authentication,
+        source.ttf_coding,
+        source.ttf_data_rate,
+        source.ttf_mode,
+        source.config_locked,
+        source.key_pwd_locked,
+        pages,
+        access_mode=source.access_mode,
+        errors=source.errors,
+    )
 
 
 def test_hf_no_tag_fixture_is_parsed_as_no_tag_found():
@@ -120,6 +136,45 @@ def test_verification_blank_vs_original_fails_on_config_and_pages_4_to_7():
     assert not result.success
     assert result.status == "failed"
     assert set(result.mismatched_pages) == {1, 4, 5, 6, 7}
+
+
+def test_verification_uses_only_pages_stored_in_template_profile():
+    original = parse_hitag_s_rdbl(fixture("lf_hitag_hts_rdbl_original_pages_0_7.txt"))
+    template_read = read_with_pages(original, {page: original.pages[page] for page in (0, 1, 4, 5, 6, 7)})
+    target_read = read_with_pages(original, {page: original.pages[page] for page in (0, 1, 4, 5, 6, 7)})
+    profile = profile_from_hitag_s_read(template_read)
+
+    result = verify_hitag_s256_profile(target_read, profile)
+
+    assert result.success
+    assert result.missing_pages == ()
+    assert result.mismatched_pages == ()
+
+
+def test_verification_ignores_extra_target_pages_outside_template_profile():
+    original = parse_hitag_s_rdbl(fixture("lf_hitag_hts_rdbl_original_pages_0_7.txt"))
+    template_read = read_with_pages(original, {page: original.pages[page] for page in (0, 1, 4, 5, 6, 7)})
+    target_pages = dict(original.pages)
+    target_pages[2] = type(original.pages[2])(2, "00000000", original.pages[2].permission, original.pages[2].info)
+    target_pages[3] = type(original.pages[3])(3, "FFFFFFFF", original.pages[3].permission, original.pages[3].info)
+    profile = profile_from_hitag_s_read(template_read)
+
+    result = verify_hitag_s256_profile(read_with_pages(original, target_pages), profile)
+
+    assert result.success
+    assert result.mismatched_pages == ()
+
+
+def test_verification_blocks_when_managed_template_page_is_missing_on_target():
+    original = parse_hitag_s_rdbl(fixture("lf_hitag_hts_rdbl_original_pages_0_7.txt"))
+    template_read = read_with_pages(original, {page: original.pages[page] for page in (0, 1, 4, 5, 6, 7)})
+    target_read = read_with_pages(original, {page: original.pages[page] for page in (0, 1, 4, 6, 7)})
+    profile = profile_from_hitag_s_read(template_read)
+
+    result = verify_hitag_s256_profile(target_read, profile)
+
+    assert not result.success
+    assert result.missing_pages == (5,)
 
 
 def test_discovery_service_summary_detects_hitag_s256_plain():

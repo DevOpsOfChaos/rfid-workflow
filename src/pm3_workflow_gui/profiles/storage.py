@@ -66,7 +66,7 @@ class TemplateRecord:
     @classmethod
     def from_hitag_s256_profile(cls, title: str, description: str, profile: HitagS256Profile) -> "TemplateRecord":
         if not profile.can_be_full_profile_template:
-            raise ValueError("Full Hitag S256 templates require pages 0-7.")
+            raise ValueError("Hitag S256 templates require at least one read page besides UID page 0.")
         profile = HitagS256Profile(
             uid=profile.uid,
             pages=profile.pages,

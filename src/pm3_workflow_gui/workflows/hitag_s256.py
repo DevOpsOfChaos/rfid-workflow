@@ -70,9 +70,7 @@ def verify_hitag_s256_profile(target_read: HitagSRead, profile: HitagS256Profile
         for page in pages_to_verify
         if page in target_pages and _compact(profile.pages[page]) != target_pages[page]
     )
-    if profile.template_scope == "full_profile" and (profile.missing_expected_pages or any(page not in target_pages for page in range(8))):
-        status = "failed"
-    elif profile.uid_policy == "must_match" and not uid_matches:
+    if profile.uid_policy == "must_match" and not uid_matches:
         status = "failed"
     elif missing_pages or mismatched_pages:
         status = "failed"

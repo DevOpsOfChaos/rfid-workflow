@@ -467,6 +467,83 @@ def test_write_all_plans_open_hitag_regions_in_order_with_config_last(tmp_path):
     assert comparison["actions"] == []
 
 
+def test_write_all_final_reread_verifies_only_template_managed_pages(tmp_path):
+    current_full = profile_from_fixture("lf_hitag_hts_rdbl_blank_pages_0_7.txt")
+    target_full = profile_from_fixture("lf_hitag_hts_rdbl_written_blank_pages_0_7.txt")
+    current_profile = HitagS256Profile(
+        uid=current_full.uid,
+        pages={page: current_full.pages[page] for page in (0, 1, 4, 5, 6, 7)},
+        template_scope="full_profile",
+        ttf_pages=current_full.ttf_pages,
+        ttf_data_rate=current_full.ttf_data_rate,
+    )
+    target_profile = HitagS256Profile(
+        uid=target_full.uid,
+        pages={page: target_full.pages[page] for page in (0, 1, 4, 5, 6, 7)},
+        template_scope="full_profile",
+        ttf_pages=target_full.ttf_pages,
+        ttf_data_rate=target_full.ttf_data_rate,
+    )
+    page4 = profile_with_updates(current_profile, {4: target_profile.pages[4]}, target_profile)
+    page45 = profile_with_updates(page4, {5: target_profile.pages[5]}, target_profile)
+    page456 = profile_with_updates(page45, {6: target_profile.pages[6]}, target_profile)
+    page4567 = profile_with_updates(page456, {7: target_profile.pages[7]}, target_profile)
+    final = profile_with_updates(page4567, {1: target_profile.pages[1]}, target_profile)
+    service = FakeService(
+        reads=(hitag_result_from_profile(current_profile), hitag_result_from_profile(final)),
+        write_results=(
+            write_result(4, current_profile.pages[4], target_profile.pages[4], page4),
+            write_result(5, current_profile.pages[5], target_profile.pages[5], page45),
+            write_result(6, current_profile.pages[6], target_profile.pages[6], page456),
+            write_result(7, current_profile.pages[7], target_profile.pages[7], page4567),
+            write_result(1, current_profile.pages[1], target_profile.pages[1], final),
+        ),
+    )
+    bridge = WebDesktopBridge(service, template_dir=tmp_path / "templates", backup_dir=tmp_path / "backups")
+    template = TemplateRecord.from_hitag_s256_profile("Target", "", target_profile)
+    save_template_record(template, tmp_path / "templates")
+
+    wait_for_operation(bridge, bridge.start_current_chip_scan()["operation_id"])
+    bridge.set_target_template(template.template_id)
+    operation = wait_for_operation(bridge, bridge.start_write_all()["operation_id"])
+
+    assert operation["state"] == "succeeded"
+    assert operation["message_key"] == "write.templateAppliedVerified"
+    assert operation["result"]["final_verification"]["full_equivalence"] is True
+    assert set(operation["result"]["chip"]["memoryRegions"][index]["id"] for index in range(len(operation["result"]["chip"]["memoryRegions"]))) == {
+        "page_0",
+        "page_1",
+        "page_4",
+        "page_5",
+        "page_6",
+        "page_7",
+    }
+
+
+def test_write_all_blocks_required_unwritable_managed_page_before_any_write(tmp_path):
+    current_profile = profile_from_fixture("lf_hitag_hts_rdbl_original_pages_0_7.txt")
+    target_pages = dict(current_profile.pages)
+    target_pages[2] = "22 22 22 22"
+    target_profile = HitagS256Profile(
+        uid=current_profile.uid,
+        pages=target_pages,
+        template_scope="full_profile",
+        ttf_pages=current_profile.ttf_pages,
+    )
+    service = FakeService(reads=(hitag_result_from_profile(current_profile),))
+    bridge = WebDesktopBridge(service, template_dir=tmp_path / "templates", backup_dir=tmp_path / "backups")
+    template = TemplateRecord.from_hitag_s256_profile("Target", "", target_profile)
+    save_template_record(template, tmp_path / "templates")
+
+    wait_for_operation(bridge, bridge.start_current_chip_scan()["operation_id"])
+    bridge.set_target_template(template.template_id)
+    operation = wait_for_operation(bridge, bridge.start_write_all()["operation_id"])
+
+    assert operation["state"] == "verification_failed"
+    assert operation["message_key"] == "write.templateCannotBeFullyApplied"
+    assert service.write_calls == []
+
+
 def test_write_all_stops_on_verification_failure_and_keeps_successful_steps(tmp_path):
     current_profile = profile_from_fixture("lf_hitag_hts_rdbl_blank_pages_0_7.txt")
     target_profile = profile_from_fixture("lf_hitag_hts_rdbl_written_blank_pages_0_7.txt")

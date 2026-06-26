@@ -535,13 +535,13 @@ def build_write_plan_view_model(current: HitagS256Profile, template: TemplateRec
     compatible = not incompatible_reasons
     equivalence_status, equivalence_status_key = _equivalence_status(current, template_profile, page_matrix, incompatible_reasons)
     if only_uid_mismatch and template_profile.uid_policy != "must_match":
-        compatibility_message = "Kompatibilität: Zielchip ist geeignet; nur UID weicht ab"
+        compatibility_message = "Vorlage bereit"
     elif compatible and changed_pages:
-        compatibility_message = "Kompatibilität: Teiländerungen sind technisch möglich"
+        compatibility_message = "Anpassung möglich"
     elif compatible:
-        compatibility_message = "Vollständige Daten-Gleichwertigkeit verifiziert"
+        compatibility_message = "Der Transponder entspricht der Vorlage."
     else:
-        compatibility_message = equivalence_status
+        compatibility_message = "Die Vorlage kann mit diesem Transponder nicht vollständig übernommen werden."
     summary = list(incompatible_reasons)
     differing_profile_pages = tuple(row.page for row in page_matrix if row.included_in_profile and row.different and row.page != 0)
     if differing_profile_pages:
@@ -926,12 +926,8 @@ def _page_capability_matrix(current: HitagS256Profile, template: HitagS256Profil
 
 
 def _included_in_equivalence_scope(page: int, template: HitagS256Profile) -> bool:
-    if template.template_scope == "full_profile":
-        if page == 0:
-            return template.uid_policy == "must_match"
-        return True
     if page == 0:
-        return False
+        return template.uid_policy == "must_match"
     return page in template.pages
 
 
@@ -987,11 +983,7 @@ def _incompatible_reasons(
     reasons: list[str] = []
     if current.mode != template.mode:
         reasons.append("falscher Chiptyp oder Modus")
-    if template.template_scope == "full_profile":
-        if template.missing_expected_pages:
-            reasons.append("Vorlage unvollständig")
-        if current.missing_expected_pages:
-            reasons.append("Zielscan unvollständig")
+    if _is_managed_template_scope(template.template_scope):
         if template.uid_policy == "must_match" and current.uid != template.uid:
             reasons.append("UID stimmt nicht mit der Vorlage überein")
         blocked_required = [
@@ -1000,7 +992,7 @@ def _incompatible_reasons(
             if row.included_in_profile
             and row.page != 0
             and not row.equal
-            and (not row.write_supported or not row.present_in_template or not row.present_on_target)
+            and not row.write_allowed_for_this_plan
         ]
         if blocked_required:
             reasons.append("Erforderliche Page ist nicht schreibbar")
@@ -1013,14 +1005,10 @@ def _equivalence_status(
     page_matrix: tuple[PageCapabilityViewModel, ...],
     incompatible_reasons: tuple[str, ...],
 ) -> tuple[str, str]:
-    if template.template_scope != "full_profile":
+    if not _is_managed_template_scope(template.template_scope):
         if any(row.different for row in page_matrix if row.included_in_profile):
             return "Teiländerung geplant - vollständige Gleichwertigkeit nicht verifiziert", "write.equivalence.partialPending"
         return "Teiländerung ohne vollständige Gleichwertigkeitsbehauptung", "write.equivalence.partial"
-    if "Vorlage unvollständig" in incompatible_reasons:
-        return "Vorlage unvollständig", "write.equivalence.templateIncomplete"
-    if "Zielscan unvollständig" in incompatible_reasons:
-        return "Zielscan unvollständig", "write.equivalence.targetIncomplete"
     if "UID stimmt nicht mit der Vorlage überein" in incompatible_reasons:
         return "UID stimmt nicht mit der Vorlage überein", "write.equivalence.uidMismatch"
     if "Erforderliche Page ist nicht schreibbar" in incompatible_reasons:
@@ -1028,8 +1016,12 @@ def _equivalence_status(
     if any(row.different for row in page_matrix if row.included_in_profile):
         return "Datenprofil weicht ab", "write.equivalence.profileDiffers"
     if current.uid != template.uid and template.uid_policy == "reference_only":
-        return "Vollständige Daten-Gleichwertigkeit verifiziert; UID nur Referenz", "write.equivalence.verifiedUidReference"
-    return "Vollständige Daten-Gleichwertigkeit verifiziert", "write.equivalence.verified"
+        return "Transponder entspricht der Vorlage; UID nur Referenz", "write.equivalence.verifiedUidReference"
+    return "Der Transponder entspricht der Vorlage.", "write.equivalence.verified"
+
+
+def _is_managed_template_scope(scope: str) -> bool:
+    return scope in {"full_profile", "legacy_partial"}
 
 
 def _write_action_available(

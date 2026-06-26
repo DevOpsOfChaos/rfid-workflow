@@ -53,6 +53,10 @@ class HitagS256Profile:
         return tuple(page for page in self.ttf_pages if page in self.pages and page not in {0, 1})
 
     @property
+    def managed_pages(self) -> tuple[int, ...]:
+        return tuple(page for page in sorted(self.pages) if page != 0)
+
+    @property
     def missing_expected_pages(self) -> tuple[int, ...]:
         return tuple(page for page in HITAG_S256_EXPECTED_PAGES if page not in self.pages)
 
@@ -62,16 +66,14 @@ class HitagS256Profile:
 
     @property
     def can_be_full_profile_template(self) -> bool:
-        return self.is_complete_snapshot
+        return bool(self.managed_pages)
 
     @property
     def equivalence_pages(self) -> tuple[int, ...]:
-        if self.template_scope == "full_profile":
-            pages = [page for page in HITAG_S256_EXPECTED_PAGES if page != 0]
-            if self.uid_policy == "must_match":
-                pages.insert(0, 0)
-            return tuple(pages)
-        return tuple(page for page in sorted(self.pages) if page != 0)
+        pages = list(self.managed_pages)
+        if self.uid_policy == "must_match":
+            pages.insert(0, 0)
+        return tuple(pages)
 
     def config_page(self) -> str | None:
         return self.pages.get(1)
@@ -87,7 +89,7 @@ class HitagS256Profile:
             uid=read.uid,
             pages=pages,
             mode="plain_no_auth",
-            template_scope="full_profile" if _is_complete_hitag_s256_read(read) else "partial_update",
+            template_scope="full_profile",
             uid_policy="reference_only",
             ttf_pages=_ttf_pages_from_mode(read.ttf_mode),
             ttf_data_rate=read.ttf_data_rate or "unknown",
@@ -101,7 +103,3 @@ def _ttf_pages_from_mode(ttf_mode: str | None) -> tuple[int, ...]:
     if not ttf_mode:
         return ()
     return tuple(int(page) for page in re.findall(r"Page\s+(\d+)", ttf_mode))
-
-
-def _is_complete_hitag_s256_read(read: HitagSRead) -> bool:
-    return all(page in read.pages for page in HITAG_S256_EXPECTED_PAGES)
