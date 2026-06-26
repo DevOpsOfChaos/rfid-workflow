@@ -73,10 +73,10 @@ class Pm3GraphViewer:
     def launch(self, port: str) -> Pm3GraphLaunch:
         if not self.workflow.enabled:
             reason = self.workflow.failure_reason or "Kein lokal bestätigter PM3-/Qt-Diagrammablauf."
-            raise RuntimeError(f"Frequenzdiagramm deaktiviert: {reason}")
+            raise RuntimeError(f"Frequenzdiagramm technisch nicht verfügbar: {reason}")
         command_sequence = self.workflow.command_sequence
         if command_sequence not in ALLOWED_GRAPH_COMMANDS:
-            raise ValueError(f"Refusing PM3 graph command outside allowlist: {command_sequence}")
+            raise ValueError(f"Kein registrierter PM3-Diagrammablauf für: {command_sequence}")
         command = [str(self.proxmark_exe), port, "-c", command_sequence]
         process = subprocess.Popen(
             command,

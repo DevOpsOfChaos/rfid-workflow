@@ -46,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
 
     live_scan = subparsers.add_parser(
         "live-scan",
-        help="Run a safe read-only live PM3 scan using the pm3 wrapper auto-port detection.",
+        help="Run a read-only live PM3 scan using the pm3 wrapper auto-port detection.",
     )
     live_scan.add_argument("--debug", action="store_true", help="Print per-command live PM3 launch diagnostics and raw output snippets.")
 
@@ -61,8 +61,8 @@ def main(argv: list[str] | None = None) -> int:
         return _print_capture_summary("PM3 latest log summary", Pm3LogCaptureProvider(latest_log_file(args.log_dir)))
     if args.command == "live-scan":
         print("Live read-only commands: " + ", ".join(SAFE_LIVE_COMMANDS))
-        print("Gated Hitag read-only commands: " + ", ".join(SAFE_HITAG_READ_COMMANDS))
-        print("Gated Indala read-only commands: " + ", ".join(SAFE_INDALA_READ_COMMANDS))
+        print("Registered Hitag read commands: " + ", ".join(SAFE_HITAG_READ_COMMANDS))
+        print("Registered Indala read commands: " + ", ".join(SAFE_INDALA_READ_COMMANDS))
         service = LivePm3ReadonlyService()
         exit_code = _print_capture_summary("PM3 live scan summary", service, debug=args.debug, include_hitag_debug=False)
         if args.debug:
@@ -159,7 +159,7 @@ def _print_hitag_live_debug(service: LivePm3ReadonlyService, result=None) -> Non
             if page in {4, 5, 6, 7}:
                 print(f"- block_{page}: {result.hitag_read.pages[page].data}")
     if result.raw_results:
-        print("- gated_commands:")
+        print("- registered_read_commands:")
         for command_result in result.raw_results:
             print(f"  - {command_result.command}: exit={command_result.returncode}, timeout={'yes' if command_result.timed_out else 'no'}")
 
@@ -177,7 +177,7 @@ def _print_indala_live_debug(result) -> None:
         if result.indala_read.false_positive_note:
             print(f"- note: {result.indala_read.false_positive_note}")
     if result.raw_results:
-        print("- gated_commands:")
+        print("- registered_read_commands:")
         for command_result in result.raw_results:
             print(f"  - {command_result.command}: exit={command_result.returncode}, timeout={'yes' if command_result.timed_out else 'no'}")
 

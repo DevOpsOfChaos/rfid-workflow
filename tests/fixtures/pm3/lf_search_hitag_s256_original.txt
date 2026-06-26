@@ -8,7 +8,7 @@
 [+] Valid Indala ID found!
 
 [=] Searching for auth LF and special cases...
-[+] UID....... FAF99179
+[+] UID....... A1B2C3D4
 [+] TYPE...... PCF 7952
 [+] Chipset... Hitag 1/S / 82xx
 [?] Hint: Try `lf hitag hts` commands

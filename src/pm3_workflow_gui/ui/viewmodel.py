@@ -20,8 +20,15 @@ from pm3_workflow_gui.services.discovery_facade import (
 )
 from pm3_workflow_gui.services.live_pm3_readonly import LivePm3ReadonlyService, PositioningCheckResult
 from pm3_workflow_gui.services.pm3_graph_viewer import LOCAL_GRAPH_WORKFLOW
-from pm3_workflow_gui.technologies.base import DetectedTechnology, TechnologyCapabilities
-from pm3_workflow_gui.technologies.registry import adapter_for, detect_technology
+from pm3_workflow_gui.technologies.base import (
+    CAPABILITY_LABELS,
+    CAPABILITY_STATE_LABELS,
+    CapabilityAction,
+    CapabilityState,
+    DetectedTechnology,
+    TechnologyCapabilities,
+)
+from pm3_workflow_gui.technologies.registry import adapter_for, detect_technology, registered_adapters
 from pm3_workflow_gui.workflows.hitag_s256 import profile_from_hitag_s_read
 
 Severity = Literal["ok", "warning", "error", "unknown"]
@@ -146,7 +153,7 @@ class ComparisonRowViewModel:
 @dataclass(frozen=True)
 class DisabledWriteActionViewModel:
     label: str
-    reason: str = "Deaktiviert in dieser Version"
+    reason: str = "Noch nicht implementiert"
     page: int | None = None
     old_value: str = ""
     new_value: str = ""
@@ -171,6 +178,38 @@ class WriteActivationViewModel:
     reason: str
 
 
+@dataclass(frozen=True)
+class CapabilityCellViewModel:
+    action: CapabilityAction
+    label: str
+    state: CapabilityState
+    state_label: str
+    explanation: str = ""
+
+
+@dataclass(frozen=True)
+class CapabilityMatrixRowViewModel:
+    technology_id: str
+    technology: str
+    detect: CapabilityCellViewModel
+    identity: CapabilityCellViewModel
+    detail_read: CapabilityCellViewModel
+    template: CapabilityCellViewModel
+    write: CapabilityCellViewModel
+    analysis: CapabilityCellViewModel
+
+
+@dataclass(frozen=True)
+class ExpertToolViewModel:
+    technology_id: str
+    action: CapabilityAction
+    label: str
+    state: CapabilityState
+    state_label: str
+    explanation: str
+    parameter_hint: str = ""
+
+
 def demo_sources(repo_root: Path | None = None) -> tuple[DemoSource, ...]:
     root = repo_root or _repo_root()
     scenarios = root / "tests" / "fixtures" / "scenarios"
@@ -182,6 +221,47 @@ def demo_sources(repo_root: Path | None = None) -> tuple[DemoSource, ...]:
         DemoSource("Help-only", "log", pm3 / "session_log_help_only_real.txt"),
         DemoSource("Lost device", "log", pm3 / "session_log_device_lost_after_failed_discovery.txt"),
         DemoSource("Success blank read", "log", pm3 / "session_log_hitag_s256_blank_read_success_real.txt"),
+    )
+
+
+def normal_navigation_items() -> tuple[str, ...]:
+    return ("Vorlage", "Schreiben", "Analyse")
+
+
+def expert_navigation_items() -> tuple[str, ...]:
+    return ("Technologien", "Werkzeuge", "Vorlagen & Dumps", "Analyse", "Protokoll")
+
+
+def capability_matrix_view_model() -> tuple[CapabilityMatrixRowViewModel, ...]:
+    return tuple(
+        CapabilityMatrixRowViewModel(
+            technology_id=adapter.technology_id,
+            technology=adapter.display_name,
+            detect=_capability_cell(adapter.capabilities, "detect"),
+            identity=_capability_cell(adapter.capabilities, "read_identity"),
+            detail_read=_capability_cell(adapter.capabilities, "read_memory"),
+            template=_capability_cell(adapter.capabilities, "create_template"),
+            write=_capability_cell(adapter.capabilities, "write_memory"),
+            analysis=_capability_cell(adapter.capabilities, "analyse_signal"),
+        )
+        for adapter in registered_adapters()
+    )
+
+
+def expert_tools_view_model(technology_id: str | None = None) -> tuple[ExpertToolViewModel, ...]:
+    adapters = registered_adapters()
+    selected = next((adapter for adapter in adapters if adapter.technology_id == technology_id), adapters[0])
+    return tuple(
+        ExpertToolViewModel(
+            technology_id=selected.technology_id,
+            action=definition.action,
+            label=_tool_label(definition.action),
+            state=definition.state,
+            state_label=definition.state_label,
+            explanation=definition.explanation or definition.state_label,
+            parameter_hint=_parameter_hint(definition.action),
+        )
+        for definition in selected.capabilities.registered_actions()
     )
 
 
@@ -446,14 +526,15 @@ def build_write_plan_view_model(current: HitagS256Profile, template: TemplateRec
     disabled_actions = tuple(
         DisabledWriteActionViewModel(
             "Konfiguration schreiben" if page == 1 else f"Block {page} schreiben",
-            "" if compatible else "Zielchip nicht kompatibel",
+            _write_action_block_reason(page, current, template_profile),
             page,
             _compact_display(current.pages.get(page)),
             _compact_display(template_profile.pages.get(page)),
-            compatible and page in template_profile.pages and page in current.pages and page != 0,
+            _write_action_available(page, current, template_profile),
         )
         for page in plan_pages
     )
+    writable_difference_count = sum(1 for action in disabled_actions if action.enabled)
     return WritePlanViewModel(
         compatible,
         compatibility_message,
@@ -462,7 +543,7 @@ def build_write_plan_view_model(current: HitagS256Profile, template: TemplateRec
         plan_steps,
         disabled_actions,
         len(changed_pages) + (1 if current.uid != template_profile.uid else 0),
-        len(plan_pages) if compatible else 0,
+        writable_difference_count,
     )
 
 
@@ -478,21 +559,22 @@ def write_activation_view_model(
         return WriteActivationViewModel(False, "Bitte zuerst einen Zielchip scannen.")
     if plan is None:
         return WriteActivationViewModel(False, "Vergleich noch nicht erstellt.")
-    if not plan.compatible:
-        return WriteActivationViewModel(False, "Zielchip nicht kompatibel.")
     if plan.writable_difference_count == 0:
         return WriteActivationViewModel(False, "Keine schreibbaren Unterschiede vorhanden.")
     if not authorized:
-        return WriteActivationViewModel(False, "Bitte Berechtigung bestätigen, um Schreibaktionen freizuschalten.")
-    return WriteActivationViewModel(True, "Schreibaktionen freigeschaltet.")
+        return WriteActivationViewModel(False, "Schreibmodus aktivieren.")
+    return WriteActivationViewModel(True, "Schreibmodus aktiv. Änderungen werden danach verifiziert.")
 
 
 def unavailable_write_plan_view_model(chip: ChipReadViewModel | None = None) -> WritePlanViewModel:
     technology_name = chip.technology.technology_name if chip and chip.technology else "Dieser Chiptyp"
+    capabilities = chip.capabilities if chip and chip.capabilities else adapter_for(chip.technology if chip else None).capabilities
+    write_state = capabilities.definition_for("write_memory")
+    reason = write_state.explanation or write_state.state_label
     return WritePlanViewModel(
         compatible=False,
-        compatibility_message=f"Schreiben für diesen Chiptyp ist noch nicht freigeschaltet. Erkannt: {technology_name}.",
-        summary_lines=("Kein Schreibplan verfügbar",),
+        compatibility_message=f"Schreiben für {technology_name}: {reason}",
+        summary_lines=("Kein technisch verfügbarer Schreibplan für diesen konkreten Chip.",),
         rows=(),
         plan_steps=(),
         disabled_actions=(),
@@ -752,6 +834,74 @@ def _incompatible_reasons(current: HitagS256Profile, template: HitagS256Profile)
     if missing_pages:
         reasons.append("falscher Speicherumfang")
     return tuple(reasons)
+
+
+def _write_action_available(page: int, current: HitagS256Profile, template: HitagS256Profile) -> bool:
+    return (
+        page != 0
+        and current.mode == template.mode
+        and page in current.pages
+        and page in template.pages
+    )
+
+
+def _write_action_block_reason(page: int, current: HitagS256Profile, template: HitagS256Profile) -> str:
+    if _write_action_available(page, current, template):
+        return ""
+    if page == 0:
+        return "UID ist nicht schreibbar"
+    if current.mode != template.mode:
+        return "falscher Chiptyp oder Modus"
+    if page not in current.pages:
+        return "Bereich wurde am aktuellen Chip nicht gelesen"
+    if page not in template.pages:
+        return "Zielwert fehlt"
+    return "Bereich nicht freigegeben"
+
+
+def _capability_cell(capabilities: TechnologyCapabilities, action: CapabilityAction) -> CapabilityCellViewModel:
+    definition = capabilities.definition_for(action)
+    return CapabilityCellViewModel(
+        action=action,
+        label=CAPABILITY_LABELS[action],
+        state=definition.state,
+        state_label=CAPABILITY_STATE_LABELS[definition.state],
+        explanation=definition.explanation,
+    )
+
+
+def _tool_label(action: CapabilityAction) -> str:
+    return {
+        "detect": "Chip erkennen",
+        "read_identity": "UID / Basisdaten lesen",
+        "read_public_details": "Öffentliche Daten lesen",
+        "read_memory": "Details lesen",
+        "create_template": "Vorlage erstellen",
+        "compare_template": "Vorlage vergleichen",
+        "write_memory": "Speicher schreiben",
+        "restore_memory": "Speicher wiederherstellen",
+        "simulate": "Simulation vorbereiten",
+        "emulate": "Emulation vorbereiten",
+        "analyse_signal": "Signal analysieren",
+        "open_graph": "Frequenzdiagramm öffnen",
+    }[action]
+
+
+def _parameter_hint(action: CapabilityAction) -> str:
+    return {
+        "detect": "Frequenz: Auto / LF / HF",
+        "read_identity": "Read-Modus: öffentlich",
+        "read_public_details": "Detailtiefe: öffentlich lesbar",
+        "read_memory": "Bereich, bekannte Zugangsdaten falls nötig",
+        "create_template": "Name, Beschreibung, Validierungsscan",
+        "compare_template": "Vorlage oder Dump auswählen",
+        "write_memory": "Speicherbereich, Zielwert, Vorher-/Nachher-Read",
+        "restore_memory": "Backup/Dump auswählen, Vorher-Read erzwingen",
+        "simulate": "Vorlage/Dump auswählen",
+        "emulate": "Vorlage/Dump auswählen",
+        "analyse_signal": "Antenne, Messdauer, Frequenzbereich",
+        "open_graph": "LF/HF-Diagramm",
+    }[action]
 
 
 def _source_path(source: str) -> str | None:

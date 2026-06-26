@@ -1,6 +1,14 @@
 const appView = document.getElementById("appView");
 const statusText = document.getElementById("statusText");
-const deviceStatus = document.getElementById("deviceStatus");
+const statusDot  = document.getElementById("statusDot");
+const statusPort = document.getElementById("statusPort");
+const statusConn = document.getElementById("statusConn");
+const deviceDot  = document.getElementById("deviceDot");
+const devicePort = document.getElementById("devicePort");
+const deviceWifi = document.getElementById("deviceWifi");
+const mainTitle  = document.getElementById("mainTitle");
+const mainSub    = document.getElementById("mainSub");
+const headerActions = document.getElementById("headerActions");
 const modalRoot = document.getElementById("modalRoot");
 const toastRoot = document.getElementById("toastRoot");
 const settingsPanel = document.querySelector("[data-settings-panel]");
@@ -106,6 +114,7 @@ const state = {
   positionResult: null,
   antennaOperation: null,
   antennaResult: null,
+  analysisShowDetails: false,
   activePopover: null,
   activeModal: null,
 };
@@ -209,6 +218,10 @@ function anyWriteBusy() {
   return isOperationBusy(state.autoWriteOperation) || Object.values(state.writeOperations).some(isOperationBusy);
 }
 
+function enabledWriteActions() {
+  return (state.comparison?.actions || []).filter((action) => action.enabled);
+}
+
 function neutralStatusMessage() {
   if (!state.bridgeReady) return t("app.ready", "Ready");
   if (state.connection.status === "lost") return t("connection.lost", "Connection lost");
@@ -263,26 +276,48 @@ function resetStatusForView() {
 
 function updateConnectionStatus() {
   const connection = state.connection;
-  deviceStatus.classList.toggle("is-checking", connection.status === "checking");
-  deviceStatus.classList.toggle("is-offline", !connection.connected && connection.status !== "checking");
-  deviceStatus.classList.toggle("is-lost", connection.status === "lost");
-  const label = connection.connected
-    ? `${t("connection.found", "Proxmark3 found")} · ${connection.port || "auto"} · ${connection.target || "PM3"}`
-    : connection.status === "lost"
-      ? t("connection.lost", "Connection lost")
-      : connection.status === "checking"
-        ? t("connection.checking", "Checking Proxmark3 connection ...")
-        : t("connection.noDevice", "No compatible device found");
-  if (deviceStatus.dataset.label !== label) {
-    deviceStatus.dataset.label = label;
-    deviceStatus.innerHTML = `<span class="status-dot" aria-hidden="true"></span>${escapeHtml(label)}`;
+  const connected = connection.connected;
+  const checking  = connection.status === "checking";
+  const lost      = connection.status === "lost";
+
+  // Sidebar device card
+  if (deviceDot) {
+    deviceDot.className = "device-dot" + (connected ? " is-ok" : lost ? " is-err" : "");
   }
+  if (devicePort) {
+    devicePort.textContent = connected
+      ? `${connection.port || "auto"} · ${connection.target || "PM3"}`
+      : checking ? t("connection.checking", "Verbinde…")
+      : lost ? t("connection.lost", "Verbindung verloren")
+      : t("connection.noDevice", "Kein Gerät");
+  }
+  if (deviceWifi) {
+    deviceWifi.hidden = !connected;
+  }
+
+  // Status bar
+  if (statusDot) {
+    statusDot.className = "status-dot" + (connected ? " is-ok" : lost ? " is-err" : "");
+  }
+  if (statusConn) {
+    statusConn.textContent = connected ? "PM3 verbunden" : "";
+  }
+  if (statusPort) {
+    statusPort.textContent = connected ? (connection.port || "") : "";
+  }
+
+  // Template counter badge
+  const badge = document.querySelector("[data-template-count]");
+  if (badge) badge.textContent = (state.templates || []).length;
 }
 
 function updateNavigation() {
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.view === state.activeView);
   });
+  // Green dot on Lesen tab when a scan result is loaded
+  const readDot = document.querySelector("[data-read-dot]");
+  if (readDot) readDot.hidden = !state.lastScan?.chip;
 }
 
 function readSurface() {
@@ -295,15 +330,32 @@ function readSurface() {
 function screenKey() {
   if (!state.bridgeReady) return "bridge-missing";
   if (STARTUP_FLOW_STATES.has(state.startupFlow)) return `startup:${state.startupFlow}`;
-  if (state.activeView === "overview") return "overview";
+  if (state.activeView === "overview") return `read:${readSurface()}`;
   if (state.activeView === "read") return `read:${readSurface()}`;
   return state.activeView;
+}
+
+const SCREEN_HEADERS = {
+  "read:start":    ["Lesen",      "Chip auf den Scanner legen"],
+  "read:scanning": ["Lesen",      ""],
+  "read:unstable": ["Lesen",      ""],
+  "read:result":   ["Lesen",      ""],
+  "write":         ["Schreiben",  ""],
+  "analysis":      ["Selbsttest", "Diagnose"],
+  "templates":     ["Vorlagen",   "Gespeicherte Chip-Konfigurationen"],
+  "backups":       ["Backups",    "Automatisch gesicherte Chip-Zustände"],
+};
+function updateHeader(key) {
+  const [title, sub] = SCREEN_HEADERS[key] || ["PM3 Studio", ""];
+  if (mainTitle) mainTitle.textContent = title;
+  if (mainSub)   mainSub.textContent   = sub;
 }
 
 function render() {
   updateConnectionStatus();
   updateNavigation();
   const nextKey = screenKey();
+  updateHeader(nextKey);
   if (nextKey !== renderedScreenKey) {
     appView.innerHTML = renderScreen(nextKey);
     renderedScreenKey = nextKey;
@@ -319,7 +371,6 @@ function renderScreen(key) {
   if (key === "startup:antenna-running") return renderStartupAntennaRunning();
   if (key === "startup:antenna-result") return renderStartupAntennaResult();
   if (key === "startup:antenna-error") return renderStartupAntennaError();
-  if (key === "overview") return renderOverview();
   if (key === "read:start") return renderReadStart();
   if (key === "read:scanning") return renderReadScanning();
   if (key === "read:unstable") return renderReadUnstable();
@@ -332,7 +383,6 @@ function renderScreen(key) {
 }
 
 function patchScreen(key) {
-  if (key === "overview") patchOverview();
   if (key === "read:start") patchReadStart();
   if (key === "read:scanning") patchReadScanning();
   if (key === "read:result") patchReadResult();
@@ -350,167 +400,140 @@ function replaceHtml(selector, html) {
   }
 }
 
-function renderBridgeMissing() {
+// Global handler for inline onclick="setReadMode(...)" in renderReadStart freq tabs
+function setReadMode(m) {
+  state.readMode = m;
+  const tabsEl = appView.querySelector("[data-read-mode-tabs]");
+  if (tabsEl) {
+    tabsEl.innerHTML = ["auto","lf","hf"].map((mode) => `
+      <div onclick="setReadMode('${mode}')" style="padding:4px 11px;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;
+        background:${state.readMode===mode?"rgba(59,130,246,.2)":"transparent"};
+        color:${state.readMode===mode?"#3B82F6":"#4A6080"};">${mode.toUpperCase()}</div>
+    `).join("");
+  }
+}
+
+const PM3_READER_SVG = `<svg width="260" height="165" viewBox="0 0 300 190" fill="none">
+  <rect width="300" height="190" rx="14" fill="#0E1D34" stroke="#2A4070" stroke-width="1.5"/>
+  <rect x="6" y="6" width="288" height="178" rx="10" fill="#091524" stroke="#1A3050" stroke-width="1"/>
+  <rect x="18" y="18" width="264" height="154" rx="8" fill="none" stroke="#243D60" stroke-width="1.8"/>
+  <circle cx="222" cy="95" r="52" fill="#070E1A" stroke="#1A3050" stroke-width="1.5"/>
+  <g transform="translate(208,83)" fill="none" stroke="#3B82F6" stroke-linecap="round">
+    <circle cx="4" cy="12" r="2.5" fill="#3B82F6" stroke="none" style="animation:nfcPulse 2.5s ease-in-out infinite"/>
+    <path d="M10 6 A8.5 8.5 0 0 1 10 18" stroke-width="2" style="animation:nfcPulse 2.5s ease-in-out infinite;animation-delay:.35s"/>
+    <path d="M15 3 A13 13 0 0 1 15 21" stroke-width="1.7" opacity=".5" style="animation:nfcPulse 2.5s ease-in-out infinite;animation-delay:.7s"/>
+    <path d="M20 0 A17.5 17.5 0 0 1 20 24" stroke-width="1.4" opacity=".35" style="animation:nfcPulse 2.5s ease-in-out infinite;animation-delay:1.05s"/>
+  </g>
+  <circle cx="268" cy="20" r="3.5" fill="#3B82F6" opacity=".5" style="animation:ledBlink 2.5s ease-in-out infinite;color:#3B82F6"/>
+  <circle cx="280" cy="20" r="3.5" fill="#1D4ED8" opacity=".5" style="animation:ledBlink 2.5s ease-in-out infinite;animation-delay:.5s;color:#1D4ED8"/>
+  <text x="22" y="175" font-family="monospace" font-size="7.5" fill="#2A4070" letter-spacing="1.8">LF · 125 kHz</text>
+  <text x="190" y="168" font-family="monospace" font-size="7" fill="#1E3050" letter-spacing="1.5">HF · 13.56 MHz</text>
+</svg>`;
+
+const CHIP_SVG = (opts = {}) => `<svg width="${opts.size||76}" height="${opts.size||76}" viewBox="0 0 100 100" fill="none">
+  <defs>
+    <radialGradient id="cg1-${opts.id||'0'}" cx="50%" cy="38%" r="62%"><stop offset="0%" stop-color="#1C3260"/><stop offset="100%" stop-color="#09101E"/></radialGradient>
+    <radialGradient id="cg2-${opts.id||'0'}" cx="45%" cy="35%" r="65%"><stop offset="0%" stop-color="#D4AC2A"/><stop offset="100%" stop-color="#7A5800"/></radialGradient>
+  </defs>
+  <circle cx="50" cy="50" r="48" fill="url(#cg1-${opts.id||'0'})" stroke="${opts.stroke||'#2A4878'}" stroke-width="2"/>
+  <circle cx="50" cy="50" r="43" fill="none" stroke="#223860" stroke-width="1.3"/>
+  <circle cx="50" cy="50" r="37" fill="none" stroke="#1C3050" stroke-width="1.2"/>
+  <circle cx="50" cy="50" r="31" fill="none" stroke="#162840" stroke-width="1.1"/>
+  <circle cx="50" cy="50" r="13" fill="#081220" stroke="${opts.stroke||'#2A4878'}" stroke-width="1"/>
+  <circle cx="50" cy="50" r="8.5" fill="url(#cg2-${opts.id||'0'})"/>
+  <circle cx="50" cy="50" r="4.5" fill="#4A3600"/>
+</svg>`;
+
+function renderDarkStartup({ icon, title, sub, actions = "" }) {
   return `
-    <section class="screen">
-      <div class="empty-start">
-        <div class="scan-card">
-          <div class="scan-icon" aria-hidden="true"></div>
-          <h1>${escapeHtml(t("bridgeMissing.title", "Desktop bridge unavailable"))}</h1>
-          <p>${escapeHtml(t("bridgeMissing.body", "Start this interface in the pywebview window. Without the Python bridge no PM3 states are shown."))}</p>
-        </div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center;padding:28px;">
+      ${icon}
+      <div>
+        <div style="font-size:21px;font-weight:700;color:#F1F5F9;margin-bottom:8px;">${title}</div>
+        ${sub ? `<div style="font-size:13.5px;color:#4A6080;line-height:1.6;max-width:360px;margin:0 auto;">${sub}</div>` : ""}
       </div>
-    </section>
-  `;
+      ${actions ? `<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">${actions}</div>` : ""}
+    </div>`;
+}
+
+function darkBtn(label, attrs, style = "primary") {
+  const styles = {
+    primary:   "background:rgba(59,130,246,.14);border:1px solid rgba(59,130,246,.32);color:#3B82F6;",
+    secondary: "background:#111D30;border:1px solid #1E3050;color:#4A6080;",
+    ok:        "background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#22C55E;",
+  };
+  return `<button type="button" ${attrs} style="padding:9px 22px;border-radius:9px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${styles[style]||styles.primary}">${label}</button>`;
+}
+
+function renderBridgeMissing() {
+  return renderDarkStartup({
+    icon: `<div style="width:60px;height:60px;border-radius:50%;background:rgba(239,68,68,.1);border:2px solid rgba(239,68,68,.3);display:flex;align-items:center;justify-content:center;font-size:26px;">⚠</div>`,
+    title: escapeHtml(t("bridgeMissing.title", "Desktop bridge unavailable")),
+    sub: escapeHtml(t("bridgeMissing.body", "Start in the pywebview window. Without the Python bridge no PM3 states are shown.")),
+  });
 }
 
 function renderLanguageChoice() {
-  return `
-    <section class="screen startup-screen" aria-labelledby="languageTitle">
-      <div class="startup-card startup-card-small">
-        <h1 id="languageTitle">${escapeHtml(t("language.title", "Choose your language"))}</h1>
-        <div class="language-actions">
-          <button class="button" type="button" data-choose-language="de">${escapeHtml(t("language.de", "Deutsch"))}</button>
-          <button class="button button-secondary" type="button" data-choose-language="en">${escapeHtml(t("language.en", "English"))}</button>
-        </div>
-      </div>
-    </section>
-  `;
+  return renderDarkStartup({
+    icon: `<div style="font-size:40px;">🌐</div>`,
+    title: escapeHtml(t("language.title", "Sprache wählen")),
+    actions: darkBtn(t("language.de","Deutsch"), `data-choose-language="de"`, "primary")
+           + darkBtn(t("language.en","English"),  `data-choose-language="en"`, "secondary"),
+  });
 }
 
 function renderStartupChecking() {
-  return `
-    <section class="screen startup-screen" aria-labelledby="startupCheckTitle">
-      <div class="startup-card">
-        <div class="startup-spinner" aria-hidden="true"></div>
-        <h1 id="startupCheckTitle">${escapeHtml(t("connection.checking", "Checking Proxmark3 connection ..."))}</h1>
-        <p>${escapeHtml(state.connection.message || "")}</p>
-      </div>
-    </section>
-  `;
+  return renderDarkStartup({
+    icon: `<div class="spinner"></div>`,
+    title: escapeHtml(t("connection.checking", "Proxmark3 wird gesucht …")),
+    sub: escapeHtml(state.connection.message || ""),
+  });
 }
 
 function renderStartupAntennaReady() {
-  return `
-    <section class="screen startup-screen" aria-labelledby="startupAntennaTitle">
-      <div class="startup-card">
-        <div class="startup-status is-ok">${escapeHtml(t("connection.found", "Proxmark3 found"))}</div>
-        <h1 id="startupAntennaTitle">${escapeHtml(t("antenna.title", "Antenna check"))}</h1>
-        <p>${escapeHtml(t("antenna.body", "Remove all transponders from the antenna."))}</p>
-        <div class="startup-actions">
-          <button class="button" type="button" data-startup-antenna>${escapeHtml(t("action.startAntennaCheck", "Start antenna check"))}</button>
-          <button class="button button-secondary" type="button" data-continue-overview>${escapeHtml(t("action.continueOverview", "Continue to overview"))}</button>
-        </div>
-      </div>
-    </section>
-  `;
+  return renderDarkStartup({
+    icon: PM3_READER_SVG,
+    title: escapeHtml(t("antenna.title", "Antennenprüfung")),
+    sub: escapeHtml(t("antenna.body", "Alle Transponder von der Antenne entfernen.")),
+    actions: darkBtn(t("action.startAntennaCheck","Antennenprüfung starten"), "data-startup-antenna", "ok")
+           + darkBtn(t("action.continueOverview","Überspringen"), "data-continue-overview", "secondary"),
+  });
 }
 
 function renderStartupAntennaRunning() {
-  return `
-    <section class="screen startup-screen" aria-labelledby="startupAntennaRunningTitle">
-      <div class="startup-card">
-        <div class="startup-spinner" aria-hidden="true"></div>
-        <h1 id="startupAntennaRunningTitle">${escapeHtml(t("antenna.title", "Antenna check"))}</h1>
-        <p>${escapeHtml(uiMessage(state.antennaOperation, "operation.antennaRunning"))}</p>
-      </div>
-    </section>
-  `;
+  return renderDarkStartup({
+    icon: `<div class="spinner"></div>`,
+    title: escapeHtml(t("antenna.title", "Antennenprüfung")),
+    sub: escapeHtml(uiMessage(state.antennaOperation, "operation.antennaRunning")),
+  });
 }
 
 function renderStartupAntennaResult() {
-  return `
-    <section class="screen startup-screen" aria-labelledby="startupAntennaResultTitle">
-      <div class="startup-card">
-        <div class="startup-status is-ok">${escapeHtml(t("connection.deviceConnected", "Device connected"))}</div>
-        <h1 id="startupAntennaResultTitle">${escapeHtml(t("antenna.title", "Antenna check"))}</h1>
-        ${renderAntennaResult(state.antennaResult)}
-      </div>
-    </section>
-  `;
+  return renderDarkStartup({
+    icon: `<div style="width:60px;height:60px;border-radius:50%;background:rgba(34,197,94,.1);border:2px solid rgba(34,197,94,.3);display:flex;align-items:center;justify-content:center;"><svg width="30" height="30" viewBox="0 0 30 30" fill="none"><path d="M6 15 L12 21 L24 9" stroke="#22C55E" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>`,
+    title: escapeHtml(t("connection.deviceConnected", "Gerät verbunden")),
+    sub: escapeHtml(t("antenna.title","Antennenprüfung abgeschlossen")),
+    actions: darkBtn(t("action.continueOverview","Weiter"), "data-continue-overview", "ok"),
+  });
 }
 
 function renderStartupAntennaError() {
-  return `
-    <section class="screen startup-screen" aria-labelledby="startupAntennaErrorTitle">
-      <div class="startup-card">
-        <div class="startup-status is-warn">${escapeHtml(t("connection.failed", "Connection check failed"))}</div>
-        <h1 id="startupAntennaErrorTitle">${escapeHtml(t("antenna.error", "Antenna check could not be completed."))}</h1>
-        <p>${escapeHtml(uiMessage(state.antennaOperation || state.connection, "antenna.error"))}</p>
-        <div class="startup-actions">
-          <button class="button" type="button" data-startup-antenna>${escapeHtml(t("action.retry", "Retry"))}</button>
-          <button class="button button-secondary" type="button" data-continue-overview>${escapeHtml(t("action.continueOverview", "Continue to overview"))}</button>
-        </div>
-      </div>
-    </section>
-  `;
-}
-
-function renderOverview() {
-  return `
-    <section class="screen" aria-labelledby="overviewTitle">
-      <div class="overview-header">
-        <div>
-          <h1 id="overviewTitle" class="screen-title">${escapeHtml(t("overview.title", "Overview"))}</h1>
-        </div>
-        <button class="button button-secondary" type="button" data-run-startup-check>${escapeHtml(t("action.runStartupCheck", "Run startup check"))}</button>
-      </div>
-      <div class="overview-grid">
-        <div class="panel">
-          <div class="panel-header"><h2>${escapeHtml(t("overview.quickStart", "Quick Start"))}</h2></div>
-          <div class="quick-steps">
-            ${[1, 2, 3, 4, 5, 6].map((step) => renderQuickStep(step)).join("")}
-          </div>
-        </div>
-        <div class="panel" data-overview-status></div>
-        <div class="panel overview-help">
-          <div class="panel-header"><h2>${escapeHtml(t("overview.help", "Help"))}</h2></div>
-          <div class="help-list">
-            ${HELP_TOPICS.map((topic) => `<button type="button" class="help-item" data-help-topic="${topic}">${escapeHtml(t(`help.${topic}.title`, topic))}</button>`).join("")}
-          </div>
-        </div>
-      </div>
-    </section>
-  `;
-}
-
-function patchOverview() {
-  replaceHtml("[data-overview-status]", renderSystemStatus());
-}
-
-function renderQuickStep(step) {
-  const targets = {
-    1: "read",
-    2: "read",
-    3: "templates",
-    4: "write",
-    5: "write",
-    6: "write",
-  };
-  return `
-    <button class="quick-step" type="button" data-view="${targets[step]}">
-      <span>${step}</span>
-      <strong>${escapeHtml(t(`overview.step${step}`, `Step ${step}`))}</strong>
-    </button>
-  `;
-}
-
-function renderSystemStatus() {
-  const connection = state.connection;
-  const compatibility = compatibilityLabel(connection.compatibility);
-  const antenna = state.antennaResult
-    ? `${t("antenna.lf", "LF antenna")}: ${connectionReadyLabel(state.antennaResult.lf?.status)} · ${t("antenna.hf", "HF antenna")}: ${connectionReadyLabel(state.antennaResult.hf?.status)}`
-    : t("status.antennaIdle", "No antenna check in this session.");
-  return `
-    <div class="panel-header"><h2>${escapeHtml(t("overview.system", "System status"))}</h2></div>
-    <div class="detail-list">
-      <div class="detail-row"><span>${escapeHtml(t("status.pm3", "Proxmark3"))}</span><span>${escapeHtml(connection.connected ? t("status.connected", "Connected") : t("status.disconnected", "Disconnected"))}</span></div>
-      <div class="detail-row"><span>${escapeHtml(t("status.device", "Device"))}</span><span>${escapeHtml(connection.target || t("connection.notAvailable", "not available"))}</span></div>
-      <div class="detail-row"><span>${escapeHtml(t("status.client", "Client"))}</span><span>${escapeHtml(connection.client_version || t("connection.notAvailable", "not available"))}</span></div>
-      <div class="detail-row"><span>${escapeHtml(t("status.compatibility", "Compatibility"))}</span><span>${escapeHtml(compatibility)}</span></div>
-      <div class="detail-row"><span>${escapeHtml(t("antenna.title", "Antenna"))}</span><span>${escapeHtml(antenna)}</span></div>
-    </div>
-  `;
+  const isConnErr = !state.connection.connected && !state.antennaOperation;
+  const pm3Path = state.settings?.last_known_pm3_path || "C:\\Tools\\proxmark3\\client";
+  const pathHint = isConnErr
+    ? `<div style="margin-top:10px;padding:8px 12px;background:rgba(15,23,42,.6);border:1px solid #1E3050;border-radius:8px;font-size:11px;color:#64748B;text-align:left;word-break:break-all;">
+        <span style="color:#475569;">Gesuchter Pfad:</span>
+        <span style="color:#94A3B8;font-family:var(--mono);">${escapeHtml(pm3Path + "\\proxmark3.exe")}</span>
+        <div style="margin-top:5px;color:#64748B;">Pfad falsch? ⚙ Einstellungen → <em>PM3-Pfad</em> anpassen.</div>
+      </div>`
+    : "";
+  return renderDarkStartup({
+    icon: `<div style="width:60px;height:60px;border-radius:50%;background:rgba(245,158,11,.1);border:2px solid rgba(245,158,11,.3);display:flex;align-items:center;justify-content:center;font-size:26px;">!</div>`,
+    title: escapeHtml(isConnErr ? t("connection.notFound", "Proxmark3 nicht gefunden") : t("antenna.error", "Antennenprüfung fehlgeschlagen")),
+    sub: escapeHtml(uiMessage(state.antennaOperation || state.connection, "antenna.error")) + pathHint,
+    actions: darkBtn(t("action.retry","Wiederholen"), "data-startup-antenna", "primary")
+           + darkBtn(t("action.continueOverview","Überspringen"), "data-continue-overview", "secondary"),
+  });
 }
 
 function compatibilityLabel(status) {
@@ -525,183 +548,641 @@ function connectionReadyLabel(status) {
 }
 
 function renderReadStart() {
+  const connected = state.connection.connected;
+  const freqBtns = ["auto","lf","hf"].map((m) => `
+    <div onclick="setReadMode('${m}')" style="padding:4px 11px;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;
+      background:${state.readMode===m?"rgba(59,130,246,.2)":"transparent"};
+      color:${state.readMode===m?"#3B82F6":"#4A6080"};">${m.toUpperCase()}</div>
+  `).join("");
   return `
-    <section class="screen" aria-labelledby="readTitle">
-      <div class="empty-start">
-        <div class="scan-card">
-          <div class="scan-icon" aria-hidden="true"></div>
-          <h1 id="readTitle">${escapeHtml(t("read.title", "Read chip"))}</h1>
-          <p>${escapeHtml(t("read.body", "Create a verified template from a supported RFID or NFC chip."))}</p>
-          <div class="segmented" role="tablist" aria-label="${escapeHtml(t("read.modeLabel", "Scan frequency"))}" data-read-mode-tabs></div>
-          <div class="scan-actions" data-read-actions></div>
-          <p class="connection-note" data-read-connection-note></p>
-        </div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:auto;position:relative;
+      background:radial-gradient(ellipse 55% 55% at 50% 50%,rgba(59,130,246,.05) 0%,transparent 70%);">
+      <div style="animation:chipFloat 3.5s ease-in-out infinite;">${CHIP_SVG({size:76,id:"idle"})}</div>
+      <div style="animation:arrowBounce 1.2s ease-in-out infinite;margin:4px 0;">
+        <svg width="12" height="24" viewBox="0 0 12 24" fill="none">
+          <line x1="6" y1="0" x2="6" y2="14" stroke="rgba(59,130,246,.5)" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M1.5 12 L6 20 L10.5 12" stroke="rgba(59,130,246,.5)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
       </div>
-    </section>
-  `;
+      ${PM3_READER_SVG}
+      <div style="margin-top:18px;text-align:center;animation:fadeInUp .6s ease both;">
+        <div style="font-size:17px;font-weight:700;color:#F1F5F9;margin-bottom:5px;">${escapeHtml(t("read.title","Chip auf den Scanner legen"))}</div>
+        <div style="font-size:12.5px;color:#4A6080;max-width:300px;line-height:1.5;margin:0 auto 14px;">${escapeHtml(t("read.body","LF (125 kHz) oder HF (13.56 MHz) – automatische Erkennung"))}</div>
+        <div style="display:inline-flex;gap:2px;background:#111D30;border:1px solid #1E3050;border-radius:8px;padding:3px;margin-bottom:14px;" data-read-mode-tabs>
+          ${freqBtns}
+        </div><br>
+        <button type="button" data-read-scan ${connected?"":"disabled"}
+          style="padding:9px 26px;background:rgba(59,130,246,.14);border:1px solid rgba(59,130,246,.35);border-radius:10px;color:#3B82F6;font-family:inherit;font-size:13.5px;font-weight:600;cursor:${connected?"pointer":"not-allowed"};opacity:${connected?1:.5};">
+          ${escapeHtml(t("read.scanChip","Scan starten"))}
+        </button>
+        ${!connected ? `<br><button type="button" data-refresh-connection style="margin-top:10px;padding:7px 18px;background:#111D30;border:1px solid #1E3050;border-radius:8px;color:#4A6080;font-family:inherit;font-size:12.5px;cursor:pointer;">${escapeHtml(t("connection.retryCheck","Verbindung prüfen"))}</button>` : ""}
+      </div>
+    </div>`;
 }
 
 function patchReadStart() {
-  const connected = state.connection.connected;
-  replaceHtml("[data-read-mode-tabs]", ["auto", "lf", "hf"].map((mode) => `
-    <button class="segment ${state.readMode === mode ? "is-active" : ""}" type="button" data-read-mode="${mode}">
-      ${mode.toUpperCase()}
-    </button>
-  `).join(""));
-  replaceHtml("[data-read-actions]", `
-    <button class="button" type="button" data-read-scan ${connected ? "" : "disabled"}>${escapeHtml(t("read.scanChip", "Scan chip"))}</button>
-    ${connected ? "" : `<button class="button button-secondary" type="button" data-refresh-connection>${escapeHtml(t("connection.retryCheck", "Check connection again"))}</button>`}
-  `);
-  const note = appView.querySelector("[data-read-connection-note]");
-  if (note) {
-    note.hidden = connected;
-    note.textContent = connected ? "" : uiMessage(state.connection, "connection.noDeviceReconnect");
-  }
+  // Read start is fully rebuilt on screen key change, freq tabs update via re-render
 }
 
 function renderReadScanning() {
   return `
-    <section class="screen" aria-labelledby="scanTitle">
-      <div class="scan-state">
-        <div class="scan-visual" aria-hidden="true">
-          <div class="antenna"><div class="chip-mini"></div></div>
-        </div>
-        <div>
-          <h1 id="scanTitle">${escapeHtml(t("read.scanningTitle", "Reading chip"))}</h1>
-          <p class="screen-subtitle">${escapeHtml(t("read.scanningSubtitle", "Status updates come from the Python operation manager."))}</p>
-          <div class="scan-step-list" data-read-progress></div>
-        </div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;
+      background:radial-gradient(ellipse 55% 55% at 50% 50%,rgba(59,130,246,.07) 0%,transparent 70%);">
+      <div style="position:absolute;top:50%;left:50%;pointer-events:none;margin-top:-80px;">
+        <div style="position:absolute;top:50%;left:50%;width:200px;height:200px;border-radius:50%;border:2px solid rgba(59,130,246,.85);animation:scanRing 2s ease-out infinite;"></div>
+        <div style="position:absolute;top:50%;left:50%;width:200px;height:200px;border-radius:50%;border:1.5px solid rgba(59,130,246,.65);animation:scanRing 2s ease-out infinite;animation-delay:.55s;"></div>
+        <div style="position:absolute;top:50%;left:50%;width:200px;height:200px;border-radius:50%;border:1px solid rgba(29,78,216,.7);animation:scanRing 2s ease-out infinite;animation-delay:1.1s;"></div>
       </div>
-    </section>
-  `;
+      <div style="animation:chipLand .9s cubic-bezier(.34,1.56,.64,1) both;z-index:4;margin-bottom:-8px;">${CHIP_SVG({size:82,id:"scan",stroke:"rgba(59,130,246,.7)"})}</div>
+      <div style="animation:readerPulse 1.4s ease-in-out infinite;border-radius:14px;">${PM3_READER_SVG}</div>
+      <div style="margin-top:18px;text-align:center;">
+        <div style="font-size:17px;font-weight:600;color:#3B82F6;margin-bottom:12px;animation:fadeInUp .4s ease both;">${escapeHtml(t("read.scanningTitle","Chip erkannt – Daten werden gelesen"))}</div>
+        <div style="display:flex;flex-direction:column;gap:5px;text-align:left;width:260px;" data-read-progress></div>
+      </div>
+    </div>`;
 }
 
 function patchReadScanning() {
-  const operation = state.readOperation;
-  const progress = operationProgress(operation, "operation.running");
-  replaceHtml("[data-read-progress]", progress.map((step, index) => `
-    <div class="scan-step ${index < progress.length - 1 ? "is-done" : "is-active"}">
-      <span class="step-bullet">${index < progress.length - 1 ? "✓" : index + 1}</span>
-      <span>${escapeHtml(step)}</span>
-    </div>
-  `).join(""));
+  const progress = operationProgress(state.readOperation, "operation.running");
+  const total = Math.max(progress.length, 3);
+  const items = Array.from({ length: total }, (_, i) => {
+    const label = progress[i] || "…";
+    const isDone = i < progress.length - 1;
+    const isActive = i === progress.length - 1;
+    const bg = isActive ? "rgba(59,130,246,.1)" : isDone ? "rgba(34,197,94,.07)" : "#111D30";
+    const dBg = isDone ? "#22C55E" : isActive ? "#3B82F6" : "#4A6080";
+    const col = isActive ? "#3B82F6" : isDone ? "#22C55E" : "#4A6080";
+    const icon = isDone ? "✓" : isActive
+      ? `<div style="width:8px;height:8px;border:1.5px solid white;border-top-color:transparent;border-radius:50%;animation:spin .45s linear infinite;"></div>`
+      : String(i + 1);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;background:${bg};animation:fadeInUp .35s ease ${i*.08}s both;">
+      <div style="width:18px;height:18px;border-radius:50%;background:${dBg};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;color:white;font-weight:700;">${icon}</div>
+      <span style="font-size:12.5px;font-weight:500;color:${col};">${escapeHtml(label)}</span>
+    </div>`;
+  });
+  replaceHtml("[data-read-progress]", items.join(""));
 }
 
 function renderReadUnstable() {
   return `
-    <section class="screen" aria-labelledby="unstableTitle">
-      <div class="scan-state">
-        <div class="scan-visual" aria-hidden="true">
-          <div class="antenna"><div class="chip-mini"></div></div>
-        </div>
-        <div>
-          <h1 id="unstableTitle">${escapeHtml(t("read.unstableTitle", "Signal found"))}</h1>
-          <div class="signal-banner">
-            <strong>${escapeHtml(t("read.unstableHint", "Move or rotate the chip slightly"))}</strong>
-            <span>${escapeHtml(uiMessage(state.lastScan, "read.unstableBody"))}</span>
-          </div>
-          <div class="scan-actions">
-            <button class="button" type="button" data-read-scan ${state.connection.connected ? "" : "disabled"}>${escapeHtml(t("read.continueMeasuring", "Continue measuring"))}</button>
-            <button class="button button-secondary" type="button" data-read-scan ${state.connection.connected ? "" : "disabled"}>${escapeHtml(t("read.scanAgain", "Scan again"))}</button>
-          </div>
-        </div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:28px;text-align:center;">
+      <div style="font-size:17px;font-weight:700;color:#F59E0B;">${escapeHtml(t("read.unstableTitle","Signal gefunden"))}</div>
+      <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);border-radius:12px;padding:14px 20px;max-width:360px;">
+        <strong style="display:block;color:#F59E0B;margin-bottom:5px;">${escapeHtml(t("read.unstableHint","Chip leicht verschieben oder drehen"))}</strong>
+        <span style="font-size:13px;color:#4A6080;">${escapeHtml(uiMessage(state.lastScan,"read.unstableBody"))}</span>
       </div>
-    </section>
-  `;
+      <div style="display:flex;gap:8px;">
+        <button type="button" data-read-scan class="btn btn-primary">${escapeHtml(t("read.continueMeasuring","Weiter messen"))}</button>
+        <button type="button" data-read-scan class="btn btn-ghost">${escapeHtml(t("read.scanAgain","Erneut scannen"))}</button>
+      </div>
+    </div>`;
 }
 
 function renderReadResult() {
   return `
-    <section class="screen" aria-labelledby="resultTitle">
-      <div class="result-summary">
-        <div>
-          <h1 id="resultTitle" class="screen-title">${escapeHtml(t("read.resultTitle", "Chip read"))}</h1>
-          <p class="screen-subtitle" data-read-result-subtitle></p>
+    <div style="flex:1;display:flex;min-height:0;overflow:hidden;animation:fadeIn .4s ease both;" data-read-result-root>
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;position:relative;
+        background:radial-gradient(ellipse 50% 50% at 50% 50%,rgba(34,197,94,.05) 0%,transparent 70%);">
+        <div style="position:absolute;top:50%;left:50%;pointer-events:none;margin-top:-80px;">
+          <div style="position:absolute;top:50%;left:50%;width:200px;height:200px;border-radius:50%;border:2px solid rgba(34,197,94,.7);animation:successBurst .9s ease-out both;"></div>
+          <div style="position:absolute;top:50%;left:50%;width:200px;height:200px;border-radius:50%;border:1.5px solid rgba(34,197,94,.5);animation:successBurst .9s ease-out .22s both;"></div>
         </div>
-        <div class="result-actions" data-read-result-actions></div>
-      </div>
-      <div class="result-grid">
-        <div class="panel panel-fit" data-read-chip-card></div>
-        <div class="panel panel-fit">
-          <div class="panel-header">
-            <div>
-              <h2>${escapeHtml(t("chip.memoryAreas", "Memory areas"))}</h2>
-              <div class="meta-line">${escapeHtml(t("read.memorySubtitle", "only areas actually read"))}</div>
-            </div>
+        <div style="position:relative;">${CHIP_SVG({size:80,id:"result",stroke:"rgba(34,197,94,.55)"})}</div>
+        <div style="text-align:center;animation:fadeInUp .5s ease .35s both;">
+          <div style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.28);border-radius:20px;color:#22C55E;font-size:13px;font-weight:600;margin-bottom:5px;" data-read-result-badge>
+            ✓ ${escapeHtml(t("read.confirmed","Zweiter Scan bestätigt"))}
           </div>
-          <div class="data-overview" data-read-memory></div>
+          <div style="font-size:12px;color:#4A6080;" data-read-result-subtitle></div>
         </div>
       </div>
-    </section>
-  `;
+      <div style="width:320px;flex-shrink:0;border-left:1px solid #1E3050;overflow-y:auto;background:#0D1525;animation:slideInRight .5s ease both;" data-read-chip-panel>
+      </div>
+    </div>`;
 }
 
 function patchReadResult() {
   const scan = state.lastScan;
   if (!scan?.chip) return;
   const chip = scan.chip;
+
   const subtitle = scan.confirmed
-    ? `${chip.technology || scan.title || t("chip.generic", "Chip")} · ${chip.frequency || ""} · ${t("read.secondScanConfirmed", "second scan confirmed")}`
-    : `${chip.frequency || ""} · ${uiMessage(scan, "read.notTemplateConfirmed")}`;
+    ? `${chip.technology || t("chip.generic","Chip")} · ${chip.frequency || ""} · ${t("read.secondScanConfirmed","second scan confirmed")}`
+    : `${chip.frequency || ""} · ${uiMessage(scan,"read.notTemplateConfirmed")}`;
   const subtitleNode = appView.querySelector("[data-read-result-subtitle]");
   if (subtitleNode) subtitleNode.textContent = subtitle;
+
+  // Header actions (in header bar)
   const scanBusy = isOperationBusy(state.readOperation);
   replaceHtml("[data-read-result-actions]", `
-    <button class="info-button" type="button" data-info-chip="lastScan" aria-label="${escapeHtml(t("action.showDetails", "Show details"))}">i</button>
-    <button class="button" type="button" data-read-scan ${state.connection.connected && !scanBusy ? "" : "disabled"}>${escapeHtml(t("read.scanNewChip", "Scan new chip"))}</button>
-    <button class="button" type="button" data-open-save-template ${scan.canSave ? "" : "disabled"}>${escapeHtml(t("template.saveAs", "Save as template"))}</button>
+    <button class="btn btn-ghost btn-sm" type="button" data-read-scan ${state.connection.connected && !scanBusy ? "" : "disabled"}>${escapeHtml(t("read.scanNewChip","Neu scannen"))}</button>
+    <button class="btn btn-ok btn-sm" type="button" data-open-save-template ${scan.canSave ? "" : "disabled"}>${escapeHtml(t("template.saveAs","Als Vorlage speichern"))}</button>
   `);
-  replaceHtml("[data-read-chip-card]", renderChipCard(chip, { infoKey: "lastScan" }));
-  replaceHtml("[data-read-memory]", renderDataRows(chip.memoryRegions));
+
+  // Right panel: chip info + memory
+  const tags = [chip.technology, chip.frequency].filter(Boolean);
+  const regions = chip.memoryRegions || [];
+  const regionRows = regions.map((r) => {
+    const col = r.state === "is-failed" ? "#EF4444" : r.state === "is-unavailable" ? "#4A6080" : "#22C55E";
+    const icon = r.state === "is-failed" ? "✕" : r.state === "is-unavailable" ? "—" : "✓";
+    const valText = (r.currentValue || "").substring(0,32) + ((r.currentValue||"").length>32?"…":"");
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 16px;border-bottom:1px solid #1E3050;">
+      <span style="font-size:10px;color:${col};font-family:var(--mono);min-width:12px;">${icon}</span>
+      <span style="font-size:12px;color:#CBD5E1;flex:1;min-width:0;">${escapeHtml(r.label||r.id||"")}</span>
+      ${valText ? `<span style="font-size:10.5px;color:#4A6080;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;">${escapeHtml(valText)}</span>` : ""}
+    </div>`;
+  }).join("");
+
+  replaceHtml("[data-read-chip-panel]", `
+    <div style="padding:16px;border-bottom:1px solid #1E3050;">
+      <div style="font-size:15px;font-weight:700;color:#F1F5F9;margin-bottom:3px;">${escapeHtml(chip.technology||t("chip.generic","Chip"))}</div>
+      <div style="font-family:var(--mono);font-size:11.5px;color:#4A6080;margin-bottom:10px;">${escapeHtml(chip.uid||"—")}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;">
+        ${tags.map((tag) => `<span style="padding:2px 9px;background:#162438;border:1px solid #1E3050;border-radius:5px;font-size:11px;color:#CBD5E1;">${escapeHtml(tag)}</span>`).join("")}
+        ${scan.confirmed ? `<span style="padding:2px 9px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.28);border-radius:5px;font-size:11px;color:#22C55E;">✓ ${escapeHtml(t("read.confirmed","Bestätigt"))}</span>` : ""}
+      </div>
+    </div>
+    <div style="font-size:11px;font-weight:600;color:#4A6080;text-transform:uppercase;letter-spacing:.6px;padding:10px 16px 6px;">${escapeHtml(t("chip.memoryAreas","Speicherbereiche"))}</div>
+    ${regionRows || `<div style="padding:10px 16px;font-size:12.5px;color:#4A6080;">${escapeHtml(t("analysis.noRealChip","Keine Speicherdaten"))}</div>`}
+  `);
+}
+
+// ─── Orange PM3 reader SVG used in Write intro ────────────────────────────────
+const PM3_READER_WRITE_SVG = `<svg width="260" height="165" viewBox="0 0 300 190" fill="none" style="border-radius:14px;">
+  <rect width="300" height="190" rx="14" fill="#0E1D34" stroke="rgba(245,158,11,.4)" stroke-width="2"/>
+  <rect x="6" y="6" width="288" height="178" rx="10" fill="#091524"/>
+  <rect x="18" y="18" width="264" height="154" rx="8" fill="none" stroke="rgba(245,158,11,.28)" stroke-width="1.8"/>
+  <circle cx="222" cy="95" r="52" fill="#070E1A" stroke="rgba(245,158,11,.16)" stroke-width="1.5"/>
+  <g transform="translate(208,83)" fill="none" stroke="rgba(245,158,11,.75)" stroke-linecap="round">
+    <circle cx="4" cy="12" r="2.5" fill="rgba(245,158,11,.75)" stroke="none" style="animation:nfcPulse 2.5s ease-in-out infinite"/>
+    <path d="M10 6 A8.5 8.5 0 0 1 10 18" stroke-width="2" style="animation:nfcPulse 2.5s ease-in-out infinite;animation-delay:.35s"/>
+    <path d="M15 3 A13 13 0 0 1 15 21" stroke-width="1.7" opacity=".55" style="animation:nfcPulse 2.5s ease-in-out infinite;animation-delay:.7s"/>
+    <path d="M20 0 A17.5 17.5 0 0 1 20 24" stroke-width="1.4" opacity=".3" style="animation:nfcPulse 2.5s ease-in-out infinite;animation-delay:1.05s"/>
+  </g>
+  <circle cx="268" cy="20" r="3.5" fill="#F59E0B" style="animation:ledBlink 1.2s ease-in-out infinite;"/>
+  <circle cx="280" cy="20" r="3.5" fill="#D97706" opacity=".55" style="animation:ledBlink 1.2s ease-in-out infinite;animation-delay:.4s;"/>
+  <text x="22" y="175" font-family="monospace" font-size="7.5" fill="rgba(245,158,11,.3)" letter-spacing="1.8">LF · 125 kHz</text>
+  <text x="190" y="168" font-family="monospace" font-size="7" fill="rgba(245,158,11,.2)" letter-spacing="1.5">HF · 13.56 MHz</text>
+</svg>`;
+
+// Shared helper: renders scan-progress items for the write intro scanning state
+function writeIntroProgressItems(operation) {
+  const progress = operationProgress(operation, "operation.running");
+  const total = Math.max(progress.length, 3);
+  return Array.from({ length: total }, (_, i) => {
+    const label = progress[i] || "…";
+    const isDone = i < progress.length - 1;
+    const isActive = i === progress.length - 1;
+    const bg = isActive ? "rgba(245,158,11,.1)" : isDone ? "rgba(34,197,94,.07)" : "#111D30";
+    const dBg = isDone ? "#22C55E" : isActive ? "#F59E0B" : "#4A6080";
+    const col = isActive ? "#F59E0B" : isDone ? "#22C55E" : "#4A6080";
+    const icon = isDone ? "✓" : isActive
+      ? `<div style="width:8px;height:8px;border:1.5px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin .45s linear infinite;"></div>`
+      : String(i + 1);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;background:${bg};animation:fadeInUp .35s ease ${i * .08}s both;">
+      <div style="width:18px;height:18px;border-radius:50%;background:${dBg};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;color:#fff;font-weight:700;">${icon}</div>
+      <span style="font-size:12.5px;font-weight:500;color:${col};">${escapeHtml(label)}</span>
+    </div>`;
+  }).join("");
+}
+
+function renderWriteIntro() {
+  const connected = state.connection.connected;
+  const isScanBusy = isOperationBusy(state.currentScanOperation);
+
+  if (isScanBusy) {
+    return `
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;
+        background:radial-gradient(ellipse 55% 55% at 50% 50%,rgba(245,158,11,.07) 0%,transparent 70%);" data-write-intro>
+        <div style="position:absolute;top:50%;left:50%;pointer-events:none;margin-top:-80px;">
+          <div style="position:absolute;top:50%;left:50%;width:200px;height:200px;border-radius:50%;border:2px solid rgba(245,158,11,.85);animation:scanRing 2s ease-out infinite;"></div>
+          <div style="position:absolute;top:50%;left:50%;width:200px;height:200px;border-radius:50%;border:1.5px solid rgba(245,158,11,.6);animation:scanRing 2s ease-out infinite;animation-delay:.55s;"></div>
+          <div style="position:absolute;top:50%;left:50%;width:200px;height:200px;border-radius:50%;border:1px solid rgba(245,158,11,.4);animation:scanRing 2s ease-out infinite;animation-delay:1.1s;"></div>
+        </div>
+        <div style="animation:chipLand .9s cubic-bezier(.34,1.56,.64,1) both;z-index:4;margin-bottom:-8px;">
+          ${CHIP_SVG({size:82,id:"wscan",stroke:"rgba(245,158,11,.7)"})}
+        </div>
+        <div style="animation:readerPulse 1.4s ease-in-out infinite;border-radius:14px;">${PM3_READER_WRITE_SVG}</div>
+        <div style="margin-top:18px;text-align:center;">
+          <div style="font-size:17px;font-weight:600;color:#F59E0B;margin-bottom:12px;animation:fadeInUp .4s ease both;">
+            ${escapeHtml(t("write.scanningTitle","Chip erkannt – Zustand wird gelesen"))}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;text-align:left;width:260px;" data-write-scan-progress>
+            ${writeIntroProgressItems(state.currentScanOperation)}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  return `
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:auto;position:relative;
+      background:radial-gradient(ellipse 55% 55% at 50% 50%,rgba(245,158,11,.05) 0%,transparent 70%);" data-write-intro>
+      <div style="animation:chipFloat 3.5s ease-in-out infinite;">${CHIP_SVG({size:76,id:"widle",stroke:"rgba(245,158,11,.5)"})}</div>
+      <div style="animation:arrowBounce 1.2s ease-in-out infinite;margin:4px 0;">
+        <svg width="12" height="24" viewBox="0 0 12 24" fill="none">
+          <line x1="6" y1="0" x2="6" y2="14" stroke="rgba(245,158,11,.5)" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M1.5 12 L6 20 L10.5 12" stroke="rgba(245,158,11,.5)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+      </div>
+      ${PM3_READER_WRITE_SVG}
+      <div style="margin-top:18px;text-align:center;animation:fadeInUp .6s ease both;">
+        <div style="font-size:17px;font-weight:700;color:#F1F5F9;margin-bottom:5px;">${escapeHtml(t("write.introTitle","Chip zum Schreiben scannen"))}</div>
+        <div style="font-size:12.5px;color:#4A6080;max-width:340px;line-height:1.6;margin:0 auto 18px;">
+          ${escapeHtml(t("write.introBody","Aktuellen Zustand einlesen – dann Vorlage als Ziel wählen und Änderungen anwenden."))}
+        </div>
+        <button type="button" data-write-scan ${connected ? "" : "disabled"}
+          style="padding:9px 26px;background:rgba(245,158,11,.13);border:1px solid rgba(245,158,11,.38);border-radius:10px;
+            color:#F59E0B;font-family:inherit;font-size:13.5px;font-weight:600;
+            cursor:${connected ? "pointer" : "not-allowed"};opacity:${connected ? 1 : .5};">
+          ${escapeHtml(t("write.scanChip","Chip scannen"))}
+        </button>
+        ${!connected ? `<br><button type="button" data-refresh-connection
+          style="margin-top:10px;padding:7px 18px;background:#111D30;border:1px solid #1E3050;border-radius:8px;color:#4A6080;font-family:inherit;font-size:12.5px;cursor:pointer;">
+          ${escapeHtml(t("connection.retryCheck","Verbindung prüfen"))}</button>` : ""}
+      </div>
+    </div>`;
+}
+
+function patchWriteIntroScan() {
+  const el = appView.querySelector("[data-write-scan-progress]");
+  if (el) el.innerHTML = writeIntroProgressItems(state.currentScanOperation);
+  // If scanning just started and we were on idle intro, rebuild to show scan rings
+  const isBusy = isOperationBusy(state.currentScanOperation);
+  const hasRings = !!appView.querySelector("[data-write-intro] [style*=scanRing]");
+  if (isBusy && !hasRings) appView.innerHTML = renderWriteIntro();
 }
 
 function renderWriteView() {
+  if (isOperationBusy(state.autoWriteOperation)) return renderWriteAnimating();
+  if (!state.currentChip) return renderWriteIntro();
+  // NOTE: DONE state is shown only via patchWriteView() transition, never on fresh render
   return `
-    <section class="screen" data-screen="write">
-      <div class="write-layout">
-        <div data-compat-container></div>
-        <div class="write-columns">
-          <div class="panel write-column">
-            <div class="panel-header"><h2>${escapeHtml(t("write.currentChip", "Current chip"))}</h2></div>
-            <div data-current-chip-slot></div>
-            <button class="button button-secondary current-scan-button" type="button" data-write-scan></button>
-            <div class="backup-line" data-current-backup-line></div>
-          </div>
-          <div class="panel write-column changes-column">
-            <div class="panel-header"><h2>${escapeHtml(t("write.changes", "Changes"))}</h2></div>
-            <div data-change-list></div>
-          </div>
-          <div class="panel write-column">
-            <div class="panel-header"><h2>${escapeHtml(t("write.targetState", "Target state"))}</h2></div>
-            <div data-target-control></div>
-            <div data-target-chip-slot></div>
-            <div class="backup-line" data-target-source-line></div>
-          </div>
+    <div style="flex:1;display:flex;min-height:0;overflow:hidden;animation:fadeIn .35s ease both;">
+      <!-- Left: current chip -->
+      <div style="width:220px;flex-shrink:0;border-right:1px solid #1E3050;display:flex;flex-direction:column;overflow:hidden;background:#0D1525;">
+        <div style="padding:12px 14px;border-bottom:1px solid #1E3050;">
+          <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#4A6080;margin-bottom:8px;">${escapeHtml(t("write.currentChip","Aktueller Chip"))}</div>
+          <div data-wf-current></div>
         </div>
+        <div style="flex:1;overflow-y:auto;padding:8px;" data-write-memmap></div>
       </div>
-    </section>
-  `;
+      <!-- Middle: actions -->
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden;">
+        <div style="flex:1;overflow-y:auto;padding:14px 16px;" data-action-panel></div>
+      </div>
+      <!-- Right: target -->
+      <div style="width:220px;flex-shrink:0;border-left:1px solid #1E3050;display:flex;flex-direction:column;overflow:hidden;background:#0D1525;">
+        <div style="padding:12px 14px;border-bottom:1px solid #1E3050;">
+          <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#4A6080;margin-bottom:8px;">${escapeHtml(t("write.targetState","Zielzustand"))}</div>
+          <div data-wf-target></div>
+        </div>
+        <div style="padding:10px 14px;border-bottom:1px solid #1E3050;" data-wf-middle></div>
+      </div>
+    </div>`;
 }
 
 function patchWriteView() {
-  replaceHtml("[data-compat-container]", renderCompatibilityBar());
-  replaceHtml("[data-current-chip-slot]", state.currentChip ? renderChipCard(state.currentChip, { infoKey: "currentChip" }) : renderEmptyChip(t("write.noCurrentChip", "No chip read yet")));
-  const scanButton = appView.querySelector("[data-write-scan]");
-  const busy = isOperationBusy(state.currentScanOperation);
-  if (scanButton) {
-    scanButton.disabled = !state.connection.connected || busy;
-    scanButton.textContent = busy ? t("operation.scanRunning", "Scan running ...") : t("write.scanCurrentChip", "Scan current chip");
+  const isAnimating = isOperationBusy(state.autoWriteOperation);
+  const isDone = !isAnimating && state.autoWriteOperation?.state === "succeeded";
+  const isIntro = !state.currentChip && !isAnimating;
+  const wasAnimating = !!appView.querySelector("[data-write-anim]");
+  const wasDone = !!appView.querySelector("[data-write-done]");
+  const wasIntro = !!appView.querySelector("[data-write-intro]");
+
+  if (isAnimating && !wasAnimating) { appView.innerHTML = renderWriteAnimating(); return; }
+  if (isDone && !wasDone) { appView.innerHTML = renderWriteDone(); return; }
+  if (isIntro) {
+    if (!wasIntro) { appView.innerHTML = renderWriteIntro(); return; }
+    patchWriteIntroScan(); // live-update scan rings + progress when scan starts/updates
+    return;
   }
-  const backupLine = appView.querySelector("[data-current-backup-line]");
-  if (backupLine) {
-    backupLine.hidden = !state.currentBackup;
-    backupLine.textContent = state.currentBackup ? `Backup · ${state.currentBackup.created_display}` : "";
+  // Transition from any special screen → 3-column form (chip just arrived or reset)
+  if (!isAnimating && !isDone && (wasAnimating || wasDone || wasIntro)) {
+    appView.innerHTML = renderWriteView();
+    patchWfBar(); patchMemMap(); patchActionPanel(); patchTargetControl();
+    return;
   }
+  if (isAnimating) { patchWriteAnimProgress(); return; }
+  if (isDone) return;
+  patchWfBar();
+  patchMemMap();
+  patchActionPanel();
   patchTargetControl();
-  replaceHtml("[data-target-chip-slot]", state.target?.chip ? renderChipCard(state.target.chip, { infoKey: "target" }) : renderEmptyChip(t("write.chooseTargetState", "Choose target state")));
-  const targetLine = appView.querySelector("[data-target-source-line]");
-  if (targetLine) targetLine.textContent = state.target ? `${t("label.source", "Source")}: ${state.target.source}` : t("write.sourceNotSelected", "Source: not selected");
-  replaceHtml("[data-change-list]", renderChangeList());
+}
+
+function patchWfBar() {
+  const chip = state.currentChip;
+  const target = state.target;
+  const busy = isOperationBusy(state.currentScanOperation);
+
+  // Current chip slot
+  const currentHtml = chip
+    ? `<div style="font-size:13px;font-weight:600;color:#F1F5F9;margin-bottom:2px;">${escapeHtml(chip.technology||chip.uid||t("chip.generic","Chip"))}</div>
+       <div style="font-family:var(--mono);font-size:10.5px;color:#4A6080;margin-bottom:8px;">${escapeHtml(chip.uid||"")}</div>
+       <button class="btn btn-ghost btn-sm" type="button" data-write-scan ${state.connection.connected&&!busy?"":"disabled"}>
+         ${escapeHtml(busy?t("operation.scanRunning","Läuft …"):t("write.scanCurrentChip","Erneut scannen"))}
+       </button>`
+    : `<div style="font-size:12px;color:#4A6080;margin-bottom:8px;">${escapeHtml(t("write.noCurrentChip","Noch kein Chip gescannt"))}</div>
+       <button class="btn btn-primary btn-sm" type="button" data-write-scan ${state.connection.connected&&!busy?"":"disabled"}>
+         ${escapeHtml(busy?t("operation.scanRunning","Läuft …"):t("write.scanCurrentChip","Chip scannen"))}
+       </button>`;
+  replaceHtml("[data-wf-current]", currentHtml);
+
+  // Middle: compat pill
+  let compatColor = "#4A6080";
+  let compatText = "—";
+  if (state.comparison) {
+    if (state.comparison.status === "danger") { compatColor = "#EF4444"; compatText = t("write.incompatible","Inkompatibel"); }
+    else if (state.comparison.writable_difference_count) { compatColor = "#F59E0B"; compatText = `${state.comparison.writable_difference_count} ${t("write.changes","Änderungen")}`; }
+    else { compatColor = "#22C55E"; compatText = t("write.noChanges","Aktuell"); }
+  }
+  replaceHtml("[data-wf-middle]", `
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:#4A6080;margin-bottom:5px;">Kompatibilität</div>
+    <div style="font-size:12.5px;font-weight:700;color:${compatColor};">${escapeHtml(compatText)}</div>
+  `);
+
+  // Target slot
+  const selectFocused = document.activeElement?.matches("[data-target-select]");
+  if (!selectFocused) {
+    const targetHtml = target
+      ? `<div style="font-size:13px;font-weight:600;color:#F1F5F9;margin-bottom:2px;">${escapeHtml(target.chip?.technology||target.source||t("chip.generic","Vorlage"))}</div>
+         <div style="font-family:var(--mono);font-size:10.5px;color:#4A6080;margin-bottom:8px;">${escapeHtml(target.source||"")}</div>
+         <div data-target-control></div>`
+      : `<div style="font-size:12px;color:#4A6080;margin-bottom:8px;">${escapeHtml(t("write.chooseTargetState","Kein Ziel gewählt"))}</div>
+         <div data-target-control></div>`;
+    replaceHtml("[data-wf-target]", targetHtml);
+  }
+}
+
+function patchMemMap() {
+  const chip = state.currentChip;
+  const autoDetails = state.autoWriteOperation?.details || {};
+  const actions = state.comparison?.actions || [];
+  const actionMap = new Map(actions.map((a) => [a.region_id, a]));
+
+  if (!chip) {
+    replaceHtml("[data-write-memmap]", `
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:#4A6080;margin-bottom:8px;">${escapeHtml(t("chip.memoryAreas","Speicher"))}</div>
+      <div style="font-size:12px;color:#4A6080;">${escapeHtml(t("write.noCurrentChip","Erst Chip scannen"))}</div>
+    `);
+    return;
+  }
+
+  const regions = chip.memoryRegions || [];
+  const cells = regions.map((region) => {
+    const op = state.writeOperations[region.id];
+    const autoActive = isOperationBusy(state.autoWriteOperation) && autoDetails.active_region === region.id;
+    const autoDone = (autoDetails.completed_regions || []).includes(region.id);
+    const isWriting = autoActive || (op && !TERMINAL_STATES.has(op.state));
+    const isDone = region.state === "is-verified" || state.completedActions[region.id] || autoDone || op?.state === "succeeded";
+    const isFail = region.state === "is-failed" || state.failedRegionId === region.id || (op && TERMINAL_STATES.has(op.state) && op.state !== "succeeded");
+    const isDiff = !isDone && !isFail && !isWriting && (region.state === "is-different" || actionMap.has(region.id));
+    const isEmpty = region.state === "is-unavailable";
+
+    const bg = isWriting ? "rgba(59,130,246,.18)" : isDone ? "rgba(34,197,94,.12)" : isFail ? "rgba(239,68,68,.12)" : isDiff ? "rgba(245,158,11,.12)" : isEmpty ? "#111D30" : "#162438";
+    const border = isWriting ? "rgba(59,130,246,.4)" : isDone ? "rgba(34,197,94,.35)" : isFail ? "rgba(239,68,68,.4)" : isDiff ? "rgba(245,158,11,.4)" : "#1E3050";
+    const col = isWriting ? "#3B82F6" : isDone ? "#22C55E" : isFail ? "#EF4444" : isDiff ? "#F59E0B" : "#4A6080";
+    const shortLabel = (region.label||region.id||"").replace(/^page_/,"P").replace(/^sector_/,"S").toUpperCase();
+    const icon = isWriting
+      ? `<div style="width:8px;height:8px;border:1.5px solid #3B82F6;border-top-color:transparent;border-radius:50%;animation:spin .5s linear infinite;"></div>`
+      : isDone ? "✓" : isFail ? "✕" : isDiff ? "≠" : isEmpty ? "—" : "✓";
+
+    return `<div title="${escapeHtml(region.label||region.id||"")}" style="display:flex;align-items:center;gap:5px;padding:4px 7px;border-radius:6px;border:1px solid ${border};background:${bg};font-size:11px;">
+      <span style="color:${col};font-size:10px;width:10px;text-align:center;">${icon}</span>
+      <span style="color:#CBD5E1;font-family:var(--mono);font-size:10px;">${escapeHtml(shortLabel)}</span>
+    </div>`;
+  });
+
+  replaceHtml("[data-write-memmap]", `
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:#4A6080;margin-bottom:8px;">${escapeHtml(t("chip.memoryAreas","Speicher"))}</div>
+    <div style="display:flex;flex-direction:column;gap:3px;">${cells.join("")}</div>
+  `);
+}
+
+function patchActionPanel() {
+  if (!state.currentChip) {
+    replaceHtml("[data-action-panel]", `
+      <div style="font-size:14px;font-weight:700;color:#F1F5F9;margin-bottom:8px;">${escapeHtml(t("write.changes","Änderungen"))}</div>
+      <div style="font-size:12.5px;color:#4A6080;">${escapeHtml(t("write.emptyCurrent","Erst den aktuellen Chip scannen."))}</div>
+    `);
+    return;
+  }
+  if (!state.target) {
+    replaceHtml("[data-action-panel]", `
+      <div style="font-size:14px;font-weight:700;color:#F1F5F9;margin-bottom:8px;">${escapeHtml(t("write.changes","Änderungen"))}</div>
+      <div style="font-size:12.5px;color:#4A6080;">${escapeHtml(t("write.emptyTarget","Vorlage oder Backup als Ziel wählen."))}</div>
+    `);
+    return;
+  }
+  if (!state.comparison) {
+    replaceHtml("[data-action-panel]", `
+      <div style="font-size:14px;font-weight:700;color:#F1F5F9;margin-bottom:8px;">${escapeHtml(t("write.changes","Änderungen"))}</div>
+      <div style="font-size:12.5px;color:#EF4444;">${escapeHtml(t("write.incompatibleTarget","Zielzustand passt nicht zum aktuellen Chip."))}</div>
+    `);
+    return;
+  }
+  // "danger" means the full target state is not compatible; enabled rows may still be writable.
+  const dangerBanner = state.comparison.status === "danger"
+    ? `<div style="display:flex;align-items:center;gap:8px;padding:9px 12px;margin-bottom:10px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:9px;font-size:11.5px;color:#F59E0B;">
+        <span>⚠</span>
+        <span>${escapeHtml(t("write.incompatibleWarn","Zielzustand passt nicht vollständig. Nur freigegebene Bereiche werden geschrieben."))}</span>
+      </div>`
+    : "";
+
+  const actions = state.comparison.actions || [];
+  actions.forEach((a) => { state.knownActions[a.region_id] = a; });
+  const rows = orderedActionRows(actions);
+  const autoBusy = isOperationBusy(state.autoWriteOperation);
+  const autoDetails = state.autoWriteOperation?.details || {};
+  const openCount = actions.filter((a) => a.enabled).length;
+
+  if (!rows.length) {
+    replaceHtml("[data-action-panel]", `
+      <div style="font-size:14px;font-weight:700;color:#F1F5F9;margin-bottom:12px;">${escapeHtml(t("write.changes","Änderungen"))}</div>
+      <div style="display:flex;align-items:center;gap:8px;padding:12px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:10px;color:#22C55E;font-weight:600;">
+        ✓ ${escapeHtml(t("write.matchesTarget","Chip entspricht dem Zielzustand"))}
+      </div>
+    `);
+    return;
+  }
+
+  const cards = rows.map((action) => {
+    const op = state.writeOperations[action.region_id];
+    const autoActive = autoBusy && autoDetails.active_region === action.region_id;
+    const autoDone = (autoDetails.completed_regions || []).includes(action.region_id);
+    const isWorking = autoActive || (op && !TERMINAL_STATES.has(op.state));
+    const isDone = action.uiState === "done" || op?.state === "succeeded" || autoDone;
+    const isFailed = state.failedRegionId === action.region_id || (op && TERMINAL_STATES.has(op.state) && op.state !== "succeeded");
+
+    const borderCol = isWorking ? "rgba(59,130,246,.35)" : isDone ? "rgba(34,197,94,.28)" : isFailed ? "rgba(239,68,68,.3)" : "#1E3050";
+    const bgCol = isWorking ? "rgba(59,130,246,.06)" : isDone ? "rgba(34,197,94,.05)" : isFailed ? "rgba(239,68,68,.06)" : "#111D30";
+
+    const msgText = isWorking
+      ? uiMessage(op||state.autoWriteOperation,"write.regionApplying","Wird angewendet …")
+      : isDone ? t("write.verified","Verifiziert ✓")
+      : isFailed ? uiMessage(op||state.autoWriteOperation,"write.regionVerifyFailed","Fehlgeschlagen")
+      : action.reason || "";
+
+    const ctrlLabel = isFailed ? t("action.retry","Wiederholen") : t("action.apply","Anwenden");
+    const ctrlDisabled = !action.enabled || !state.connection.connected || anyWriteBusy();
+    const ctrl = isDone
+      ? `<span style="color:#22C55E;font-size:16px;font-weight:800;">✓</span>`
+      : isWorking
+        ? `<div style="width:14px;height:14px;border:2px solid #3B82F6;border-top-color:transparent;border-radius:50%;animation:spin .5s linear infinite;"></div>`
+        : `<button class="btn btn-primary btn-sm" type="button" data-write-action="${escapeHtml(action.region_id)}"
+            ${ctrlDisabled ? "disabled" : ""}
+            style="${isFailed?"border-color:#EF4444;":!action.enabled?"border-color:#F59E0B;":""}">
+            ${escapeHtml(ctrlLabel)}
+          </button>`;
+
+    return `
+      <div style="padding:10px 12px;border-radius:9px;border:1px solid ${borderCol};background:${bgCol};margin-bottom:6px;animation:fadeInUp .25s ease both;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
+          <div style="min-width:0;flex:1;">
+            <div style="font-size:12.5px;font-weight:600;color:#F1F5F9;margin-bottom:4px;">${escapeHtml(action.label)}</div>
+            <div style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:#4A6080;">
+              <span style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(action.fromValue||"—")}</span>
+              <span style="color:#1E3050;">→</span>
+              <span style="color:#CBD5E1;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(action.toValue||"—")}</span>
+            </div>
+            ${msgText ? `<div style="font-size:11px;color:${isDone?"#22C55E":isFailed?"#EF4444":"#3B82F6"};margin-top:3px;">${escapeHtml(msgText)}</div>` : ""}
+          </div>
+          <div style="flex-shrink:0;">${ctrl}</div>
+        </div>
+        ${isWorking ? `<div style="height:2px;background:#1E3050;border-radius:1px;margin-top:8px;overflow:hidden;"><div style="height:100%;width:60%;background:#3B82F6;border-radius:1px;animation:spin 1s linear infinite;transform-origin:left;"></div></div>` : ""}
+      </div>
+    `;
+  }).join("");
+
+  const applyAllDisabled = !state.connection.connected || anyWriteBusy() || !enabledWriteActions().length ? "disabled" : "";
+  const progressLine = autoBusy ? `<div style="font-size:11.5px;color:#3B82F6;margin-bottom:8px;">${escapeHtml(autoProgressText())}</div>` : "";
+
+  replaceHtml("[data-action-panel]", `
+    ${dangerBanner}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div style="font-size:14px;font-weight:700;color:#F1F5F9;">${escapeHtml(t("write.changes","Änderungen"))}
+        <span style="font-size:11px;background:${openCount?"rgba(245,158,11,.15)":"rgba(34,197,94,.12)"};color:${openCount?"#F59E0B":"#22C55E"};border:1px solid ${openCount?"rgba(245,158,11,.3)":"rgba(34,197,94,.25)"};padding:1px 7px;border-radius:4px;margin-left:6px;">${openCount}</span>
+      </div>
+      ${openCount ? `<button class="btn btn-warn btn-sm" type="button" data-write-all ${applyAllDisabled}>${escapeHtml(t("write.applyAll","Alle anwenden"))}</button>` : ""}
+    </div>
+    ${progressLine}
+    <div>${cards}</div>
+  `);
+}
+
+function renderWriteAnimating() {
+  const autoDetails = state.autoWriteOperation?.details || {};
+  const actions = state.comparison?.actions || [];
+  const completed = (autoDetails.completed_regions || []).length;
+  const total = Math.max(actions.length, 1);
+  const pct = Math.round((completed / total) * 100);
+  const activeRegion = autoDetails.active_region || "";
+  const activeAction = actions.find((a) => a.region_id === activeRegion);
+  const blockLabel = escapeHtml(activeAction?.label || activeRegion || t("write.writing", "Schreibe…"));
+  const detail = escapeHtml(uiMessage(state.autoWriteOperation, "write.regionApplying",
+    `${completed}/${total} ${t("write.blocks", "Blöcke")} abgeschlossen`));
+  const hexBytes = ["A4","10","B4","20","C5","30","D5","40","E6","60"];
+  const hexLeft  = [10, 50, 92, 133, 172, 30, 70, 112, 153, 192];
+  const particles = hexBytes.map((hex, i) =>
+    `<span style="position:absolute;left:${hexLeft[i]}px;font-family:'JetBrains Mono',monospace;font-size:12px;color:${i%2===0?"#6366F1":"#818CF8"};animation:dataParticle 1.8s ease-in infinite;animation-delay:${(i*0.17).toFixed(2)}s;">${hex}</span>`
+  ).join("");
+  return `
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;overflow:hidden;position:relative;
+      background:radial-gradient(ellipse 50% 50% at 50% 45%,rgba(99,102,241,.06) 0%,transparent 70%);" data-write-anim>
+      <div style="position:absolute;inset:0;pointer-events:none;overflow:hidden;display:flex;justify-content:center;">
+        <div style="position:relative;width:220px;">${particles}</div>
+      </div>
+      <div style="position:relative;z-index:2;">
+        <div style="position:absolute;top:42px;left:68px;z-index:3;">${CHIP_SVG({size:82,id:"writ",stroke:"rgba(129,140,248,.55)"})}</div>
+        <svg width="224" height="142" viewBox="0 0 300 190" fill="none" style="border-radius:14px;box-shadow:0 0 44px rgba(99,102,241,.18);">
+          <rect width="300" height="190" rx="14" fill="#0E1D34" stroke="rgba(129,140,248,.5)" stroke-width="2"/>
+          <rect x="6" y="6" width="288" height="178" rx="10" fill="#091524"/>
+          <rect x="18" y="18" width="264" height="154" rx="8" fill="none" stroke="rgba(99,102,241,.4)" stroke-width="1.8"/>
+          <circle cx="268" cy="20" r="3.5" fill="#818CF8" style="animation:ledBlink .45s ease-in-out infinite;color:#818CF8;"/>
+          <circle cx="280" cy="20" r="3.5" fill="#6366F1" opacity=".8" style="animation:ledBlink .45s ease-in-out infinite;animation-delay:.22s;color:#6366F1;"/>
+        </svg>
+      </div>
+      <div style="width:300px;z-index:2;animation:fadeInUp .4s ease .2s both;" data-write-anim-progress>
+        <div style="display:flex;justify-content:space-between;margin-bottom:7px;">
+          <span style="font-size:13.5px;font-weight:600;color:#F1F5F9;">${blockLabel}</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:13.5px;color:#818CF8;">${pct}%</span>
+        </div>
+        <div style="height:4px;background:#162438;border-radius:4px;overflow:hidden;">
+          <div style="height:100%;background:linear-gradient(90deg,#4F46E5,#818CF8);border-radius:4px;width:${pct}%;transition:width .1s linear;box-shadow:0 0 8px rgba(129,140,248,.4);"></div>
+        </div>
+        <div style="margin-top:8px;font-size:11.5px;color:#4A6080;text-align:center;font-family:'JetBrains Mono',monospace;">${detail}</div>
+      </div>
+    </div>`;
+}
+
+function renderWriteDone() {
+  const autoDetails = state.autoWriteOperation?.details || {};
+  const actions = state.comparison?.actions || [];
+  const completedIds = autoDetails.completed_regions?.length ? autoDetails.completed_regions : actions.map((a) => a.region_id);
+  const logRows = completedIds.slice(0, 8).map((id) => {
+    const action = actions.find((a) => a.region_id === id) || state.completedActions[id];
+    const label = action?.label || action?.region_id || id;
+    const val = (action?.toValue || "").substring(0, 14) + ((action?.toValue || "").length > 14 ? "…" : "");
+    return `<div style="display:flex;justify-content:space-between;">
+      <span style="color:#4A6080;">${escapeHtml(label)}</span>
+      <span style="font-family:'JetBrains Mono',monospace;color:#22C55E;">${escapeHtml(val || "—")} ✓</span>
+    </div>`;
+  }).join("");
+  return `
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;overflow:auto;animation:fadeInUp .5s ease both;" data-write-done>
+      <div style="position:relative;display:flex;align-items:center;justify-content:center;">
+        <div style="position:absolute;top:50%;left:50%;width:150px;height:150px;border-radius:50%;border:2px solid #22C55E;animation:successBurst 1s ease-out .1s both;"></div>
+        <div style="position:absolute;top:50%;left:50%;width:150px;height:150px;border-radius:50%;border:1.5px solid #22C55E;animation:successBurst 1s ease-out .3s both;"></div>
+        <div style="width:68px;height:68px;border-radius:50%;background:rgba(34,197,94,.1);border:2px solid rgba(34,197,94,.38);display:flex;align-items:center;justify-content:center;">
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+            <path d="M8 17 L14 23 L26 11" stroke="#22C55E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
+              stroke-dasharray="27" style="animation:checkDraw .5s ease .5s both;stroke-dashoffset:27;"/>
+          </svg>
+        </div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:23px;font-weight:700;color:#F1F5F9;letter-spacing:-.3px;">${escapeHtml(t("write.doneTitle","Chip erfolgreich beschrieben"))}</div>
+        <div style="font-size:13px;color:#4A6080;margin-top:5px;">${escapeHtml(t("write.doneBody","Alle Blöcke geschrieben und verifiziert"))}</div>
+      </div>
+      ${logRows ? `
+      <div style="background:#111D30;border:1px solid rgba(34,197,94,.2);border-radius:13px;padding:14px 20px;width:320px;animation:fadeInUp .5s ease .3s both;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:#4A6080;margin-bottom:10px;">${escapeHtml(t("write.writeLog","Schreibprotokoll"))}</div>
+        <div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;">${logRows}</div>
+      </div>` : ""}
+      <div style="display:flex;gap:8px;animation:fadeInUp .5s ease .45s both;">
+        <button type="button" data-write-reset
+          style="padding:9px 20px;background:#111D30;border:1px solid #1E3050;border-radius:9px;color:#4A6080;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;">
+          ${escapeHtml(t("action.back","Zurück"))}
+        </button>
+        <button type="button" data-verify-after-write
+          style="padding:9px 20px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.28);border-radius:9px;color:#3B82F6;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;">
+          ${escapeHtml(t("write.verifyChip","Chip verifizieren"))}
+        </button>
+      </div>
+    </div>`;
+}
+
+function patchWriteAnimProgress() {
+  const el = appView.querySelector("[data-write-anim-progress]");
+  if (!el) return;
+  const autoDetails = state.autoWriteOperation?.details || {};
+  const actions = state.comparison?.actions || [];
+  const completed = (autoDetails.completed_regions || []).length;
+  const total = Math.max(actions.length, 1);
+  const pct = Math.round((completed / total) * 100);
+  const activeRegion = autoDetails.active_region || "";
+  const activeAction = actions.find((a) => a.region_id === activeRegion);
+  const blockLabel = escapeHtml(activeAction?.label || activeRegion || t("write.writing", "Schreibe…"));
+  const detail = escapeHtml(uiMessage(state.autoWriteOperation, "write.regionApplying",
+    `${completed}/${total} ${t("write.blocks", "Blöcke")} abgeschlossen`));
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;margin-bottom:7px;">
+      <span style="font-size:13.5px;font-weight:600;color:#F1F5F9;">${blockLabel}</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13.5px;color:#818CF8;">${pct}%</span>
+    </div>
+    <div style="height:4px;background:#162438;border-radius:4px;overflow:hidden;">
+      <div style="height:100%;background:linear-gradient(90deg,#4F46E5,#818CF8);border-radius:4px;width:${pct}%;transition:width .1s linear;box-shadow:0 0 8px rgba(129,140,248,.4);"></div>
+    </div>
+    <div style="margin-top:8px;font-size:11.5px;color:#4A6080;text-align:center;font-family:'JetBrains Mono',monospace;">${detail}</div>`;
 }
 
 function patchTargetControl() {
@@ -712,12 +1193,14 @@ function patchTargetControl() {
     <option value="${escapeHtml(template.id)}" ${selectedTemplate === template.id ? "selected" : ""}>${escapeHtml(template.name)}</option>
   `).join("");
   const html = `
-    <div class="target-control">
-      <select class="target-select" id="targetSelect" data-target-select aria-label="${escapeHtml(t("write.targetTemplateLabel", "Target template"))}">
+    <div style="display:flex;flex-direction:column;gap:4px;">
+      <select id="targetSelect" data-target-select aria-label="${escapeHtml(t("write.targetTemplateLabel", "Target template"))}"
+        style="width:100%;padding:6px 10px;background:#111D30;border:1px solid #1E3050;border-radius:7px;color:#CBD5E1;font-size:12.5px;font-family:inherit;">
         <option value="">${escapeHtml(t("write.chooseTemplate", "Choose template"))}</option>
         ${options}
       </select>
-      <button class="link-action" type="button" data-open-backup-targets>${escapeHtml(t("write.useBackupTarget", "Use backup as target state"))}</button>
+      <button type="button" data-open-backup-targets
+        style="display:block;margin-top:2px;font-size:11.5px;color:#3B82F6;background:none;border:0;cursor:pointer;text-align:left;padding:0;font-family:inherit;">${escapeHtml(t("write.useBackupTarget", "Use backup as target state"))}</button>
     </div>
   `;
   if (container.dataset.html !== html && document.activeElement?.dataset?.targetSelect === undefined) {
@@ -727,38 +1210,44 @@ function patchTargetControl() {
 }
 
 function renderCompatibilityBar() {
-  if (state.comparison) {
-    return `<div class="compat-bar is-${state.comparison.status === "danger" ? "danger" : "success"}">${escapeHtml(comparisonMessage(state.comparison))}</div>`;
-  }
-  if (!state.currentChip) return `<div class="compat-bar is-neutral">${escapeHtml(t("write.scanCurrentChip", "Scan current chip"))}</div>`;
-  if (!state.target) return `<div class="compat-bar is-neutral">${escapeHtml(t("write.chooseTargetState", "Choose target state"))}</div>`;
-  return `<div class="compat-bar is-neutral">${escapeHtml(t("write.comparisonUnavailable", "Comparison unavailable"))}</div>`;
+  const isDanger = state.comparison?.status === "danger";
+  const isOk = state.comparison && !isDanger;
+  const color = isDanger ? "#EF4444" : isOk ? "#22C55E" : "#4A6080";
+  const bg = isDanger ? "rgba(239,68,68,.1)" : isOk ? "rgba(34,197,94,.08)" : "#111D30";
+  const border = isDanger ? "rgba(239,68,68,.3)" : isOk ? "rgba(34,197,94,.25)" : "#1E3050";
+  const message = state.comparison
+    ? comparisonMessage(state.comparison)
+    : !state.currentChip ? t("write.scanCurrentChip", "Scan current chip")
+    : !state.target ? t("write.chooseTargetState", "Choose target state")
+    : t("write.comparisonUnavailable", "Comparison unavailable");
+  return `<div style="padding:8px 12px;border-radius:8px;background:${bg};border:1px solid ${border};font-size:12.5px;color:${color};">${escapeHtml(message)}</div>`;
 }
 
 function renderChangeList() {
-  if (!state.currentChip) return `<div class="no-actions">${escapeHtml(t("write.emptyCurrent", "Scan the current chip first. A backup is created automatically when the adapter can read the chip completely."))}</div>`;
-  if (!state.target) return `<div class="no-actions">${escapeHtml(t("write.emptyTarget", "Choose a template or backup as the target state."))}</div>`;
-  if (!state.comparison) return `<div class="no-actions">${escapeHtml(t("write.emptyComparison", "The comparison could not be calculated for this combination."))}</div>`;
-  if (state.comparison.status === "danger") return `<div class="no-actions">${escapeHtml(t("write.incompatibleTarget", "This target state does not match the current chip."))}</div>`;
+  const noAction = (msg) => `<div style="font-size:13px;color:#4A6080;padding:8px 0;">${escapeHtml(msg)}</div>`;
+  if (!state.currentChip) return noAction(t("write.emptyCurrent", "Scan the current chip first."));
+  if (!state.target) return noAction(t("write.emptyTarget", "Choose a template or backup as the target state."));
+  if (!state.comparison) return noAction(t("write.emptyComparison", "The comparison could not be calculated for this combination."));
+  // Incompatible rows are visible, but they are not actionable.
 
   const actions = state.comparison.actions || [];
   actions.forEach((action) => {
     state.knownActions[action.region_id] = action;
   });
   const rows = orderedActionRows(actions);
-  if (!rows.length) return `<div class="no-actions no-actions-success">✓ ${escapeHtml(t("write.matchesTarget", "Current chip matches the target state."))}</div>`;
+  if (!rows.length) return `<div style="display:flex;align-items:center;gap:8px;padding:12px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:10px;color:#22C55E;font-weight:600;">✓ ${escapeHtml(t("write.matchesTarget", "Current chip matches the target state."))}</div>`;
   const openCount = actions.filter((action) => action.enabled).length;
   const autoBusy = isOperationBusy(state.autoWriteOperation);
   return `
     <div>
-      <div class="change-toolbar">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
         <div>
-          <div class="difference-count">${escapeHtml(formatOpenCount(openCount))}</div>
-          ${autoBusy ? `<div class="change-status">${escapeHtml(autoProgressText())}</div>` : ""}
+          <div style="font-size:13px;font-weight:600;color:#F1F5F9;">${escapeHtml(formatOpenCount(openCount))}</div>
+          ${autoBusy ? `<div style="font-size:11.5px;color:#3B82F6;margin-top:3px;">${escapeHtml(autoProgressText())}</div>` : ""}
         </div>
-        ${openCount ? `<button class="button button-small" type="button" data-write-all ${state.connection.connected && !anyWriteBusy() ? "" : "disabled"}>${escapeHtml(t("write.applyAll", "Apply all differences"))}</button>` : ""}
+        ${openCount ? `<button class="btn btn-primary btn-sm" type="button" data-write-all ${state.connection.connected && !anyWriteBusy() ? "" : "disabled"}>${escapeHtml(t("write.applyAll", "Apply all differences"))}</button>` : ""}
       </div>
-      <div class="change-list">
+      <div style="display:flex;flex-direction:column;gap:6px;">
         ${rows.map(renderChangeRow).join("")}
       </div>
     </div>
@@ -798,20 +1287,32 @@ function renderChangeRow(action) {
       : failed
         ? uiMessage(operation || state.autoWriteOperation, "write.regionVerifyFailed", `${action.label} konnte nicht verifiziert werden`)
         : action.reason || "";
+  const borderCol = running ? "rgba(59,130,246,.35)" : done ? "rgba(34,197,94,.28)" : failed ? "rgba(239,68,68,.3)" : "#1E3050";
+  const bgCol = running ? "rgba(59,130,246,.06)" : done ? "rgba(34,197,94,.05)" : failed ? "rgba(239,68,68,.06)" : "#111D30";
+  const statusCol = running ? "#3B82F6" : done ? "#22C55E" : failed ? "#EF4444" : "#4A6080";
+  const rowLabel = failed ? t("action.retry","Retry") : t("action.apply","Apply");
+  const ctrlDisabled = !action.enabled || !state.connection.connected || anyWriteBusy();
+  const ctrl = done
+    ? `<span style="color:#22C55E;font-size:11px;font-weight:600;">${escapeHtml(t("write.verified", "Verified"))}</span>`
+    : `<button class="btn btn-ghost btn-sm" type="button" data-write-action="${escapeHtml(action.region_id)}"
+        ${ctrlDisabled ? "disabled" : ""}
+        style="${failed?"border-color:#EF4444;":!action.enabled?"border-color:#F59E0B;":""}">
+        ${escapeHtml(rowLabel)}
+      </button>`;
   return `
-    <div class="change-row ${running ? "is-working" : ""} ${done ? "is-done" : ""} ${failed ? "is-failed" : ""}">
-      <div class="change-label">${escapeHtml(action.label)}</div>
-      <div>
-        <div class="change-values">
-          <span>${escapeHtml(action.fromValue)}</span>
-          <span aria-hidden="true">→</span>
-          <span>${escapeHtml(action.toValue)}</span>
+    <div style="padding:9px 12px;border-radius:9px;border:1px solid ${borderCol};background:${bgCol};">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
+        <div style="min-width:0;flex:1;">
+          <div style="font-size:12.5px;font-weight:600;color:#F1F5F9;margin-bottom:3px;">${escapeHtml(action.label)}</div>
+          <div style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:#4A6080;">
+            <span>${escapeHtml(action.fromValue || "—")}</span>
+            <span style="color:#1E3050;">→</span>
+            <span style="color:#CBD5E1;">${escapeHtml(action.toValue || "—")}</span>
+          </div>
+          ${status ? `<div style="font-size:11px;color:${statusCol};margin-top:3px;">${escapeHtml(status)}</div>` : ""}
         </div>
-        ${status ? `<div class="change-status">${escapeHtml(status)}</div>` : ""}
+        <div style="flex-shrink:0;">${ctrl}</div>
       </div>
-      ${action.enabled && !done ? `
-        <button class="button button-secondary button-small" type="button" data-write-action="${escapeHtml(action.region_id)}" ${state.connection.connected && !anyWriteBusy() ? "" : "disabled"}>${escapeHtml(t("action.apply", "Apply"))}</button>
-      ` : done ? `<span class="done-label">${escapeHtml(t("write.verified", "Verified"))}</span>` : `<span class="blocked-label">${escapeHtml(t("write.blocked", "Blocked"))}</span>`}
     </div>
   `;
 }
@@ -831,25 +1332,140 @@ function comparisonMessage(comparison) {
   return t("write.comparisonNoOpen", "Compatible · no open writable changes");
 }
 
-function renderAnalysisView() {
+function renderAnalysisDone() {
+  const posResult = state.positionResult;
+  const antResult = state.antennaResult;
+  const posOk = posResult && !posResult.error && !posResult.failed;
+  const antOk = antResult && !antResult.error && !antResult.failed;
+  const allOk = posOk && antOk;
+  const anyFail = (posResult && !posOk) || (antResult && !antOk);
+  const overallColor = allOk ? "#22C55E" : anyFail ? "#EF4444" : "#F59E0B";
+  const overallIcon = allOk ? "✓" : anyFail ? "✕" : "⚠";
+  const overallLabel = allOk
+    ? t("analysis.doneOk", "Alle Tests bestanden")
+    : anyFail
+      ? t("analysis.doneFail", "Test fehlgeschlagen")
+      : t("analysis.doneWarn", "Tests mit Warnungen");
+
+  const summaryRow = (label, ok, result) => {
+    const col = ok ? "#22C55E" : result ? "#EF4444" : "#4A6080";
+    const icon = ok ? "✓" : result ? "✕" : "—";
+    const detail = escapeHtml(result?.message || result?.status || result?.title || "");
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:#111D30;border-radius:9px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="color:${col};font-size:15px;font-weight:700;width:18px;text-align:center;">${icon}</span>
+        <span style="font-size:13px;font-weight:600;color:#CBD5E1;">${escapeHtml(label)}</span>
+      </div>
+      ${detail ? `<span style="font-size:11px;font-family:var(--mono);color:#4A6080;">${detail}</span>` : ""}
+    </div>`;
+  };
+
   return `
-    <section class="screen" aria-labelledby="analysisTitle">
-      <div class="screen-head">
-        <div>
-          <h1 id="analysisTitle" class="screen-title">${escapeHtml(t("analysis.title", "Analysis"))}</h1>
-          <p class="screen-subtitle">${escapeHtml(t("analysis.subtitle", "Only real PM3 read-only paths and the last real chip data read."))}</p>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;overflow:auto;padding:20px;animation:fadeInUp .5s ease both;" data-analysis-done>
+      <div style="position:relative;display:flex;align-items:center;justify-content:center;">
+        <div style="position:absolute;top:50%;left:50%;width:150px;height:150px;border-radius:50%;border:2px solid ${overallColor};animation:successBurst 1s ease-out .1s both;"></div>
+        <div style="position:absolute;top:50%;left:50%;width:150px;height:150px;border-radius:50%;border:1.5px solid ${overallColor};animation:successBurst 1s ease-out .3s both;"></div>
+        <div style="width:68px;height:68px;border-radius:50%;background:rgba(34,197,94,.08);border:2px solid rgba(34,197,94,.25);display:flex;align-items:center;justify-content:center;">
+          <span style="font-size:26px;color:${overallColor};animation:fadeInUp .4s ease .4s both;">${overallIcon}</span>
         </div>
       </div>
-      <div class="analysis-grid">
-        <div class="panel analysis-panel" data-position-panel></div>
-        <div class="panel analysis-panel" data-antenna-panel></div>
-        <div class="panel analysis-panel" data-technical-panel></div>
+      <div style="text-align:center;">
+        <div style="font-size:21px;font-weight:700;color:#F1F5F9;letter-spacing:-.3px;">${escapeHtml(t("analysis.doneTitle","Selbsttest abgeschlossen"))}</div>
+        <div style="font-size:13px;color:${overallColor};margin-top:5px;font-weight:600;">${escapeHtml(overallLabel)}</div>
       </div>
-    </section>
-  `;
+      <div style="display:flex;flex-direction:column;gap:6px;width:320px;animation:fadeInUp .5s ease .25s both;">
+        ${summaryRow(t("analysis.positionTitle","Position"), posOk, posResult)}
+        ${summaryRow(t("analysis.antennaTitle","Antenne"), antOk, antResult)}
+      </div>
+      <div style="display:flex;gap:8px;animation:fadeInUp .5s ease .4s both;">
+        <button type="button" data-analysis-details
+          style="padding:9px 20px;background:#111D30;border:1px solid #1E3050;border-radius:9px;color:#4A6080;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;">
+          ${escapeHtml(t("analysis.showDetails","Details anzeigen"))}
+        </button>
+        <button type="button" data-start-selftest ${state.connection.connected?"":"disabled"}
+          style="padding:9px 20px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.28);border-radius:9px;color:#3B82F6;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;">
+          ${escapeHtml(t("analysis.retestBtn","Erneut testen"))}
+        </button>
+      </div>
+    </div>`;
+}
+
+function renderAnalysisIntro() {
+  return `
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:auto;padding:20px;animation:fadeInUp .5s ease both;" data-analysis-intro>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:26px;">
+        <div style="position:relative;display:flex;flex-direction:column;align-items:center;">
+          <div style="position:relative;z-index:3;margin-bottom:-18px;margin-left:16px;">${CHIP_SVG({size:76,id:"intro",stroke:"#2A4878"})}</div>
+          <div style="position:absolute;top:-10px;right:-96px;animation:arrowBounce 1s ease-in-out infinite;text-align:center;">
+            <svg width="76" height="48" viewBox="0 0 76 48" fill="none">
+              <path d="M10 40 Q36 22 60 8" stroke="#F59E0B" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="5 3"/>
+              <path d="M53 3 L60 8 L55 16" stroke="#F59E0B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            </svg>
+            <div style="font-size:10.5px;color:#F59E0B;font-weight:600;margin-top:-4px;">${escapeHtml(t("analysis.removeChip","entfernen"))}</div>
+          </div>
+          <svg width="254" height="160" viewBox="0 0 300 190" fill="none" style="border-radius:14px;">
+            <rect width="300" height="190" rx="14" fill="#0E1D34" stroke="rgba(245,158,11,.42)" stroke-width="2"/>
+            <rect x="6" y="6" width="288" height="178" rx="10" fill="#091524"/>
+            <rect x="18" y="18" width="264" height="154" rx="8" fill="none" stroke="rgba(245,158,11,.3)" stroke-width="1.8"/>
+            <circle cx="222" cy="95" r="52" fill="#070E1A" stroke="rgba(245,158,11,.18)" stroke-width="1.5"/>
+            <g transform="translate(208,83)" fill="none" stroke="rgba(245,158,11,.7)" stroke-linecap="round">
+              <circle cx="4" cy="12" r="2.5" fill="rgba(245,158,11,.7)" stroke="none"/>
+              <path d="M10 6 A8.5 8.5 0 0 1 10 18" stroke-width="2"/>
+              <path d="M15 3 A13 13 0 0 1 15 21" stroke-width="1.7" opacity=".65"/>
+            </g>
+            <circle cx="268" cy="20" r="3.5" fill="#F59E0B" style="animation:ledBlink .7s ease-in-out infinite;color:#F59E0B;"/>
+            <circle cx="280" cy="20" r="3.5" fill="#F59E0B" opacity=".5" style="animation:ledBlink .7s ease-in-out infinite;animation-delay:.35s;color:#F59E0B;"/>
+          </svg>
+        </div>
+        <div style="text-align:center;max-width:390px;">
+          <div style="font-size:21px;font-weight:700;color:#F1F5F9;margin-bottom:9px;">${escapeHtml(t("analysis.removeChipTitle","Chip vom Scanner entfernen"))}</div>
+          <div style="font-size:13.5px;color:#4A6080;line-height:1.7;margin-bottom:22px;">${escapeHtml(t("analysis.removeChipBody","Für den Selbsttest muss der Scanner frei sein. Entfernen Sie bitte alle Chips und starten Sie die Diagnose."))}</div>
+          <button type="button" data-start-selftest ${state.connection.connected?"":"disabled"}
+            style="padding:11px 34px;background:linear-gradient(135deg,rgba(34,197,94,.14),rgba(22,163,74,.09));border:1px solid rgba(34,197,94,.38);border-radius:11px;color:#22C55E;font-family:inherit;font-size:14px;font-weight:700;cursor:${state.connection.connected?"pointer":"not-allowed"};opacity:${state.connection.connected?1:.5};">
+            ${escapeHtml(t("analysis.startDiagnosis","Scanner frei – Diagnose starten"))}
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderAnalysisPanels() {
+  return `
+    <div style="flex:1;display:flex;gap:0;min-height:0;overflow:hidden;animation:fadeIn .35s ease both;" data-analysis-panels>
+      <div style="flex:1;overflow-y:auto;padding:18px;border-right:1px solid #1E3050;" data-position-panel></div>
+      <div style="flex:1;overflow-y:auto;padding:18px;border-right:1px solid #1E3050;" data-antenna-panel></div>
+      <div style="flex:1;overflow-y:auto;padding:18px;" data-technical-panel></div>
+    </div>`;
+}
+
+function renderAnalysisView() {
+  const hasResults = state.antennaResult || state.positionResult;
+  const isBusy = isOperationBusy(state.antennaOperation) || isOperationBusy(state.positionOperation);
+  const bothDone = !isBusy && !!state.antennaResult && !!state.positionResult && !state.analysisShowDetails;
+  if (!hasResults && !isBusy) return renderAnalysisIntro();
+  if (bothDone) return renderAnalysisDone();
+  return renderAnalysisPanels();
 }
 
 function patchAnalysisView() {
+  const hasResults = state.antennaResult || state.positionResult;
+  const isBusy = isOperationBusy(state.antennaOperation) || isOperationBusy(state.positionOperation);
+  const bothDone = !isBusy && !!state.antennaResult && !!state.positionResult && !state.analysisShowDetails;
+  const wasIntro = !!appView.querySelector("[data-analysis-intro]");
+  const wasDone = !!appView.querySelector("[data-analysis-done]");
+  const wasPanels = !!appView.querySelector("[data-analysis-panels]");
+
+  if (!hasResults && !isBusy) {
+    if (!wasIntro) appView.innerHTML = renderAnalysisIntro();
+    return;
+  }
+  if (bothDone) {
+    if (!wasDone) appView.innerHTML = renderAnalysisDone();
+    return;
+  }
+  if (!wasPanels) {
+    appView.innerHTML = renderAnalysisPanels();
+  }
   replaceHtml("[data-position-panel]", renderPositionPanel());
   replaceHtml("[data-antenna-panel]", renderAntennaPanel());
   replaceHtml("[data-technical-panel]", renderTechnicalPanel());
@@ -858,66 +1474,74 @@ function patchAnalysisView() {
 function renderPositionPanel() {
   const busy = isOperationBusy(state.positionOperation);
   const result = state.positionResult;
+  const pillColor = busy ? "#3B82F6" : result ? "#22C55E" : "#4A6080";
+  const pillLabel = busy ? t("operation.measurementRunning","Läuft …") : result ? t("status.done","Fertig") : t("status.idle","Bereit");
+  const history = result?.history || [];
   return `
-    <div class="panel-header">
-      <div>
-        <h2>${escapeHtml(t("analysis.positionTitle", "Optimize position"))}</h2>
-        <div class="meta-line">${escapeHtml(t("analysis.positionMeta", "limited read-only measurement series"))}</div>
-      </div>
-      <button class="button button-small" type="button" data-start-position ${state.connection.connected && !busy ? "" : "disabled"}>${escapeHtml(busy ? t("operation.measurementRunning", "Measurement running ...") : t("action.start", "Start"))}</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div style="font-size:13.5px;font-weight:700;color:#F1F5F9;">${escapeHtml(t("analysis.positionTitle","Position"))}</div>
+      <span style="font-size:10.5px;font-weight:600;color:${pillColor};background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:4px;padding:2px 7px;">${escapeHtml(pillLabel)}</span>
     </div>
-    <p class="analysis-copy">${escapeHtml(t("analysis.positionCopy", "Place the chip centered and move it slowly by a few millimeters."))}</p>
-    ${busy ? `<div class="no-actions">${escapeHtml(uiMessage(state.positionOperation, "operation.measurementRunning"))}</div>` : ""}
-    ${result ? renderPositionResult(result) : ""}
-  `;
-}
-
-function renderPositionResult(result) {
-  const history = result.history || [];
-  return `
-    <div class="analysis-result">
-      <strong>${escapeHtml(result.title || result.status)}</strong>
-      <span>${escapeHtml(result.message || "")}</span>
-    </div>
-    ${history.length ? `
-      <div class="measurement-list">
-        ${history.map((item) => `
-          <div class="measurement-row">
-            <span>${escapeHtml(item.label)}</span>
-            <strong>${escapeHtml(item.status)}</strong>
-          </div>
-        `).join("")}
+    ${busy ? `<div style="height:2px;background:#1E3050;border-radius:1px;margin-bottom:10px;overflow:hidden;"><div style="height:100%;background:linear-gradient(90deg,transparent,#3B82F6,transparent);animation:spin 1.2s linear infinite;border-radius:1px;"></div></div>` : ""}
+    <p style="font-size:12px;color:#4A6080;line-height:1.6;margin-bottom:12px;">${escapeHtml(t("analysis.positionCopy","Chip langsam ein paar Millimeter über die Antenne bewegen."))}</p>
+    ${result ? `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #1E3050;margin-bottom:4px;"><span style="font-size:12px;color:#CBD5E1;">${escapeHtml(result.title||result.status||"")}</span><span style="font-size:12px;font-family:var(--mono);color:#22C55E;">${escapeHtml(result.message||"")}</span></div>` : ""}
+    ${history.map((item) => `
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #111D30;">
+        <span style="font-size:11.5px;color:#4A6080;">${escapeHtml(item.label)}</span>
+        <span style="font-size:11.5px;font-weight:600;color:#CBD5E1;">${escapeHtml(item.status)}</span>
       </div>
-    ` : ""}
-    ${result.next_step ? `<div class="meta-line">${escapeHtml(result.next_step)}</div>` : ""}
+    `).join("")}
+    ${result?.next_step ? `<div style="font-size:11.5px;color:#3B82F6;margin-top:10px;">${escapeHtml(result.next_step)}</div>` : ""}
+    <div style="margin-top:14px;">
+      <button class="btn btn-primary btn-sm" type="button" data-start-position ${state.connection.connected&&!busy?"":"disabled"}>
+        ${escapeHtml(busy?t("operation.measurementRunning","Läuft …"):t("action.start","Starten"))}
+      </button>
+    </div>
   `;
 }
 
 function renderAntennaPanel() {
   const busy = isOperationBusy(state.antennaOperation);
-  return `
-    <div class="panel-header">
-      <div>
-        <h2>${escapeHtml(t("analysis.antennaTitle", "Check antenna"))}</h2>
-        <div class="meta-line">${escapeHtml(t("analysis.antennaMeta", "uses the real hw tune path"))}</div>
-      </div>
-      <button class="button button-small" type="button" data-start-antenna ${state.connection.connected && !busy ? "" : "disabled"}>${escapeHtml(busy ? t("operation.checkRunning", "Check running ...") : t("action.check", "Check"))}</button>
-    </div>
-    ${busy ? `<div class="no-actions">${escapeHtml(uiMessage(state.antennaOperation, "operation.antennaRunning"))}</div>` : ""}
-    ${state.antennaResult ? renderAntennaResult(state.antennaResult) : `<div class="no-actions">${escapeHtml(t("status.antennaIdle", "No antenna check in this session."))}</div>`}
-  `;
-}
+  const result = state.antennaResult;
+  const pillColor = busy ? "#3B82F6" : result ? "#22C55E" : "#4A6080";
+  const pillLabel = busy ? t("operation.checkRunning","Läuft …") : result ? t("status.done","Fertig") : t("status.idle","Bereit");
 
-function renderAntennaResult(result) {
-  const lf = result.lf || {};
-  const hf = result.hf || {};
+  const voltBar = (voltStr) => {
+    const match = voltStr ? voltStr.match(/[\d.]+/) : null;
+    const v = match ? parseFloat(match[0]) : 0;
+    const pct = Math.min(100, (v / 40) * 100);
+    const col = pct > 60 ? "#22C55E" : pct > 30 ? "#F59E0B" : "#EF4444";
+    return `<div style="height:4px;background:#1E3050;border-radius:2px;margin-top:3px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${col};border-radius:2px;"></div></div>`;
+  };
+
+  let rows = "";
+  if (result) {
+    const lf = result.lf || {};
+    const hf = result.hf || {};
+    rows = `
+      <div style="padding:7px 0;border-bottom:1px solid #1E3050;">
+        <div style="display:flex;justify-content:space-between;"><span style="font-size:12px;color:#CBD5E1;">${escapeHtml(t("antenna.lf","LF 125 kHz"))}</span><span style="font-size:12px;font-family:var(--mono);color:#CBD5E1;">${escapeHtml(lf.voltage_125khz||lf.status||"—")}</span></div>
+        ${lf.voltage_125khz ? voltBar(lf.voltage_125khz) : ""}
+      </div>
+      ${lf.optimal_frequency||lf.optimal_voltage ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #111D30;"><span style="font-size:11.5px;color:#4A6080;">${escapeHtml(t("antenna.optimalRange","Optimal"))}</span><span style="font-size:11.5px;font-family:var(--mono);color:#22C55E;">${escapeHtml([lf.optimal_frequency,lf.optimal_voltage].filter(Boolean).join(" · "))}</span></div>` : ""}
+      <div style="padding:7px 0;">
+        <div style="display:flex;justify-content:space-between;"><span style="font-size:12px;color:#CBD5E1;">${escapeHtml(t("antenna.hf","HF 13.56 MHz"))}</span><span style="font-size:12px;font-family:var(--mono);color:#CBD5E1;">${escapeHtml(hf.voltage_13_56mhz||hf.status||"—")}</span></div>
+        ${hf.voltage_13_56mhz ? voltBar(hf.voltage_13_56mhz) : ""}
+      </div>
+    `;
+  }
+
   return `
-    <div class="detail-list">
-      <div class="detail-row"><span>${escapeHtml(t("antenna.lf", "LF antenna"))}</span><span>${escapeHtml(lf.status || t("compat.unknown", "Unknown"))}</span></div>
-      ${lf.voltage_125khz ? `<div class="detail-row"><span>125 kHz</span><span>${escapeHtml(lf.voltage_125khz)}</span></div>` : ""}
-      ${lf.optimal_frequency || lf.optimal_voltage ? `<div class="detail-row"><span>${escapeHtml(t("antenna.optimalRange", "Optimal range"))}</span><span>${escapeHtml([lf.optimal_frequency, lf.optimal_voltage].filter(Boolean).join(" · "))}</span></div>` : ""}
-      <div class="detail-row"><span>${escapeHtml(t("antenna.hf", "HF antenna"))}</span><span>${escapeHtml(hf.status || t("compat.unknown", "Unknown"))}</span></div>
-      ${hf.voltage_13_56mhz ? `<div class="detail-row"><span>13.56 MHz</span><span>${escapeHtml(hf.voltage_13_56mhz)}</span></div>` : ""}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div style="font-size:13.5px;font-weight:700;color:#F1F5F9;">${escapeHtml(t("analysis.antennaTitle","Antenne"))}</div>
+      <span style="font-size:10.5px;font-weight:600;color:${pillColor};background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:4px;padding:2px 7px;">${escapeHtml(pillLabel)}</span>
+    </div>
+    ${busy ? `<div style="height:2px;background:#1E3050;border-radius:1px;margin-bottom:10px;overflow:hidden;"><div style="height:100%;background:linear-gradient(90deg,transparent,#3B82F6,transparent);animation:spin 1.2s linear infinite;border-radius:1px;"></div></div>` : ""}
+    ${rows || `<div style="font-size:12px;color:#4A6080;margin-bottom:10px;">${escapeHtml(t("status.antennaIdle","Noch keine Prüfung in dieser Sitzung."))}</div>`}
+    <div style="margin-top:14px;">
+      <button class="btn btn-primary btn-sm" type="button" data-start-antenna ${state.connection.connected&&!busy?"":"disabled"}>
+        ${escapeHtml(busy?t("operation.checkRunning","Läuft …"):t("action.check","Prüfen"))}
+      </button>
     </div>
   `;
 }
@@ -927,48 +1551,43 @@ function renderTechnicalPanel() {
   const details = chip?.details || {};
   const rows = Object.entries(details).filter(([, value]) => value);
   return `
-    <div class="panel-header">
-      <div>
-        <h2>${escapeHtml(t("analysis.technicalTitle", "Technical details"))}</h2>
-        <div class="meta-line">${escapeHtml(t("analysis.technicalMeta", "last real chip read"))}</div>
-      </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div style="font-size:13.5px;font-weight:700;color:#F1F5F9;">${escapeHtml(t("analysis.technicalTitle","Chip-Details"))}</div>
+      ${chip
+        ? `<span style="font-size:10.5px;font-weight:600;color:#22C55E;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:4px;padding:2px 7px;">${escapeHtml(chip.technology||t("chip.generic","Chip"))}</span>`
+        : `<span style="font-size:10.5px;font-weight:600;color:#4A6080;background:#111D30;border:1px solid #1E3050;border-radius:4px;padding:2px 7px;">${escapeHtml(t("status.idle","Kein Chip"))}</span>`}
     </div>
-    ${rows.length ? `
-      <div class="detail-list">
-        ${rows.map(([label, value]) => `
-          <div class="detail-row"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>
-        `).join("")}
-      </div>
-    ` : `<div class="no-actions">${escapeHtml(t("analysis.noRealChip", "No real chip read in this session yet."))}</div>`}
+    ${rows.length
+      ? rows.map(([label, value]) => `
+        <div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-bottom:1px solid #111D30;">
+          <span style="font-size:11.5px;color:#4A6080;flex-shrink:0;padding-right:8px;">${escapeHtml(label)}</span>
+          <span style="font-size:11px;font-family:var(--mono);color:#CBD5E1;text-align:right;word-break:break-all;">${escapeHtml(value)}</span>
+        </div>
+      `).join("")
+      : `<div style="font-size:12px;color:#4A6080;">${escapeHtml(t("analysis.noRealChip","In dieser Sitzung noch kein Chip gelesen."))}</div>`}
   `;
 }
 
 function renderTemplatesView() {
   return `
-    <section class="screen" aria-labelledby="templatesTitle">
-      <div class="screen-head">
-        <div>
-          <h1 id="templatesTitle" class="screen-title">${escapeHtml(t("templates.title", "Templates"))}</h1>
-          <p class="screen-subtitle">${escapeHtml(t("templates.subtitle", "Templates come from real local storage."))}</p>
-        </div>
-        <div class="template-toolbar">
-          <input class="search-input" type="search" placeholder="${escapeHtml(t("templates.searchPlaceholder", "Search templates ..."))}" value="${escapeHtml(state.templateSearch)}" data-template-search />
-          <select class="compact-select" data-template-type-filter aria-label="${escapeHtml(t("templates.filterType", "Filter chip type"))}"></select>
-          <select class="compact-select" data-template-sort aria-label="${escapeHtml(t("templates.sort", "Sort templates"))}">
-            ${templateSortOptions().map(([value, label]) => `<option value="${value}" ${state.templateSort === value ? "selected" : ""}>${label}</option>`).join("")}
-          </select>
-          <button class="button button-secondary" type="button" data-import-templates>${escapeHtml(t("action.import", "Import"))}</button>
-        </div>
+    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;animation:fadeIn .35s ease both;">
+      <div style="padding:14px 18px;border-bottom:1px solid #1E3050;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <input type="search" placeholder="${escapeHtml(t("templates.searchPlaceholder","Suchen …"))}" value="${escapeHtml(state.templateSearch)}" data-template-search
+          style="padding:5px 10px;background:#111D30;border:1px solid #1E3050;border-radius:7px;color:#CBD5E1;font-family:inherit;font-size:12.5px;flex:1;min-width:120px;"/>
+        <select data-template-type-filter style="padding:5px 10px;background:#111D30;border:1px solid #1E3050;border-radius:7px;color:#CBD5E1;font-size:12px;"></select>
+        <select data-template-sort style="padding:5px 10px;background:#111D30;border:1px solid #1E3050;border-radius:7px;color:#CBD5E1;font-size:12px;">
+          ${templateSortOptions().map(([value, label]) => `<option value="${value}" ${state.templateSort===value?"selected":""}>${label}</option>`).join("")}
+        </select>
+        <button class="btn btn-ghost btn-sm" type="button" data-import-templates>${escapeHtml(t("action.import","Importieren"))}</button>
       </div>
-      <div class="management-list" data-template-list></div>
-    </section>
-  `;
+      <div style="flex:1;overflow-y:auto;padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;align-content:start;" data-template-list></div>
+    </div>`;
 }
 
 function patchTemplatesView() {
   const typeFilter = appView.querySelector("[data-template-type-filter]");
   if (typeFilter) {
-    const options = [["all", t("templates.allTypes", "All chip types")], ...templateTypes().map((type) => [type, type])];
+    const options = [["all", t("templates.allTypes", "All types")], ...templateTypes().map((type) => [type, type])];
     const html = options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${state.templateTypeFilter === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
     if (typeFilter.dataset.html !== html) {
       typeFilter.dataset.html = html;
@@ -982,22 +1601,25 @@ function renderTemplateList() {
   const templates = getVisibleTemplates();
   return templates.length
     ? templates.map(renderTemplateItem).join("")
-    : `<div class="no-actions">${escapeHtml(t("templates.empty", "No matching templates found in storage."))}</div>`;
+    : `<div style="font-size:13px;color:#4A6080;padding:8px 0;">${escapeHtml(t("templates.empty","Keine passenden Vorlagen gefunden."))}</div>`;
 }
 
 function renderTemplateItem(template) {
   return `
-    <article class="management-item">
-      <div class="management-main">
-        <h2>${escapeHtml(template.name)}</h2>
-        <div class="item-meta">${escapeHtml(template.technology)} · ${escapeHtml(template.frequency)} · UID ${escapeHtml(template.uid || "")}</div>
-        <div class="item-meta">${escapeHtml(t("label.created", "Created"))}: ${escapeHtml(template.created_display || "")}</div>
-        ${template.description ? `<p>${escapeHtml(template.description)}</p>` : ""}
-        ${template.category ? `<p>${escapeHtml(t("template.categoryNote", "Category / note"))}: ${escapeHtml(template.category)}</p>` : ""}
+    <article style="background:#0D1525;border:1px solid #1E3050;border-radius:11px;padding:13px;display:flex;flex-direction:column;gap:8px;animation:fadeInUp .3s ease both;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div style="font-size:13px;font-weight:600;color:#F1F5F9;line-height:1.3;">${escapeHtml(template.name)}</div>
+        ${template.technology ? `<span style="flex-shrink:0;font-size:10.5px;padding:2px 7px;background:#162438;border:1px solid #1E3050;border-radius:4px;color:#CBD5E1;">${escapeHtml(template.technology)}</span>` : ""}
       </div>
-      <div class="item-actions">
-        <button class="button button-small" type="button" data-use-template-target="${escapeHtml(template.id)}">${escapeHtml(t("write.useAsTarget", "Use as target state"))}</button>
-        <button class="kebab-button" type="button" data-template-menu="${escapeHtml(template.id)}" aria-label="${escapeHtml(t("action.moreActions", "More actions"))}">⋯</button>
+      <div style="font-family:var(--mono);font-size:10.5px;color:#4A6080;">${escapeHtml(template.uid||"—")}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;font-size:11px;color:#4A6080;">
+        ${template.frequency ? `<span>${escapeHtml(template.frequency)}</span>` : ""}
+        ${template.created_display ? `<span>· ${escapeHtml(template.created_display)}</span>` : ""}
+        ${template.category ? `<span>· ${escapeHtml(template.category)}</span>` : ""}
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px;">
+        <button class="btn btn-primary btn-sm" type="button" data-use-template-target="${escapeHtml(template.id)}">${escapeHtml(t("write.useAsTarget","Als Ziel verwenden"))}</button>
+        <button style="background:none;border:0;color:#4A6080;font-size:18px;cursor:pointer;padding:2px 5px;" type="button" data-template-menu="${escapeHtml(template.id)}" aria-label="${escapeHtml(t("action.moreActions","Mehr"))}">⋯</button>
       </div>
     </article>
   `;
@@ -1005,22 +1627,16 @@ function renderTemplateItem(template) {
 
 function renderBackupsView() {
   return `
-    <section class="screen" aria-labelledby="backupsTitle">
-      <div class="screen-head">
-        <div>
-          <h1 id="backupsTitle" class="screen-title">${escapeHtml(t("backups.title", "Backups"))}</h1>
-          <p class="screen-subtitle">${escapeHtml(t("backups.subtitle", "Backups are saved only after an actual chip read."))}</p>
-        </div>
-        <div class="template-toolbar">
-          <input class="search-input" type="search" placeholder="${escapeHtml(t("backups.searchPlaceholder", "Search backups ..."))}" value="${escapeHtml(state.backupSearch)}" data-backup-search />
-          <select class="compact-select" data-backup-sort aria-label="${escapeHtml(t("backups.sort", "Sort backups"))}">
-            ${backupSortOptions().map(([value, label]) => `<option value="${value}" ${state.backupSort === value ? "selected" : ""}>${label}</option>`).join("")}
-          </select>
-        </div>
+    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;animation:fadeIn .35s ease both;">
+      <div style="padding:14px 18px;border-bottom:1px solid #1E3050;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <input type="search" placeholder="${escapeHtml(t("backups.searchPlaceholder","Suchen …"))}" value="${escapeHtml(state.backupSearch)}" data-backup-search
+          style="padding:5px 10px;background:#111D30;border:1px solid #1E3050;border-radius:7px;color:#CBD5E1;font-family:inherit;font-size:12.5px;flex:1;min-width:120px;"/>
+        <select data-backup-sort style="padding:5px 10px;background:#111D30;border:1px solid #1E3050;border-radius:7px;color:#CBD5E1;font-size:12px;">
+          ${backupSortOptions().map(([value, label]) => `<option value="${value}" ${state.backupSort===value?"selected":""}>${label}</option>`).join("")}
+        </select>
       </div>
-      <div class="management-list" data-backup-list></div>
-    </section>
-  `;
+      <div style="flex:1;overflow-y:auto;padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;align-content:start;" data-backup-list></div>
+    </div>`;
 }
 
 function patchBackupsView() {
@@ -1031,21 +1647,24 @@ function renderBackupList() {
   const backups = getVisibleBackups();
   return backups.length
     ? backups.map(renderBackupItem).join("")
-    : `<div class="no-actions">${escapeHtml(t("backups.empty", "No matching backups found in storage."))}</div>`;
+    : `<div style="font-size:13px;color:#4A6080;padding:8px 0;">${escapeHtml(t("backups.empty","Keine passenden Backups gefunden."))}</div>`;
 }
 
 function renderBackupItem(backup) {
   return `
-    <article class="management-item">
-      <div class="management-main">
-        <h2>${escapeHtml(backup.technology)}</h2>
-        <div class="item-meta">UID: ${escapeHtml(backup.uid || "")}</div>
-        <div class="item-meta">${escapeHtml(t("label.created", "Created"))}: ${escapeHtml(backup.created_display || "")}</div>
-        <p>${escapeHtml(t("label.source", "Source"))}: ${escapeHtml(backup.source || t("backups.title", "Backup"))}</p>
+    <article style="background:#0D1525;border:1px solid #1E3050;border-radius:11px;padding:13px;display:flex;flex-direction:column;gap:8px;animation:fadeInUp .3s ease both;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div style="font-size:13px;font-weight:600;color:#F1F5F9;line-height:1.3;">${escapeHtml(backup.technology||t("chip.generic","Chip"))}</div>
+        ${backup.technology ? `<span style="flex-shrink:0;font-size:10.5px;padding:2px 7px;background:#162438;border:1px solid #1E3050;border-radius:4px;color:#CBD5E1;">${escapeHtml(backup.technology)}</span>` : ""}
       </div>
-      <div class="item-actions">
-        <button class="button button-small" type="button" data-use-backup-target="${escapeHtml(backup.id)}">${escapeHtml(t("write.useAsTarget", "Use as target state"))}</button>
-        <button class="kebab-button" type="button" data-backup-menu="${escapeHtml(backup.id)}" aria-label="${escapeHtml(t("action.moreActions", "More actions"))}">⋯</button>
+      <div style="font-family:var(--mono);font-size:10.5px;color:#4A6080;">${escapeHtml(backup.uid||"—")}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;font-size:11px;color:#4A6080;">
+        ${backup.created_display ? `<span>${escapeHtml(backup.created_display)}</span>` : ""}
+        ${backup.source ? `<span>· ${escapeHtml(backup.source)}</span>` : ""}
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px;">
+        <button class="btn btn-primary btn-sm" type="button" data-use-backup-target="${escapeHtml(backup.id)}">${escapeHtml(t("write.useAsTarget","Als Ziel verwenden"))}</button>
+        <button style="background:none;border:0;color:#4A6080;font-size:18px;cursor:pointer;padding:2px 5px;" type="button" data-backup-menu="${escapeHtml(backup.id)}" aria-label="${escapeHtml(t("action.moreActions","Mehr"))}">⋯</button>
       </div>
     </article>
   `;
@@ -1125,32 +1744,30 @@ function renderChipCard(chip, options = {}) {
   const regions = Array.isArray(chip.memoryRegions) ? chip.memoryRegions : [];
   const facts = chipFacts(chip);
   return `
-    <article class="chip-card">
-      <div class="chip-card-head">
-        <div>
-          <strong>${escapeHtml(chip.technology || t("chip.generic", "Chip"))}</strong>
-          <span>${escapeHtml(chip.frequency || "")}</span>
+    <div style="background:#0D1525;border:1px solid #1E3050;border-radius:11px;padding:13px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div style="font-size:13px;font-weight:700;color:#F1F5F9;">${escapeHtml(chip.technology || t("chip.generic", "Chip"))}</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:10.5px;padding:2px 7px;background:#162438;border:1px solid #1E3050;border-radius:4px;color:#CBD5E1;">${escapeHtml(statusLabel(chip))}</span>
+          ${options.infoKey ? `<button type="button" data-info-chip="${escapeHtml(options.infoKey)}" aria-label="${escapeHtml(t("action.showDetails", "Show details"))}" style="width:18px;height:18px;border-radius:50%;background:#162438;border:1px solid #1E3050;color:#4A6080;font-size:10px;cursor:pointer;font-family:inherit;">i</button>` : ""}
         </div>
-        <span class="chip-status-badge">${escapeHtml(statusLabel(chip))}</span>
-        ${options.infoKey ? `<button class="info-button" type="button" data-info-chip="${escapeHtml(options.infoKey)}" aria-label="${escapeHtml(t("action.showDetails", "Show details"))}">i</button>` : ""}
       </div>
-      <div class="chip-facts">
+      ${chip.frequency ? `<div style="font-size:11px;color:#3B82F6;margin-bottom:6px;">${escapeHtml(chip.frequency)}</div>` : ""}
+      <div style="font-family:var(--mono);font-size:10.5px;color:#4A6080;margin-bottom:10px;">${escapeHtml(chip.uid || "—")}</div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
         ${facts.map((field) => `
-          <div class="fact">
-            <span class="fact-label">${escapeHtml(field.label)}</span>
-            <span class="fact-value">${escapeHtml(field.value || "")}</span>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;border-bottom:1px solid #111D30;">
+            <span style="font-size:11px;color:#4A6080;">${escapeHtml(field.label)}</span>
+            <span style="font-size:11px;font-family:var(--mono);color:${field.isReadonly ? "#4A6080" : "#CBD5E1"};">${escapeHtml(field.value || "")}</span>
           </div>
         `).join("")}
       </div>
       ${regions.length ? `
-        <div class="segment-block">
-          <div class="chip-core" aria-hidden="true"><div class="chip-core-inner"></div></div>
-          <div class="memory-segments" aria-label="${escapeHtml(t("chip.memorySegments", "Memory segments"))}">
-            ${regions.map((region) => `<div class="memory-segment is-${memorySegmentState(region)}">${escapeHtml(memorySegmentLabel(region))}</div>`).join("")}
-          </div>
+        <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:3px;">
+          ${regions.map((r) => `<span style="font-size:10px;padding:2px 6px;background:#162438;border:1px solid #1E3050;border-radius:4px;color:#4A6080;font-family:var(--mono);">${escapeHtml((r.label||r.id||"").substring(0,8))}</span>`).join("")}
         </div>
       ` : ""}
-    </article>
+    </div>
   `;
 }
 
@@ -1188,21 +1805,21 @@ function memorySegmentLabel(region) {
 
 function renderDataRows(regions) {
   if (!Array.isArray(regions) || !regions.length) {
-    return `<div class="no-actions">${escapeHtml(t("chip.noMemoryRead", "No memory areas read."))}</div>`;
+    return `<div style="font-size:13px;color:#4A6080;padding:8px 0;">${escapeHtml(t("chip.noMemoryRead", "No memory areas read."))}</div>`;
   }
   return regions.map((region) => `
-    <div class="data-row">
-      <strong>${escapeHtml(region.label)}</strong>
-      <span>${escapeHtml(region.value)}</span>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-bottom:1px solid #111D30;">
+      <strong style="font-size:11.5px;color:#4A6080;font-weight:600;">${escapeHtml(region.label)}</strong>
+      <span style="font-size:11px;font-family:var(--mono);color:#CBD5E1;text-align:right;word-break:break-all;max-width:60%;">${escapeHtml(region.value)}</span>
     </div>
   `).join("");
 }
 
 function renderEmptyChip(label) {
   return `
-    <div class="empty-state">
-      <div class="empty-chip" aria-hidden="true"></div>
-      <strong>${escapeHtml(label)}</strong>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:24px;color:#4A6080;">
+      <div style="width:40px;height:40px;border-radius:50%;background:#111D30;border:1px solid #1E3050;" aria-hidden="true"></div>
+      <strong style="font-size:13px;font-weight:600;">${escapeHtml(label)}</strong>
     </div>
   `;
 }
@@ -1234,12 +1851,24 @@ async function boot() {
 }
 
 async function refreshConnection() {
+  const wasLost = state.connection.status === "lost";
   state.connection = { status: "checking", connected: false, message_key: "connection.checking" };
   setStatus(t("connection.checking", "Checking Proxmark3 connection ..."));
   render();
   try {
     state.connection = await callBridge("refresh_connection");
     setStatus(state.connection.connected ? t("app.ready", "Ready") : state.connection);
+    if (state.connection.connected) {
+      // Unblock startup error screen so the user can continue
+      if (state.startupFlow === "antenna-error") {
+        state.startupFlow = "antenna-ready";
+      }
+      // After a mid-session reconnect, force a full re-render of the current
+      // screen so any static disabled states (buttons, notes) get cleared
+      if (wasLost) {
+        renderedScreenKey = "";
+      }
+    }
   } catch (error) {
     state.connection = { status: "disconnected", connected: false, message: error.message };
     setStatus(error.message);
@@ -1368,6 +1997,11 @@ async function startCurrentChipScan() {
 
 async function startWriteAction(regionId) {
   if (isOperationBusy(state.writeOperations[regionId]) || anyWriteBusy()) return;
+  const action = state.knownActions[regionId] || (state.comparison?.actions || []).find((item) => item.region_id === regionId);
+  if (!action?.enabled) {
+    showToast(t("write.actionBlocked", "Diese Schreibaktion ist nicht freigegeben."));
+    return;
+  }
   const response = await callBridge("start_write_region", regionId);
   state.writeOperations[regionId] = { operation_id: response.operation_id, state: "queued", progress: [] };
   setStatus(t("write.actionStarted", "Write action started"));
@@ -1377,6 +2011,10 @@ async function startWriteAction(regionId) {
 
 async function startWriteAll() {
   if (anyWriteBusy()) return;
+  if (!enabledWriteActions().length) {
+    showToast(t("write.noEnabledActions", "Keine freigegebenen Schreibaktionen."));
+    return;
+  }
   state.completedActions = {};
   state.failedRegionId = null;
   const response = await callBridge("start_write_all");
@@ -1621,6 +2259,8 @@ async function importTemplates() {
 function setActiveView(view) {
   clearPopover();
   state.startupFlow = "done";
+  // Reset write operation so navigating back always shows the form, not a stale DONE screen
+  if (view === "write") state.autoWriteOperation = null;
   state.activeView = view;
   appView.scrollTop = 0;
   appView.scrollLeft = 0;
@@ -1631,29 +2271,37 @@ function setActiveView(view) {
 
 function openSaveTemplateModal() {
   if (!state.lastScan?.canSave) return;
+  // Auto-suggest name: "<ChipType>_YYYYMMDD"
+  const chip = state.lastScan?.chip;
+  const tech = (chip?.technology || chip?.type || "").replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+  const now = new Date();
+  const datePart = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}`;
+  const defaultName = tech ? `${tech}_${datePart}` : datePart;
   state.activeModal = { type: "saveTemplate" };
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="saveTitle">
-      <h2 id="saveTitle">${escapeHtml(t("template.saveTitle", "Save template"))}</h2>
-      <form class="form-grid" data-save-template-form>
-        <div class="form-field">
-          <label for="templateName">${escapeHtml(t("field.name", "Name"))}</label>
-          <input id="templateName" name="name" autocomplete="off" required />
-        </div>
-        <div class="form-field">
-          <label for="templateDescription">${escapeHtml(t("field.description", "Description"))}</label>
-          <textarea id="templateDescription" name="description"></textarea>
-        </div>
-        <div class="form-field">
-          <label for="templateCategory">${escapeHtml(t("template.categoryNote", "Category / note"))}</label>
-          <input id="templateCategory" name="category" autocomplete="off" />
-        </div>
-        <div class="modal-actions">
-          <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.cancel", "Cancel"))}</button>
-          <button class="button" type="submit">${escapeHtml(t("action.save", "Save"))}</button>
-        </div>
-      </form>
+    <div class="modal-backdrop">
+      <div style="background:#0D1525;border:1px solid #1E3050;border-radius:16px;padding:24px;min-width:380px;max-width:520px;box-shadow:0 24px 60px rgba(0,0,0,.5);" role="dialog" aria-modal="true" aria-labelledby="saveTitle">
+        <h2 id="saveTitle" style="font-size:15px;font-weight:700;color:#F1F5F9;margin-bottom:16px;">${escapeHtml(t("template.saveTitle", "Save template"))}</h2>
+        <form style="display:flex;flex-direction:column;gap:14px;" data-save-template-form>
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <label for="templateName" style="font-size:11px;color:#4A6080;text-transform:uppercase;letter-spacing:.5px;">${escapeHtml(t("field.name", "Name"))}</label>
+            <input id="templateName" name="name" value="${escapeHtml(defaultName)}" autocomplete="off" required style="padding:7px 10px;background:#111D30;border:1px solid #1E3050;border-radius:7px;color:#F1F5F9;font-family:inherit;font-size:13px;" />
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <label for="templateDescription" style="font-size:11px;color:#4A6080;text-transform:uppercase;letter-spacing:.5px;">${escapeHtml(t("field.description", "Description"))}</label>
+            <textarea id="templateDescription" name="description" style="padding:7px 10px;background:#111D30;border:1px solid #1E3050;border-radius:7px;color:#F1F5F9;font-family:inherit;font-size:13px;resize:vertical;min-height:64px;"></textarea>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <label for="templateCategory" style="font-size:11px;color:#4A6080;text-transform:uppercase;letter-spacing:.5px;">${escapeHtml(t("template.categoryNote", "Category / note"))}</label>
+            <input id="templateCategory" name="category" autocomplete="off" style="padding:7px 10px;background:#111D30;border:1px solid #1E3050;border-radius:7px;color:#F1F5F9;font-family:inherit;font-size:13px;" />
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">
+            <button class="btn btn-ghost" type="button" data-close-modal>${escapeHtml(t("action.cancel", "Cancel"))}</button>
+            <button class="btn btn-primary" type="submit">${escapeHtml(t("action.save", "Save"))}</button>
+          </div>
+        </form>
+      </div>
     </div>
   `;
   modalRoot.querySelector("input")?.focus();
@@ -1666,26 +2314,28 @@ function openEditTemplateModal(templateId) {
   state.activeModal = { type: "editTemplate", id: templateId };
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editTitle">
-      <h2 id="editTitle">${escapeHtml(t("template.editTitle", "Edit template"))}</h2>
-      <form class="form-grid" data-edit-template-form data-template-id="${escapeHtml(template.id)}">
-        <div class="form-field">
-          <label for="editName">${escapeHtml(t("field.name", "Name"))}</label>
-          <input id="editName" name="name" value="${escapeHtml(template.name)}" autocomplete="off" required />
-        </div>
-        <div class="form-field">
-          <label for="editDescription">${escapeHtml(t("field.description", "Description"))}</label>
-          <textarea id="editDescription" name="description">${escapeHtml(template.description || "")}</textarea>
-        </div>
-        <div class="form-field">
-          <label for="editCategory">${escapeHtml(t("template.categoryNote", "Category / note"))}</label>
-          <input id="editCategory" name="category" value="${escapeHtml(template.category || "")}" autocomplete="off" />
-        </div>
-        <div class="modal-actions">
-          <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.cancel", "Cancel"))}</button>
-          <button class="button" type="submit">${escapeHtml(t("action.save", "Save"))}</button>
-        </div>
-      </form>
+    <div class="modal-backdrop">
+      <div style="background:#0D1525;border:1px solid #1E3050;border-radius:16px;padding:24px;min-width:380px;max-width:520px;box-shadow:0 24px 60px rgba(0,0,0,.5);" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+        <h2 id="editTitle" style="font-size:15px;font-weight:700;color:#F1F5F9;margin-bottom:16px;">${escapeHtml(t("template.editTitle", "Edit template"))}</h2>
+        <form style="display:flex;flex-direction:column;gap:14px;" data-edit-template-form data-template-id="${escapeHtml(template.id)}">
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <label for="editName" style="font-size:11px;color:#4A6080;text-transform:uppercase;letter-spacing:.5px;">${escapeHtml(t("field.name", "Name"))}</label>
+            <input id="editName" name="name" value="${escapeHtml(template.name)}" autocomplete="off" required style="padding:7px 10px;background:#111D30;border:1px solid #1E3050;border-radius:7px;color:#F1F5F9;font-family:inherit;font-size:13px;" />
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <label for="editDescription" style="font-size:11px;color:#4A6080;text-transform:uppercase;letter-spacing:.5px;">${escapeHtml(t("field.description", "Description"))}</label>
+            <textarea id="editDescription" name="description" style="padding:7px 10px;background:#111D30;border:1px solid #1E3050;border-radius:7px;color:#F1F5F9;font-family:inherit;font-size:13px;resize:vertical;min-height:64px;">${escapeHtml(template.description || "")}</textarea>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <label for="editCategory" style="font-size:11px;color:#4A6080;text-transform:uppercase;letter-spacing:.5px;">${escapeHtml(t("template.categoryNote", "Category / note"))}</label>
+            <input id="editCategory" name="category" value="${escapeHtml(template.category || "")}" autocomplete="off" style="padding:7px 10px;background:#111D30;border:1px solid #1E3050;border-radius:7px;color:#F1F5F9;font-family:inherit;font-size:13px;" />
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">
+            <button class="btn btn-ghost" type="button" data-close-modal>${escapeHtml(t("action.cancel", "Cancel"))}</button>
+            <button class="btn btn-primary" type="submit">${escapeHtml(t("action.save", "Save"))}</button>
+          </div>
+        </form>
+      </div>
     </div>
   `;
   modalRoot.querySelector("input")?.focus();
@@ -1696,11 +2346,13 @@ function openConfirmDeleteTemplate(templateId) {
   state.activeModal = { type: "deleteTemplate", id: templateId };
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
-    <div class="modal modal-small" role="dialog" aria-modal="true" aria-labelledby="deleteTemplateTitle">
-      <h2 id="deleteTemplateTitle">${escapeHtml(t("template.confirmDelete", "Delete template?"))}</h2>
-      <div class="modal-actions">
-        <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.cancel", "Cancel"))}</button>
-        <button class="button button-danger" type="button" data-confirm-delete-template="${escapeHtml(templateId)}">${escapeHtml(t("action.delete", "Delete"))}</button>
+    <div class="modal-backdrop">
+      <div style="background:#0D1525;border:1px solid #1E3050;border-radius:16px;padding:24px;min-width:320px;max-width:440px;box-shadow:0 24px 60px rgba(0,0,0,.5);" role="dialog" aria-modal="true" aria-labelledby="deleteTemplateTitle">
+        <h2 id="deleteTemplateTitle" style="font-size:15px;font-weight:700;color:#F1F5F9;margin-bottom:16px;">${escapeHtml(t("template.confirmDelete", "Delete template?"))}</h2>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button class="btn btn-ghost" type="button" data-close-modal>${escapeHtml(t("action.cancel", "Cancel"))}</button>
+          <button class="btn btn-sm" type="button" data-confirm-delete-template="${escapeHtml(templateId)}" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#EF4444;">${escapeHtml(t("action.delete", "Delete"))}</button>
+        </div>
       </div>
     </div>
   `;
@@ -1711,11 +2363,13 @@ function openConfirmDeleteBackup(backupId) {
   state.activeModal = { type: "deleteBackup", id: backupId };
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
-    <div class="modal modal-small" role="dialog" aria-modal="true" aria-labelledby="deleteBackupTitle">
-      <h2 id="deleteBackupTitle">${escapeHtml(t("backup.confirmDelete", "Delete backup?"))}</h2>
-      <div class="modal-actions">
-        <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.cancel", "Cancel"))}</button>
-        <button class="button button-danger" type="button" data-confirm-delete-backup="${escapeHtml(backupId)}">${escapeHtml(t("action.delete", "Delete"))}</button>
+    <div class="modal-backdrop">
+      <div style="background:#0D1525;border:1px solid #1E3050;border-radius:16px;padding:24px;min-width:320px;max-width:440px;box-shadow:0 24px 60px rgba(0,0,0,.5);" role="dialog" aria-modal="true" aria-labelledby="deleteBackupTitle">
+        <h2 id="deleteBackupTitle" style="font-size:15px;font-weight:700;color:#F1F5F9;margin-bottom:16px;">${escapeHtml(t("backup.confirmDelete", "Delete backup?"))}</h2>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button class="btn btn-ghost" type="button" data-close-modal>${escapeHtml(t("action.cancel", "Cancel"))}</button>
+          <button class="btn btn-sm" type="button" data-confirm-delete-backup="${escapeHtml(backupId)}" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#EF4444;">${escapeHtml(t("action.delete", "Delete"))}</button>
+        </div>
       </div>
     </div>
   `;
@@ -1727,22 +2381,29 @@ function openBackupDetails(backupId) {
   if (!backup) return;
   state.activeModal = { type: "backupDetails", id: backupId };
   const chip = backup.chip || {};
+  const detailRow = (label, value) => `
+    <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #1E3050;font-size:12.5px;">
+      <span style="color:#4A6080;">${escapeHtml(label)}</span>
+      <span style="color:#CBD5E1;font-family:var(--mono);">${escapeHtml(value)}</span>
+    </div>`;
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="backupDetailsTitle">
-      <h2 id="backupDetailsTitle">${escapeHtml(t("backup.detailsTitle", "Backup details"))}</h2>
-      <div class="detail-list">
-        <div class="detail-row"><span>${escapeHtml(t("chip.type", "Chip type"))}</span><span>${escapeHtml(backup.technology || "")}</span></div>
-        <div class="detail-row"><span>UID</span><span>${escapeHtml(backup.uid || "")}</span></div>
-        <div class="detail-row"><span>Config</span><span>${escapeHtml(chip.config || "")}</span></div>
-        <div class="detail-row"><span>${escapeHtml(t("label.timestamp", "Timestamp"))}</span><span>${escapeHtml(backup.created_display || "")}</span></div>
-        <div class="detail-row"><span>${escapeHtml(t("label.source", "Source"))}</span><span>${escapeHtml(backup.source || "")}</span></div>
-      </div>
-      <div class="data-overview modal-data">
-        ${renderDataRows(chip.memoryRegions)}
-      </div>
-      <div class="modal-actions">
-        <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.close", "Close"))}</button>
+    <div class="modal-backdrop">
+      <div style="background:#0D1525;border:1px solid #1E3050;border-radius:16px;padding:24px;min-width:380px;max-width:520px;box-shadow:0 24px 60px rgba(0,0,0,.5);" role="dialog" aria-modal="true" aria-labelledby="backupDetailsTitle">
+        <h2 id="backupDetailsTitle" style="font-size:15px;font-weight:700;color:#F1F5F9;margin-bottom:16px;">${escapeHtml(t("backup.detailsTitle", "Backup details"))}</h2>
+        <div style="display:flex;flex-direction:column;gap:0;margin-bottom:14px;">
+          ${detailRow(t("chip.type", "Chip type"), backup.technology || "")}
+          ${detailRow("UID", backup.uid || "")}
+          ${detailRow("Config", chip.config || "")}
+          ${detailRow(t("label.timestamp", "Timestamp"), backup.created_display || "")}
+          ${detailRow(t("label.source", "Source"), backup.source || "")}
+        </div>
+        <div style="margin-bottom:14px;">
+          ${renderDataRows(chip.memoryRegions)}
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button class="btn btn-ghost" type="button" data-close-modal>${escapeHtml(t("action.close", "Close"))}</button>
+        </div>
       </div>
     </div>
   `;
@@ -1761,7 +2422,7 @@ function openBackupTargetPopover(trigger) {
       <strong>${escapeHtml(backup.technology)}</strong>
       <span>${escapeHtml(backup.created_display || "")} · UID ${escapeHtml(backup.uid || "")}</span>
     </button>
-  `).join("") : `<div class="no-actions">${escapeHtml(t("backups.none", "No backups available."))}</div>`;
+  `).join("") : `<div style="font-size:13px;color:#4A6080;padding:8px 0;">${escapeHtml(t("backups.none", "No backups available."))}</div>`;
   openPopover(trigger, `<h3>${escapeHtml(t("backup.choose", "Choose backup"))}</h3><div class="popover-list">${items}</div>`);
 }
 
@@ -1787,88 +2448,55 @@ function openBackupMenu(trigger, backupId) {
 function openInfoPopover(trigger) {
   const details = detailsForKey(trigger.dataset.infoChip);
   if (!details) return;
-  openPopover(trigger, `
-    <h3>${escapeHtml(t("action.details", "Details"))}</h3>
-    <div class="detail-list">
-      ${Object.entries(details).map(([label, value]) => `
-        <div class="detail-row">
-          <span>${escapeHtml(label)}</span>
-          <span>${escapeHtml(value)}</span>
-        </div>
-      `).join("")}
-    </div>
-  `);
-}
-
-function openPopover(trigger, html) {
-  clearPopover();
-  const rect = trigger.getBoundingClientRect();
-  const shellRect = document.querySelector("[data-app-shell]").getBoundingClientRect();
-  const popover = document.createElement("div");
-  popover.className = "popover";
-  popover.setAttribute("role", "dialog");
-  popover.style.top = `${Math.min(rect.bottom + 8, shellRect.bottom - 292)}px`;
-  popover.style.left = `${Math.max(shellRect.left + 12, Math.min(rect.left, shellRect.right - 334))}px`;
-  popover.innerHTML = html;
-  document.body.appendChild(popover);
-  state.activePopover = popover;
-}
-
-function detailsForKey(key) {
-  if (key === "lastScan") return state.lastScan?.chip?.details;
-  if (key === "currentChip") return state.currentChip?.details;
-  if (key === "target") return state.target?.chip?.details;
-  return null;
+  const rows = Object.entries(details).map(([label, value]) => `
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1E3050;font-size:12px;">
+      <span style="color:#4A6080;">${escapeHtml(label)}</span>
+      <span style="font-family:var(--mono);color:#CBD5E1;">${escapeHtml(value)}</span>
+    </div>`).join("");
+  openPopover(trigger, `<div style="padding:4px 0;">${rows}</div>`);
 }
 
 function openHelpModal(topic) {
-  state.activeModal = { type: "help", topic };
+  const key = HELP_TOPICS.includes(topic) ? topic : HELP_TOPICS[0];
+  state.activeModal = { type: "help", topic: key };
   modalRoot.hidden = false;
   modalRoot.innerHTML = `
-    <div class="modal modal-small" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
-      <h2 id="helpTitle">${escapeHtml(t(`help.${topic}.title`, topic))}</h2>
-      <p class="screen-subtitle">${escapeHtml(t(`help.${topic}.body`, ""))}</p>
-      <div class="modal-actions">
-        <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.close", "Close"))}</button>
+    <div class="modal-backdrop">
+      <div style="background:#0D1525;border:1px solid #1E3050;border-radius:16px;padding:24px;min-width:380px;max-width:520px;box-shadow:0 24px 60px rgba(0,0,0,.5);" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+        <h2 id="helpTitle" style="font-size:15px;font-weight:700;color:#F1F5F9;margin-bottom:12px;">${escapeHtml(t(`help.${key}.title`, "Help"))}</h2>
+        <p style="font-size:13px;color:#4A6080;line-height:1.6;margin-bottom:16px;">${escapeHtml(t(`help.${key}.body`, ""))}</p>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button class="btn btn-ghost" type="button" data-close-modal>${escapeHtml(t("action.close", "Close"))}</button>
+        </div>
       </div>
     </div>
   `;
 }
 
-function showStatusModal() {
-  const connection = state.connection;
-  state.activeModal = { type: "status" };
-  modalRoot.hidden = false;
-  modalRoot.innerHTML = `
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pm3StatusTitle">
-      <h2 id="pm3StatusTitle">${escapeHtml(t("settings.pm3Status", "PM3 status"))}</h2>
-      <div class="detail-list">
-        <div class="detail-row"><span>${escapeHtml(t("label.status", "Status"))}</span><span>${escapeHtml(connection.connected ? t("status.connected", "Connected") : connection.status)}</span></div>
-        <div class="detail-row"><span>Port</span><span>${escapeHtml(connection.port || t("connection.notAvailable", "not available"))}</span></div>
-        <div class="detail-row"><span>${escapeHtml(t("status.device", "Device"))}</span><span>${escapeHtml(connection.target || t("connection.notAvailable", "not available"))}</span></div>
-        <div class="detail-row"><span>${escapeHtml(t("status.client", "Client"))}</span><span>${escapeHtml(connection.client_version || t("connection.notAvailable", "not available"))}</span></div>
-        <div class="detail-row"><span>${escapeHtml(t("status.compatibility", "Compatibility"))}</span><span>${escapeHtml(compatibilityLabel(connection.compatibility))}</span></div>
-        <div class="detail-row"><span>${escapeHtml(t("label.message", "Message"))}</span><span>${escapeHtml(uiMessage(connection))}</span></div>
-      </div>
-      <div class="modal-actions">
-        <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.close", "Close"))}</button>
-      </div>
-    </div>
-  `;
+function detailsForKey(key) {
+  if (!key) return null;
+  const chip = state.lastScan?.chip || state.currentChip;
+  if (!chip) return null;
+  const details = chip.details || {};
+  if (Object.keys(details).length) return details;
+  return null;
 }
 
-function showAboutModal() {
-  state.activeModal = { type: "about" };
-  modalRoot.hidden = false;
-  modalRoot.innerHTML = `
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
-      <h2 id="aboutTitle">${escapeHtml(t("about.title", "RFID Workflow"))}</h2>
-      <p class="screen-subtitle">${escapeHtml(t("about.body", "Local pywebview app through the real Python PM3 bridge."))}</p>
-      <div class="modal-actions">
-        <button class="button button-secondary" type="button" data-close-modal>${escapeHtml(t("action.close", "Close"))}</button>
-      </div>
-    </div>
-  `;
+function openPopover(trigger, content) {
+  clearPopover();
+  const el = document.createElement("div");
+  el.className = "popover";
+  el.innerHTML = content;
+  document.body.appendChild(el);
+  state.activePopover = el;
+  const rect = trigger.getBoundingClientRect();
+  const popRect = el.getBoundingClientRect();
+  let top = rect.bottom + 6;
+  let left = rect.left;
+  if (left + popRect.width > window.innerWidth - 8) left = window.innerWidth - popRect.width - 8;
+  if (top + popRect.height > window.innerHeight - 8) top = rect.top - popRect.height - 6;
+  el.style.top = `${top}px`;
+  el.style.left = `${left}px`;
 }
 
 function clearPopover() {
@@ -1881,54 +2509,21 @@ function clearPopover() {
 function showToast(message) {
   clearTimeout(toastTimer);
   toastRoot.hidden = false;
-  toastRoot.innerHTML = `<div class="toast" role="status"><span>${escapeHtml(message)}</span></div>`;
-  toastTimer = setTimeout(() => {
-    toastRoot.hidden = true;
-    toastRoot.innerHTML = "";
-  }, 3200);
+  toastRoot.innerHTML = `
+    <div style="position:absolute;bottom:48px;left:50%;transform:translateX(-50%);pointer-events:none;">
+      <div class="toast" role="status"><span>${escapeHtml(message)}</span></div>
+    </div>`;
+  toastTimer = setTimeout(() => { toastRoot.hidden = true; }, 2800);
 }
 
-function rerenderActiveModal() {
-  const modal = state.activeModal;
-  if (!modal || modalRoot.hidden) return;
-  if (modal.type === "saveTemplate") openSaveTemplateModal();
-  else if (modal.type === "editTemplate") openEditTemplateModal(modal.id);
-  else if (modal.type === "deleteTemplate") openConfirmDeleteTemplate(modal.id);
-  else if (modal.type === "deleteBackup") openConfirmDeleteBackup(modal.id);
-  else if (modal.type === "backupDetails") openBackupDetails(modal.id);
-  else if (modal.type === "help") openHelpModal(modal.topic);
-  else if (modal.type === "status") showStatusModal();
-  else if (modal.type === "about") showAboutModal();
+function setTransientStatus(message) {
+  if (!message) return;
+  showToast(message);
 }
 
 document.addEventListener("click", async (event) => {
   if (!(event.target instanceof Element)) return;
   const target = event.target;
-
-  const languageChoice = target.closest("[data-choose-language]");
-  if (languageChoice) {
-    await setLanguage(languageChoice.dataset.chooseLanguage || "en", true);
-    await runStartupCheck();
-    await loadCollections();
-    await loadTarget();
-    return;
-  }
-
-  if (target.closest("[data-continue-overview]")) {
-    await continueToOverview();
-    return;
-  }
-
-  if (target.closest("[data-startup-antenna]")) {
-    await startAntennaCheck({ startup: true });
-    return;
-  }
-
-  const helpTopic = target.closest("[data-help-topic]");
-  if (helpTopic) {
-    openHelpModal(helpTopic.dataset.helpTopic);
-    return;
-  }
 
   const navButton = target.closest("[data-view]");
   if (navButton) {
@@ -1936,48 +2531,82 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
-  if (target.closest("[data-settings-toggle]")) {
-    settingsPanel.hidden = !settingsPanel.hidden;
-    return;
-  }
-  if (!target.closest("[data-settings-panel]") && !target.closest("[data-settings-toggle]")) {
-    settingsPanel.hidden = true;
-  }
-
-  if (target.closest("[data-refresh-connection]")) {
-    await refreshConnection();
-    return;
-  }
-  if (target.closest("[data-run-startup-check]")) {
-    settingsPanel.hidden = true;
-    await runStartupCheck();
-    return;
-  }
-  if (target.closest("[data-show-pm3-status]")) {
-    showStatusModal();
-    return;
-  }
-  if (target.closest("[data-import-templates]")) {
-    await importTemplates();
-    return;
-  }
-  if (target.closest("[data-advanced-tools]")) {
-    showToast(t("settings.advancedUnavailable", "Advanced tools are not enabled in this real app."));
-    return;
-  }
-  if (target.closest("[data-about]")) {
-    showAboutModal();
+  // ── Language selection (first-run screen) ───────────────────────────
+  const chooseLanguage = target.closest("[data-choose-language]");
+  if (chooseLanguage) {
+    await setLanguage(chooseLanguage.dataset.chooseLanguage, true);
+    state.startupFlow = state.settings.show_startup_check_on_launch !== false ? "checking" : "done";
+    await loadCollections();
+    await loadTarget();
+    if (state.settings.show_startup_check_on_launch !== false) {
+      await runStartupCheck();
+    } else {
+      render();
+    }
     return;
   }
 
-  const readMode = target.closest("[data-read-mode]");
-  if (readMode) {
-    state.readMode = readMode.dataset.readMode;
-    setTransientStatus(t("read.modeSelected", "Scan mode {mode}").replace("{mode}", state.readMode.toUpperCase()));
-    render();
+  // ── Write actions ────────────────────────────────────────────────────
+  const writeActionBtn = target.closest("[data-write-action]");
+  if (writeActionBtn) {
+    await startWriteAction(writeActionBtn.dataset.writeAction);
     return;
   }
+
+  // ── Template & backup targeting ──────────────────────────────────────
+  const useTemplateBtn = target.closest("[data-use-template-target]");
+  if (useTemplateBtn) {
+    await useTemplateTarget(useTemplateBtn.dataset.useTemplateTarget);
+    return;
+  }
+  const useBackupBtn = target.closest("[data-use-backup-target]");
+  if (useBackupBtn) {
+    await useBackupTarget(useBackupBtn.dataset.useBackupTarget);
+    return;
+  }
+  const templateMenuBtn = target.closest("[data-template-menu]");
+  if (templateMenuBtn) {
+    openTemplateMenu(templateMenuBtn, templateMenuBtn.dataset.templateMenu);
+    return;
+  }
+
+  // ── Template popover actions ─────────────────────────────────────────
+  const editTemplateBtn = target.closest("[data-edit-template]");
+  if (editTemplateBtn) {
+    openEditTemplateModal(editTemplateBtn.dataset.editTemplate);
+    return;
+  }
+  const duplicateTemplateBtn = target.closest("[data-duplicate-template]");
+  if (duplicateTemplateBtn) {
+    await duplicateTemplate(duplicateTemplateBtn.dataset.duplicateTemplate);
+    return;
+  }
+
+  // ── Backup popover / confirm actions ────────────────────────────────
+  const deleteBackupBtn = target.closest("[data-delete-backup]");
+  if (deleteBackupBtn) {
+    openConfirmDeleteBackup(deleteBackupBtn.dataset.deleteBackup);
+    return;
+  }
+  const confirmDeleteBackupBtn = target.closest("[data-confirm-delete-backup]");
+  if (confirmDeleteBackupBtn) {
+    await deleteBackup(confirmDeleteBackupBtn.dataset.confirmDeleteBackup);
+    return;
+  }
+
+  // ── Info / help popovers ─────────────────────────────────────────────
+  const infoChipBtn = target.closest("[data-info-chip]");
+  if (infoChipBtn) {
+    openInfoPopover(infoChipBtn);
+    return;
+  }
+
   if (target.closest("[data-read-scan]")) {
+    await startReadScan();
+    return;
+  }
+  if (target.closest("[data-verify-after-write]")) {
+    setActiveView("read");
     await startReadScan();
     return;
   }
@@ -1989,53 +2618,13 @@ document.addEventListener("click", async (event) => {
     await startCurrentChipScan();
     return;
   }
-
   if (target.closest("[data-write-all]")) {
     await startWriteAll();
     return;
   }
-  const writeAction = target.closest("[data-write-action]");
-  if (writeAction) {
-    await startWriteAction(writeAction.dataset.writeAction);
-    return;
-  }
-  const info = target.closest("[data-info-chip]");
-  if (info) {
-    openInfoPopover(info);
-    return;
-  }
-  if (target.closest("[data-open-backup-targets]")) {
-    openBackupTargetPopover(target.closest("[data-open-backup-targets]"));
-    return;
-  }
-  const useBackup = target.closest("[data-use-backup-target]");
-  if (useBackup) {
-    await useBackupTarget(useBackup.dataset.useBackupTarget);
-    return;
-  }
-  const useTemplate = target.closest("[data-use-template-target]");
-  if (useTemplate) {
-    await useTemplateTarget(useTemplate.dataset.useTemplateTarget);
-    return;
-  }
-  const templateMenu = target.closest("[data-template-menu]");
-  if (templateMenu) {
-    openTemplateMenu(templateMenu, templateMenu.dataset.templateMenu);
-    return;
-  }
-  const backupMenu = target.closest("[data-backup-menu]");
-  if (backupMenu) {
-    openBackupMenu(backupMenu, backupMenu.dataset.backupMenu);
-    return;
-  }
-  const editTemplate = target.closest("[data-edit-template]");
-  if (editTemplate) {
-    openEditTemplateModal(editTemplate.dataset.editTemplate);
-    return;
-  }
-  const duplicate = target.closest("[data-duplicate-template]");
-  if (duplicate) {
-    await duplicateTemplate(duplicate.dataset.duplicateTemplate);
+  if (target.closest("[data-write-reset]")) {
+    state.autoWriteOperation = null;
+    render();
     return;
   }
   const deleteTemplateButton = target.closest("[data-delete-template]");
@@ -2053,14 +2642,13 @@ document.addEventListener("click", async (event) => {
     openBackupDetails(backupDetails.dataset.backupDetails);
     return;
   }
-  const deleteBackupButton = target.closest("[data-delete-backup]");
-  if (deleteBackupButton) {
-    openConfirmDeleteBackup(deleteBackupButton.dataset.deleteBackup);
+  const backupMenu = target.closest("[data-backup-menu]");
+  if (backupMenu) {
+    openBackupMenu(backupMenu, backupMenu.dataset.backupMenu);
     return;
   }
-  const confirmDeleteBackup = target.closest("[data-confirm-delete-backup]");
-  if (confirmDeleteBackup) {
-    await deleteBackup(confirmDeleteBackup.dataset.confirmDeleteBackup);
+  if (target.closest("[data-open-backup-targets]")) {
+    openBackupTargetPopover(target.closest("[data-open-backup-targets]"));
     return;
   }
   if (target.closest("[data-start-position]")) {
@@ -2071,10 +2659,92 @@ document.addEventListener("click", async (event) => {
     await startAntennaCheck();
     return;
   }
+  if (target.closest("[data-analysis-details]")) {
+    state.analysisShowDetails = true;
+    patchAnalysisView();
+    return;
+  }
+  if (target.closest("[data-start-selftest]")) {
+    state.positionResult = null;
+    state.antennaResult = null;
+    state.analysisShowDetails = false;
+    startPositionCheck();
+    await startAntennaCheck();
+    return;
+  }
   if (target.closest("[data-close-modal]")) {
     closeModal();
     return;
   }
+  // ── Startup screen buttons ───────────────────────────────────────────
+  if (target.closest("[data-continue-overview]")) {
+    await continueToOverview();
+    return;
+  }
+  if (target.closest("[data-startup-antenna]")) {
+    // On "antenna-ready": start the antenna check for the first time.
+    // On "antenna-error":  re-run the full startup (connection + antenna).
+    if (state.startupFlow === "antenna-ready") {
+      await startAntennaCheck({ startup: true });
+    } else {
+      await runStartupCheck();
+    }
+    return;
+  }
+  // ── Sidebar settings panel ──────────────────────────────────────────
+  if (target.closest("[data-settings-toggle]")) {
+    const isOpening = settingsPanel.hidden;
+    settingsPanel.hidden = !isOpening;
+    if (isOpening) {
+      // Populate PM3 path input with current value
+      const pathInput = settingsPanel.querySelector("[data-pm3-path-input]");
+      if (pathInput) {
+        try {
+          const res = await callBridge("get_pm3_path");
+          if (res?.path) pathInput.value = res.path;
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return;
+  }
+  if (target.closest("[data-run-startup-check]")) {
+    settingsPanel.hidden = true;
+    await runStartupCheck();
+    return;
+  }
+  if (target.closest("[data-refresh-connection]")) {
+    settingsPanel.hidden = true;
+    await refreshConnection();
+    render();
+    return;
+  }
+  if (target.closest("[data-import-templates]")) {
+    settingsPanel.hidden = true;
+    await importTemplates();
+    return;
+  }
+  if (target.closest("[data-save-pm3-path]")) {
+    const pathInput = settingsPanel.querySelector("[data-pm3-path-input]");
+    const newPath = pathInput?.value?.trim() || "";
+    if (!newPath) { showToast("Bitte einen Pfad eingeben."); return; }
+    try {
+      const res = await callBridge("update_pm3_path", { path: newPath });
+      if (res?.ok) {
+        showToast("Pfad gespeichert. Verbindung wird geprüft …");
+        settingsPanel.hidden = true;
+        await refreshConnection();
+        render();
+      } else {
+        showToast(res?.message || "Pfad konnte nicht gespeichert werden.");
+      }
+    } catch (err) {
+      showToast(err.message || "Fehler beim Speichern des Pfads.");
+    }
+    return;
+  }
+  // ────────────────────────────────────────────────────────────────────
   if (!target.closest(".popover")) clearPopover();
 });
 
@@ -2148,6 +2818,26 @@ document.addEventListener("keydown", (event) => {
     closeModal();
     clearPopover();
     settingsPanel.hidden = true;
+    return;
+  }
+  // Keyboard shortcuts — skip when focus is inside an input/textarea/select
+  const inInput = event.target instanceof HTMLInputElement
+    || event.target instanceof HTMLTextAreaElement
+    || event.target instanceof HTMLSelectElement;
+  if (inInput || event.metaKey || event.ctrlKey || event.altKey) return;
+  // Space = start scan (Lesen view)
+  if (event.code === "Space" && state.activeView === "read"
+      && state.connection.connected && !isOperationBusy(state.readOperation)) {
+    event.preventDefault();
+    startReadScan();
+    return;
+  }
+  // W = write all (Schreiben view)
+  if ((event.key === "w" || event.key === "W") && state.activeView === "write"
+      && state.connection.connected && !anyWriteBusy() && enabledWriteActions().length) {
+    event.preventDefault();
+    startWriteAll();
+    return;
   }
 });
 

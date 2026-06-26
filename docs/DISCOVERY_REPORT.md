@@ -7,7 +7,7 @@ Date: 2026-06-13
 - User-provided Proxmark path: `C:\Tools\proxmark3`
 - Client folder: `C:\Tools\proxmark3\client`
 - Direct executable present during discovery: `C:\Tools\proxmark3\client\proxmark3.exe`
-- Target repository folder: `D:\LocalRepos\RFID-GUI`
+- Target repository folder: `<PROJECT_ROOT>`
 
 ## Local Environment
 
@@ -54,7 +54,7 @@ cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3 --list"
 
 The previous direct `proxmark3.exe` help/version attempts returned exit code 1 with no captured output. For this setup, those results should be treated as evidence that direct executable invocation is not a reliable primary launch path, not as proof that the Proxmark installation itself is broken.
 
-No RFID write, clone, restore, simulation, or attack commands were executed.
+Only discovery/read commands were executed during this report.
 
 ## Captured Read-only Output Summary
 
@@ -86,22 +86,22 @@ Additional supplied fixtures document a successful manual workflow on an owned c
 Original tag:
 
 - Type: `Hitag S 256`.
-- UID: `FA F9 91 79`.
+- UID: `A1 B2 C3 D4`.
 - Plain/No Auth, config unlocked, key/PWD unlocked.
 - TTF: Manchester, `2 kBit`, pages 4-7.
 - Config page 1: `C9 28 00 AA`.
-- Data pages 4-7: `FF F8 06 97`, `8C 66 C1 80`, `03 6E F7 00`, `00 00 00 00`.
+- Data pages 4-7: `A4 10 B4 20`, `C5 30 D5 40`, `E6 50 F6 60`, `00 00 00 00`.
 
 Blank before writing:
 
-- UID: `D2 DF E4 94`.
+- UID: `11 22 33 44`.
 - Config page 1: `C9 00 00 AA`.
 - TTF mode disabled / RTF mode, `4 kBit`.
-- Page 7 marker: `57 5F 4F 4B`.
+- Page 7 marker: `52 44 59 21`.
 
 Blank after the manual workflow:
 
-- UID remained `D2 DF E4 94`.
+- UID remained `11 22 33 44`.
 - Config page 1 matched original: `C9 28 00 AA`.
 - Pages 4-7 matched original.
 - TTF mode matched original: pages 4-7 at `2 kBit`.
@@ -167,7 +167,7 @@ startup remains the default; forced COM ports remain debug-only.
 
 CLI commands must be run in a separate PowerShell, not at the PM3 prompt. If
 host commands are accidentally entered into PM3, the capture layer classifies
-them as ignored host commands. Examples include `cd D:\LocalRepos\RFID-GUI` and
+them as ignored host commands. Examples include `cd <PROJECT_ROOT>` and
 `py -3.14 -m pm3_workflow_gui.cli latest-log-summary ...`. They are not counted
 as PM3 discovery commands and are shown separately in CLI summaries.
 
@@ -187,7 +187,7 @@ The supported read-only sources are now:
 - Is the Proxmark currently connected and visible in Device Manager?
 - Which COM port is active now?
 - What is the exact filename of the existing Batch launcher in `C:\Tools\proxmark3`?
-- Does the Batch/MSYS flow expose a stable interactive console that can be automated safely, or should the GUI keep the operator in control for manual discovery?
+- Does the Batch/MSYS flow expose a stable interactive console for registered tools, or should the GUI keep control through structured actions?
 - Should the app target Python 3.12 specifically even though Python 3.14.5 is currently installed?
 
 ## Recommended Implementation Steps

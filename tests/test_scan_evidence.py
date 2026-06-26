@@ -43,4 +43,4 @@ def test_stable_hitag_candidate_is_confirmed_after_repeat():
 
     assert evidence.state == "technology_confirmed"
     assert evidence.candidate.family == "hitag_candidate"
-    assert evidence.candidate.uid_or_raw_value == "D2DFE494"
+    assert evidence.candidate.uid_or_raw_value == "11223344"

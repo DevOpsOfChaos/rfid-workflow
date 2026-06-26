@@ -410,7 +410,7 @@ def test_write_success_requires_reread_verification_and_uid_is_not_action(tmp_pa
         target_profile.pages[4],
         current_profile.pages[4],
         "Schreiben nicht verifiziert; Workflow gestoppt.",
-        LiveCommandResult("lf hitag hts wrbl -p 4 -d FFF80697", 0, "[+] done", ""),
+        LiveCommandResult("lf hitag hts wrbl -p 4 -d A410B420", 0, "[+] done", ""),
         verify_result,
     )
     service = FakeService(reads=(current,), write_result=write_result)
@@ -487,6 +487,36 @@ def test_write_all_stops_on_verification_failure_and_keeps_successful_steps(tmp_
     assert operation["details"]["failed_region"] == "page_5"
     assert "page_4" not in {action["region_id"] for action in comparison["actions"]}
     assert "page_5" in {action["region_id"] for action in comparison["actions"]}
+
+
+def test_missing_page_action_is_blocked_without_blocking_available_regions(tmp_path):
+    target_profile = profile_from_fixture("lf_hitag_hts_rdbl_original_pages_0_7.txt")
+    partial_current = HitagS256Profile(
+        uid="11 22 33 44",
+        pages={
+            0: "11 22 33 44",
+            1: "C9 00 00 AA",
+            4: "00 00 00 00",
+        },
+        ttf_pages=(4, 5, 6, 7),
+    )
+    service = FakeService(reads=(hitag_result_from_profile(partial_current),))
+    bridge = WebDesktopBridge(service, template_dir=tmp_path / "templates", backup_dir=tmp_path / "backups")
+    template = TemplateRecord.from_hitag_s256_profile("Target", "", target_profile)
+    save_template_record(template, tmp_path / "templates")
+
+    wait_for_operation(bridge, bridge.start_current_chip_scan()["operation_id"])
+    bridge.set_target_template(template.template_id)
+    comparison = bridge.compare_current_to_target()["comparison"]
+    missing_page = wait_for_operation(bridge, bridge.start_write_region("page_5")["operation_id"])
+    actions = {action["page"]: action for action in comparison["actions"]}
+
+    assert comparison["compatible"] is False
+    assert actions[1]["enabled"] is True
+    assert actions[4]["enabled"] is True
+    assert actions[5]["enabled"] is False
+    assert missing_page["state"] == "failed"
+    assert service.write_calls == []
 
 
 def test_analysis_operations_return_real_position_and_hw_tune_payloads(tmp_path):

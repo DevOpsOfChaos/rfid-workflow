@@ -188,12 +188,37 @@ class LivePm3ReadonlyService:
         self.graph_workflow = graph_workflow
 
     def connection_status(self) -> Pm3ConnectionStatus:
-        result = self.runner(self._pm3_args("--list"), self.probe_timeout_seconds)
-        ports = tuple(_parse_pm3_list_ports(result.stdout))
+        # Strategy 1: call proxmark3.exe --list directly (no bash/MSYS2 dependency).
+        # This works as long as proxmark3.exe exists and the libs are on PATH via env.
+        if self.proxmark_exe.exists():
+            result = self.runner([str(self.proxmark_exe), "--list"], self.probe_timeout_seconds)
+            ports = tuple(_parse_pm3_list_ports(result.stdout))
+            if ports:
+                return Pm3ConnectionStatus(True, ports, stdout=result.stdout, stderr=result.stderr)
+            # If not timed-out and exe ran but returned no ports, record that error.
+            direct_error = None if result.timed_out else (_first_error(result) or None)
+        else:
+            result = None
+            direct_error = f"proxmark3.exe nicht gefunden: {self.proxmark_exe}"
+
+        # Strategy 2: bash pm3 --list via the Windows setup.bat wrapper (legacy).
+        bash_result = self.runner(self._pm3_args("--list"), self.probe_timeout_seconds)
+        ports = tuple(_parse_pm3_list_ports(bash_result.stdout))
         if ports:
-            return Pm3ConnectionStatus(True, ports, stdout=result.stdout, stderr=result.stderr)
-        error = "timeout while waiting for Proxmark3 port list" if result.timed_out else _first_error(result) or DEVICE_NOT_FOUND_ERROR
-        return Pm3ConnectionStatus(False, (), error, result.stdout, result.stderr)
+            return Pm3ConnectionStatus(True, ports, stdout=bash_result.stdout, stderr=bash_result.stderr)
+
+        # Build a diagnostic error that includes the path being tried.
+        if bash_result.timed_out:
+            error = "timeout while waiting for Proxmark3 port list"
+        else:
+            error = (
+                direct_error
+                or _first_error(bash_result)
+                or f"{DEVICE_NOT_FOUND_ERROR} (Pfad: {self.proxmark_exe})"
+            )
+        combined_stdout = "\n".join(s for s in [result.stdout if result else "", bash_result.stdout] if s)
+        combined_stderr = "\n".join(s for s in [result.stderr if result else "", bash_result.stderr] if s)
+        return Pm3ConnectionStatus(False, (), error, combined_stdout, combined_stderr)
 
     def startup_check(self) -> Pm3StartupCheck:
         status = self.connection_status()
@@ -511,7 +536,7 @@ class LivePm3ReadonlyService:
     def run_safe_command(self, command: str, port: str | None = None) -> LiveCommandResult:
         normalized = normalize_pm3_command(command)
         if normalized not in SAFE_LIVE_COMMANDS and normalized not in SAFE_HITAG_READ_COMMANDS and normalized not in SAFE_INDALA_READ_COMMANDS:
-            raise ValueError(f"Refusing live PM3 command outside read-only allowlist: {command}")
+            raise ValueError(f"Read-only transport has no registered handler for this PM3 command: {command}")
         if port:
             result = self.runner(self._proxmark_args(port, normalized), self.timeout_seconds)
             return LiveCommandResult(
@@ -545,7 +570,7 @@ class LivePm3ReadonlyService:
         audit_dir: str | Path | None = None,
     ) -> HitagS256WriteResult:
         if page not in SAFE_HITAG_WRITE_PAGES:
-            raise ValueError(f"Refusing Hitag S256 write outside approved pages: {page}")
+            raise ValueError(f"Hitag S256 write handler is registered only for writable pages 1 and 4-7: {page}")
         old_value = _normalize_page_data(old_value)
         new_value = _normalize_page_data(new_value)
         selected_port = port
@@ -757,6 +782,9 @@ class LivePm3ReadonlyService:
         if "lf hitag hts reader -@" in " ".join(args).lower():
             return self._run_reader_subprocess(args, timeout_seconds)
         started = time.monotonic()
+        # Use client_dir as cwd only if it actually exists; otherwise fall back to
+        # None so subprocess does not raise FileNotFoundError before we even start.
+        cwd = str(self.client_dir) if self.client_dir.exists() else None
         try:
             completed = subprocess.run(
                 args,
@@ -764,7 +792,7 @@ class LivePm3ReadonlyService:
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
-                cwd=self.client_dir,
+                cwd=cwd,
                 env=self._proxmark_env(),
             )
         except subprocess.TimeoutExpired as exc:
@@ -777,20 +805,33 @@ class LivePm3ReadonlyService:
                 timed_out=True,
                 elapsed_seconds=elapsed,
             )
+        except OSError as exc:
+            elapsed = time.monotonic() - started
+            return LiveCommandResult(
+                " ".join(args),
+                1,
+                "",
+                str(exc),
+                elapsed_seconds=elapsed,
+            )
         elapsed = time.monotonic() - started
         return LiveCommandResult(" ".join(args), completed.returncode, completed.stdout, completed.stderr, elapsed_seconds=elapsed)
 
     def _run_reader_subprocess(self, args: list[str], timeout_seconds: int) -> LiveCommandResult:
         started = time.monotonic()
-        process = subprocess.Popen(
-            args,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=self.client_dir,
-            env=self._proxmark_env(),
-        )
+        cwd = str(self.client_dir) if self.client_dir.exists() else None
+        try:
+            process = subprocess.Popen(
+                args,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=cwd,
+                env=self._proxmark_env(),
+            )
+        except OSError as exc:
+            return LiveCommandResult(" ".join(args), 1, "", str(exc), elapsed_seconds=time.monotonic() - started)
         # The reader command is read-only but interactive; sample briefly, then exit with Enter.
         time.sleep(min(4.0, max(0.5, timeout_seconds - 1.0)))
         try:

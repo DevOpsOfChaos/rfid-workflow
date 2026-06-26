@@ -140,8 +140,9 @@ python -m pm3_workflow_gui.ui.app
 ```
 
 The GUI can load demo scenarios, open an existing PM3 log, load the latest PM3
-log, or run `Scan NFC/RFID tag` through the safe live read-only service. It has
-no write functions and no free command input.
+log, or run `Scan NFC/RFID tag` through the live read service. Normal mode keeps
+scan/template/write/analysis workflows compact. Expert mode exposes registered
+technology tools with controlled parameters and no free command input.
 
 Run these CLI commands from a separate PowerShell, not inside the interactive
 PM3 console. If host commands such as `cd ...`, `py ...`, `python ...`,

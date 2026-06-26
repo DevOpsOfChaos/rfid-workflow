@@ -25,7 +25,7 @@ def test_success_blank_read_view_model_reports_detected_hitag():
     assert model.tag_type == "Hitag S256"
     assert model.next_step == "Vorlage erstellen oder Zielchip read-only vergleichen"
     assert model.ignored_host_commands
-    assert any(command.startswith("cd d:\\localrepos") for command in model.ignored_host_commands)
+    assert any(command == "cd <project_root>" for command in model.ignored_host_commands)
 
 
 def test_lost_device_view_model_requests_reconnect():

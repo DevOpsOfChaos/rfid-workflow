@@ -1,70 +1,130 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>RFID Workflow</title>
-    <link rel="stylesheet" href="styles.css" />
+    <title>PM3 Studio</title>
+    <link rel="stylesheet" href="styles.css?v=20260625" />
   </head>
   <body>
     <div class="app-shell" data-app-shell>
-      <header class="app-header">
-        <div class="brand" aria-label="RFID Workflow">
-          <span class="brand-mark" aria-hidden="true"></span>
-          <span>RFID Workflow</span>
-        </div>
-        <div id="deviceStatus" class="device-status is-checking" aria-live="polite">
-          <span class="status-dot" aria-hidden="true"></span>
-          Checking Proxmark3 connection ...
-        </div>
-        <button class="icon-button" type="button" data-settings-toggle aria-label="Open settings" title="Settings">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 8.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Zm8.1 3.6c0-.5 0-1-.1-1.4l2-1.5-2-3.5-2.4 1a8.9 8.9 0 0 0-2.3-1.4L15 2.6H9l-.3 2.6a8.9 8.9 0 0 0-2.3 1.4l-2.4-1-2 3.5 2 1.5a9.6 9.6 0 0 0 0 2.8l-2 1.5 2 3.5 2.4-1a8.9 8.9 0 0 0 2.3 1.4L9 21.4h6l.3-2.6a8.9 8.9 0 0 0 2.3-1.4l2.4 1 2-3.5-2-1.5c.1-.4.1-.9.1-1.4Z" />
-          </svg>
-        </button>
-        <div class="settings-panel" data-settings-panel hidden>
-          <label class="settings-field">
-            <span data-i18n="language.label">Sprache</span>
-            <select data-language-select>
-              <option value="de">Deutsch</option>
-              <option value="en">English</option>
-            </select>
-          </label>
-          <label class="settings-check">
-            <input type="checkbox" data-startup-on-launch />
-            <span data-i18n="settings.showStartup">Startprüfung beim Programmstart anzeigen</span>
-          </label>
-          <button type="button" data-run-startup-check data-i18n="action.runStartupCheck">Startprüfung ausführen</button>
-          <button type="button" data-show-pm3-status data-i18n="settings.pm3Status">PM3-Status</button>
-          <button type="button" data-refresh-connection data-i18n="settings.refresh">Verbindung prüfen</button>
-          <button type="button" data-import-templates data-i18n="settings.importTemplates">Vorlagen importieren</button>
-          <button type="button" data-advanced-tools data-i18n="settings.advanced">Erweiterte Werkzeuge anzeigen</button>
-          <button type="button" data-about data-i18n="about.button">About</button>
-        </div>
-      </header>
 
-      <aside class="side-nav" aria-label="Primary navigation">
-        <nav class="primary-nav">
-          <button class="nav-item is-active" type="button" data-view="overview" data-i18n="nav.overview">Übersicht</button>
-          <button class="nav-item" type="button" data-view="read" data-i18n="nav.read">Lesen</button>
-          <button class="nav-item" type="button" data-view="write" data-i18n="nav.write">Schreiben</button>
-          <button class="nav-item" type="button" data-view="analysis" data-i18n="nav.analysis">Analyse</button>
-          <span class="nav-break" aria-hidden="true"></span>
-          <button class="nav-item" type="button" data-view="templates" data-i18n="nav.templates">Vorlagen</button>
-          <button class="nav-item" type="button" data-view="backups" data-i18n="nav.backups">Backups</button>
+      <!-- ═══ SIDEBAR ═══ -->
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <div class="sidebar-logo" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <rect x="4" y="4" width="12" height="12" rx="2" stroke="white" stroke-width="1.6" fill="none"/>
+              <rect x="7.5" y="7.5" width="5" height="5" rx="1" fill="white" opacity=".85"/>
+              <line x1="4" y1="8.5" x2="1.5" y2="8.5" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="4" y1="11.5" x2="1.5" y2="11.5" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="16" y1="8.5" x2="18.5" y2="8.5" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="16" y1="11.5" x2="18.5" y2="11.5" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="8.5" y1="4" x2="8.5" y2="1.5" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="11.5" y1="4" x2="11.5" y2="1.5" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="8.5" y1="16" x2="8.5" y2="18.5" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="11.5" y1="16" x2="11.5" y2="18.5" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <div class="sidebar-title">PM3 Studio</div>
+            <div class="sidebar-ver">v1.0.0</div>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="Hauptnavigation">
+          <button class="nav-item is-active" type="button" data-view="read">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="8" cy="8" r="2.5"/><path d="M1 8 A7 7 0 0 1 15 8 A7 7 0 0 1 1 8" fill="none"/></svg>
+            <span data-i18n="nav.read">Lesen</span>
+            <span class="nav-dot" data-read-dot hidden></span>
+          </button>
+          <button class="nav-item" type="button" data-view="write">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M11.5 1.5 L14.5 4.5 L5 14 L2 14.5 L2.5 11.5 Z"/><line x1="1.5" y1="15" x2="14.5" y2="15"/></svg>
+            <span data-i18n="nav.write">Schreiben</span>
+          </button>
+          <div class="nav-divider" aria-hidden="true"></div>
+          <button class="nav-item" type="button" data-view="analysis">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="8" cy="8" r="6.5"/><path d="M5 8 L7 10 L11 6"/></svg>
+            <span data-i18n="nav.analysis">Selbsttest</span>
+          </button>
+          <button class="nav-item" type="button" data-view="templates">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9.5" x2="9" y2="9.5"/></svg>
+            <span data-i18n="nav.templates">Vorlagen</span>
+            <span class="nav-badge" data-template-count>0</span>
+          </button>
+          <button class="nav-item" type="button" data-view="backups">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 13 L3 8 Q3 3 8 3 Q13 3 13 8 L13 13"/><path d="M1 10 L3 13 L5 10"/><line x1="8" y1="8" x2="8" y2="11.5"/><line x1="6" y1="10" x2="10" y2="10"/></svg>
+            <span data-i18n="nav.backups">Backups</span>
+          </button>
         </nav>
+
+        <div class="sidebar-device">
+          <div class="device-card">
+            <div class="device-dot" id="deviceDot"></div>
+            <div style="flex:1;min-width:0;">
+              <div class="device-name">Proxmark3</div>
+              <div class="device-port" id="devicePort">Verbinde…</div>
+            </div>
+            <svg width="16" height="11" viewBox="0 0 18 13" fill="none" stroke="#22C55E" stroke-width="1.6" stroke-linecap="round" id="deviceWifi" hidden>
+              <path d="M1 6 A8 6 0 0 1 17 6"/><path d="M4 9 A5 4 0 0 1 14 9"/>
+              <circle cx="9" cy="11.5" r="1.5" fill="#22C55E" stroke="none"/>
+            </svg>
+          </div>
+          <!-- Settings trigger -->
+          <button class="settings-btn" type="button" data-settings-toggle style="margin-top:8px;">
+            ⚙ Einstellungen
+          </button>
+          <div class="settings-panel" data-settings-panel hidden style="position:absolute;bottom:60px;left:10px;right:10px;width:auto;">
+            <label class="settings-field">
+              <span class="settings-label" data-i18n="language.label">Sprache</span>
+              <select data-language-select>
+                <option value="de">Deutsch</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+            <label class="settings-check">
+              <input type="checkbox" data-startup-on-launch />
+              <span data-i18n="settings.showStartup">Startprüfung beim Start</span>
+            </label>
+            <label class="settings-field" style="margin-top:6px;">
+              <span class="settings-label">PM3-Pfad</span>
+              <input type="text" data-pm3-path-input placeholder="z.B. C:\Tools\proxmark3\client" style="width:100%;box-sizing:border-box;background:#111D30;border:1px solid #1E3050;color:#CBD5E1;border-radius:6px;padding:5px 8px;font-size:11px;font-family:var(--mono);" />
+            </label>
+            <button class="settings-btn" type="button" data-save-pm3-path>Pfad speichern &amp; neu verbinden</button>
+            <button class="settings-btn" type="button" data-run-startup-check data-i18n="action.runStartupCheck">Startprüfung ausführen</button>
+            <button class="settings-btn" type="button" data-refresh-connection data-i18n="settings.refresh">Verbindung prüfen</button>
+            <button class="settings-btn" type="button" data-import-templates data-i18n="settings.importTemplates">Vorlagen importieren</button>
+          </div>
+        </div>
       </aside>
 
-      <main id="appView" class="app-main" tabindex="-1"></main>
+      <!-- ═══ MAIN ═══ -->
+      <div class="main-area">
+        <!-- Header (content set by JS) -->
+        <header class="main-header" id="mainHeader">
+          <div class="main-title" id="mainTitle">Lesen</div>
+          <div class="main-sub"  id="mainSub"></div>
+          <div class="header-actions" id="headerActions"></div>
+        </header>
 
-      <footer class="status-bar" aria-live="polite">
-        <span class="status-bar-dot" aria-hidden="true"></span>
-        <span id="statusText">Checking Proxmark3 connection ...</span>
-      </footer>
+        <!-- Screen content (filled by JS) -->
+        <main id="appView" class="main-content" tabindex="-1"></main>
+
+        <!-- Status bar -->
+        <footer class="status-bar" aria-live="polite">
+          <div class="status-dot" id="statusDot"></div>
+          <span class="status-text" id="statusText">Verbinde…</span>
+          <div class="status-right">
+            <span id="statusPort"></span>
+            <span class="ok" id="statusConn"></span>
+          </div>
+        </footer>
+      </div>
+
     </div>
 
     <div id="modalRoot" class="modal-root" hidden></div>
     <div id="toastRoot" class="toast-root" hidden></div>
-    <script src="app.js"></script>
+    <script src="app.js?v=20260624"></script>
   </body>
 </html>

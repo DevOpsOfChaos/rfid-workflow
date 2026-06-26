@@ -28,8 +28,8 @@ class VerificationResult:
         return self.status in {"verified", "verified_with_uid_mismatch"}
 
 
-def build_safe_write_plan(profile: HitagS256Profile) -> list[WorkflowStep]:
-    """Return a gated plan; execution belongs in the future workflow runner."""
+def build_hitag_s256_write_plan(profile: HitagS256Profile) -> list[WorkflowStep]:
+    """Return a structured plan; execution belongs to a verified workflow runner."""
     steps = [
         WorkflowStep("Read profile from source tag", "lf hitag hts dump", RiskLevel.READ_ONLY_WITH_FILE_OUTPUT),
         WorkflowStep("Validate target blank compatibility", "lf hitag hts dump", RiskLevel.READ_ONLY_WITH_FILE_OUTPUT),

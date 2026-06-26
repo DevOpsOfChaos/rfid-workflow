@@ -11,6 +11,7 @@ import sys
 
 FORBIDDEN_GLOBS = (
     "*.bin",
+    "*.bundle",
     "*.dump",
     "*.eml",
     "*.gif",
@@ -18,7 +19,9 @@ FORBIDDEN_GLOBS = (
     "*.jpg",
     "*.key",
     "*.log",
+    "*.mp4",
     "*.png",
+    "*.zip",
     "*.webp",
     ".env",
     ".env.*",
@@ -34,9 +37,15 @@ FORBIDDEN_DIRS = (
     "backups",
     "build",
     "dist",
+    "artifacts",
     "audit",
     "logs",
+    "private",
+    "private_fixtures",
+    "release",
     "runtime",
+    "scratch",
+    "tmp",
     "local-data",
 )
 SECRET_PATTERNS = (

@@ -101,16 +101,16 @@ def test_successful_blank_read_log_ignores_host_commands_and_detects_hitag_s256(
     assert summary.tag_frequency_guess == "lf"
     assert summary.tag_type_guess == "hitag_s256"
     assert bundle.hitag_reader is not None
-    assert bundle.hitag_reader.uids == ("83F5E494",)
+    assert bundle.hitag_reader.uids == ("55667788",)
     assert bundle.hitag_read is not None
-    assert bundle.hitag_read.uid == "83F5E494"
+    assert bundle.hitag_read.uid == "55667788"
     assert bundle.hitag_read.config_page == "C90000AA"
-    assert bundle.hitag_read.pages[7].data == "575F4F4B"
+    assert bundle.hitag_read.pages[7].data == "52445921"
     assert capture.ignored_host_commands == (
-        r"cd d:\localrepos\rfid-gui",
+        "cd <project_root>",
         r'py -3.14 -m pm3_workflow_gui.cli latest-log-summary --log-dir "c:\tools\proxmark3\client\.proxmark3\logs"',
     )
-    assert "cd d:\\localrepos\\rfid-gui" not in capture.command_outputs
+    assert "cd <project_root>" not in capture.command_outputs
     assert "py -3.14 -m pm3_workflow_gui.cli latest-log-summary --log-dir \"c:\\tools\\proxmark3\\client\\.proxmark3\\logs\"" not in capture.command_outputs
 
 
@@ -120,7 +120,7 @@ def test_hitag_reader_without_rdbl_is_only_candidate(tmp_path):
         "[+] Using UART port COM16\n"
         "[usb] pm3 --> lf hitag hts reader -@\n"
         "[=] Press <Enter> to exit\n"
-        "[+] UID.... 83F5E494\n",
+        "[+] UID.... 55667788\n",
         encoding="utf-8",
     )
 
@@ -304,7 +304,7 @@ def test_cli_log_summary_reports_ignored_host_commands_for_success_log():
     recognized = completed.stdout.split("Recognized commands:", 1)[1].split("Ignored host commands:", 1)[0]
     assert "lf hitag hts reader -@" in recognized
     assert "lf hitag hts rdbl -p 0 -c 8" in recognized
-    assert "cd d:\\localrepos\\rfid-gui" not in recognized.lower()
+    assert "cd <project_root>" not in recognized.lower()
     assert "py -3.14 -m pm3_workflow_gui.cli" not in recognized.lower()
 
 

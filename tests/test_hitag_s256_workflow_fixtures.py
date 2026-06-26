@@ -35,7 +35,7 @@ def test_lf_original_fixture_is_hitag_candidate_and_keeps_false_positive_notes()
     result = parse_lf_search(fixture("lf_search_hitag_s256_original.txt"))
 
     assert result.classification == "hitag_candidate"
-    assert result.uid == "FAF99179"
+    assert result.uid == "A1B2C3D4"
     assert result.tag_type == "PCF 7952"
     assert result.chipset == "Hitag 1/S / 82xx"
     assert result.hint == "Try `lf hitag hts` commands"
@@ -47,7 +47,7 @@ def test_lf_blank_fixture_is_hitag_candidate():
     result = parse_lf_search(fixture("lf_search_hitag_s256_blank.txt"))
 
     assert result.classification == "hitag_candidate"
-    assert result.uid == "D2DFE494"
+    assert result.uid == "11223344"
     assert result.tag_type == "PCF 7945"
 
 
@@ -57,10 +57,10 @@ def test_original_rdbl_fixture_is_hitag_s256_plain_with_pages_0_to_7():
     assert read.is_hitag_s256_plain_no_auth
     assert read.memory_type == "Hitag S 256"
     assert read.authentication == "No"
-    assert read.uid == "FAF99179"
+    assert read.uid == "A1B2C3D4"
     assert read.config_page == "C92800AA"
     assert set(read.pages) == set(range(8))
-    assert read.pages[4].data == "FFF80697"
+    assert read.pages[4].data == "A410B420"
     assert read.pages[0].permission == "RO"
 
 
@@ -68,28 +68,28 @@ def test_blank_rdbl_fixture_detects_ttf_disabled_and_page_7_marker():
     read = parse_hitag_s_rdbl(fixture("lf_hitag_hts_rdbl_blank_pages_0_7.txt"))
 
     assert read.is_hitag_s256_plain_no_auth
-    assert read.uid == "D2DFE494"
+    assert read.uid == "11223344"
     assert read.ttf_data_rate == "4 kBit"
     assert read.ttf_mode == "TTF Mode disabled (= RTF Mode)"
-    assert read.pages[7].data == "575F4F4B"
+    assert read.pages[7].data == "52445921"
 
 
 def test_written_blank_rdbl_fixture_detects_written_config_and_ttf_pages():
     read = parse_hitag_s_rdbl(fixture("lf_hitag_hts_rdbl_written_blank_pages_0_7.txt"))
 
     assert read.is_hitag_s256_plain_no_auth
-    assert read.uid == "D2DFE494"
+    assert read.uid == "11223344"
     assert read.ttf_data_rate == "2 kBit"
     assert read.ttf_mode == "Page 4, Page 5, Page 6, Page 7"
     assert read.config_page == "C92800AA"
-    assert read.pages[4].data == "FFF80697"
+    assert read.pages[4].data == "A410B420"
 
 
 def test_profile_from_original_sets_write_rules():
     original = parse_hitag_s_rdbl(fixture("lf_hitag_hts_rdbl_original_pages_0_7.txt"))
     profile = profile_from_hitag_s_read(original)
 
-    assert profile.uid == "FA F9 91 79"
+    assert profile.uid == "A1 B2 C3 D4"
     assert profile.write_uid is False
     assert profile.write_config_last is True
     assert profile.write_order == (4, 5, 6, 7, 1)

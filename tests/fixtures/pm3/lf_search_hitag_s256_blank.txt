@@ -5,7 +5,7 @@
 [|]Searching for COTAG tag......
 
 [=] Searching for auth LF and special cases...
-[+] UID....... D2DFE494
+[+] UID....... 11223344
 [+] TYPE...... PCF 7945
 [+] Chipset... Hitag 1/S / 82xx
 [?] Hint: Try `lf hitag hts` commands

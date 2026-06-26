@@ -19,6 +19,19 @@ def test_public_audit_flags_forbidden_runtime_files(tmp_path):
     assert "forbidden file type" in reasons
 
 
+def test_public_audit_flags_private_fixture_dirs_and_archives(tmp_path):
+    private_fixture = tmp_path / "tests" / "private_fixtures"
+    private_fixture.mkdir(parents=True)
+    (private_fixture / "sample.txt").write_text("private", encoding="utf-8")
+    (tmp_path / "artifact.zip").write_bytes(b"PK\x03\x04")
+
+    findings = audit(tmp_path, Namespace(tracked=False, export_list=None, private_patterns="missing.txt"))
+
+    reasons = {(finding.path, finding.reason) for finding in findings}
+    assert ("tests/private_fixtures/sample.txt", "forbidden runtime/private directory: private_fixtures") in reasons
+    assert any(path == "artifact.zip" and "forbidden file type" in reason for path, reason in reasons)
+
+
 def test_public_audit_flags_private_denylist_without_modifying_files(tmp_path):
     denylist = tmp_path / ".public-audit-private-patterns.txt"
     denylist.write_text("PRIVATE_TEST_PATTERN_123\n", encoding="utf-8")
@@ -78,13 +91,25 @@ def test_public_audit_denylist_alias_flags_private_pattern(tmp_path):
 
 def test_public_audit_flags_forbidden_media_and_windows_paths(tmp_path):
     (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n")
-    (tmp_path / "notes.md").write_text(r"Path: D:\LocalRepos\RFID-GUI", encoding="utf-8")
+    local_path = "D:" + r"\Repos\ExampleProject"
+    (tmp_path / "notes.md").write_text(f"Path: {local_path}", encoding="utf-8")
 
     findings = audit(tmp_path, Namespace(staged_only=False, tracked=False, git_ref=None, expected_files=None, export_list=None, denylist=None, private_patterns="missing.txt"))
     reasons = " ".join(finding.reason for finding in findings)
 
     assert "screenshots, media, dumps, or binary artifacts require explicit review" in reasons
     assert "local user or repository path" in reasons
+
+
+def test_public_audit_accepts_generalized_example_paths(tmp_path):
+    (tmp_path / "notes.md").write_text(
+        "Examples: <PROJECT_ROOT> %USERPROFILE% %LOCALAPPDATA% C:\\Tools\\proxmark3 D:\\Projects\\rfid-workflow",
+        encoding="utf-8",
+    )
+
+    findings = audit(tmp_path, Namespace(staged_only=False, tracked=False, git_ref=None, expected_files=None, export_list=None, denylist=None, private_patterns="missing.txt"))
+
+    assert findings == []
 
 
 def test_public_audit_empty_and_broken_denylist_return_usage_error(tmp_path):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pm3_workflow_gui.pm3.parsers import HitagSRead
 from pm3_workflow_gui.technologies.base import (
+    CapabilityDefinition,
     ChipField,
     ChipReadResult,
     DetectedTechnology,
@@ -25,6 +26,20 @@ class HitagS256Adapter:
         can_compare_template=True,
         can_plan_write=True,
         can_write=True,
+        actions=(
+            CapabilityDefinition("detect", "available", "PM3-Erkennung über lf search und Hitag-Detailread."),
+            CapabilityDefinition("read_identity", "available", "UID Page 0 wird gelesen."),
+            CapabilityDefinition("read_public_details", "available", "Konfiguration und TTF-Modus werden gelesen."),
+            CapabilityDefinition("read_memory", "available", "Pages 0-7 werden über lf hitag hts rdbl gelesen."),
+            CapabilityDefinition("create_template", "available", "Vorlage aus bestätigtem vollständigem Read."),
+            CapabilityDefinition("compare_template", "available", "Vergleich gegen gespeicherte Vorlage."),
+            CapabilityDefinition("write_memory", "available", "Pages 4-7 und Config Page 1 sind geplant und werden danach verifiziert."),
+            CapabilityDefinition("restore_memory", "available", "Restore ist als strukturierter Vorgang vorgesehen; Vorher-Read und Verifikation bleiben Pflicht."),
+            CapabilityDefinition("simulate", "available", "Simulation wird aus gelesenen Daten vorbereitet."),
+            CapabilityDefinition("emulate", "available", "Emulation wird aus gelesenen Daten vorbereitet."),
+            CapabilityDefinition("analyse_signal", "available", "Signal und Reader-Stabilität können analysiert werden."),
+            CapabilityDefinition("open_graph", "available", "LF-Frequenzdiagramm kann geöffnet werden."),
+        ),
     )
 
     def read_result(self, detection: DetectedTechnology, raw_read: object | None = None) -> ChipReadResult:
@@ -43,7 +58,7 @@ class HitagS256Adapter:
         identity_fields = (
             ChipField("Chiptyp", "Hitag S256"),
             ChipField("Bereich", "LF"),
-            ChipField("UID", _compact_display(raw_read.uid), "Nur Referenz · nicht schreibbar"),
+            ChipField("UID", _compact_display(raw_read.uid), "Referenz · hardwareseitig nicht schreibbar"),
             ChipField("Config", _compact_display(raw_read.config_page)),
             ChipField("Datenrate", raw_read.ttf_data_rate or "unknown"),
             ChipField("TTF-Modus", _mode_label(raw_read.ttf_mode)),

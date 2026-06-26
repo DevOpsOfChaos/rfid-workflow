@@ -21,7 +21,7 @@ def test_live_hitag_read_runs_reader_and_rdbl_only_after_lf_candidate():
         if text.endswith(" -c lf search"):
             return LiveCommandResult(text, 0, fixture("lf_search_hitag_s256_blank.txt"), "")
         if text.endswith(" -c lf hitag hts reader -@"):
-            return LiveCommandResult(text, 0, "[+] UID.................... D2DFE494\n", "")
+            return LiveCommandResult(text, 0, "[+] UID.................... 11223344\n", "")
         if text.endswith(" -c lf hitag hts rdbl -p 0 -c 8"):
             return LiveCommandResult(text, 0, fixture("lf_hitag_hts_rdbl_blank_pages_0_7.txt"), "")
         return LiveCommandResult(text, 1, "", "unexpected")
@@ -29,7 +29,7 @@ def test_live_hitag_read_runs_reader_and_rdbl_only_after_lf_candidate():
     result = LivePm3ReadonlyService(runner=runner).read_hitag_s256()
 
     assert result.success is True
-    assert result.hitag_read.uid == "D2DFE494"
+    assert result.hitag_read.uid == "11223344"
     assert any("lf hitag hts reader -@" in call for call in calls)
     assert any("lf hitag hts rdbl -p 0 -c 8" in call for call in calls)
 
@@ -70,7 +70,7 @@ def test_live_hitag_read_retries_detail_read_after_transient_uid_failure():
         if text.endswith(" -c lf search"):
             return LiveCommandResult(text, 0, fixture("lf_search_hitag_s256_blank.txt"), "")
         if text.endswith(" -c lf hitag hts reader -@"):
-            return LiveCommandResult(text, 0, "[+] UID.................... D2DFE494\n", "")
+            return LiveCommandResult(text, 0, "[+] UID.................... 11223344\n", "")
         if text.endswith(" -c lf hitag hts rdbl -p 0 -c 8"):
             rdbl_attempts += 1
             if rdbl_attempts == 1:
@@ -82,7 +82,7 @@ def test_live_hitag_read_retries_detail_read_after_transient_uid_failure():
 
     assert result.success is True
     assert rdbl_attempts == 2
-    assert result.hitag_read.uid == "D2DFE494"
+    assert result.hitag_read.uid == "11223344"
 
 
 def test_live_hitag_read_does_not_run_hitag_commands_without_candidate():

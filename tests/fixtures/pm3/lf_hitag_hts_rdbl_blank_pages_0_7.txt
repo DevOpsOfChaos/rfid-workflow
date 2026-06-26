@@ -12,14 +12,14 @@
 [=] --- Tag Data ---------------------------
 [=]   # | 00 01 02 03 | ascii | perm | info
 [=] ----+-------------+-------+------+------
-[+]   0 | D2 DF E4 94 | ....  | RO   | UID
+[+]   0 | 11 22 33 44 | ."3D  | RO   | UID
 [+]   1 | C9 00 00 AA | ....  | RW   | Config
-[+]   2 | 48 54 4F 4E | HTON  | RW   | Data
-[+]   3 | 4D 49 4B 52 | MIKR  | RW   | Data
+[+]   2 | 44 45 4D 4F | DEMO  | RW   | Data
+[+]   3 | 54 45 53 54 | TEST  | RW   | Data
 [+]   4 | 00 00 00 00 | ....  | RW   | Data
 [+]   5 | 00 00 00 00 | ....  | RW   | Data
 [+]   6 | 00 00 00 00 | ....  | RW   | Data
-[+]   7 | 57 5F 4F 4B | W_OK  | RW   | Data
+[+]   7 | 52 44 59 21 | RDY!  | RW   | Data
 [=] ----+-------------+-------+------+------
 [=]  RO = Read Only, RW = Read Write
 [=]  OTP = One Time Programmable

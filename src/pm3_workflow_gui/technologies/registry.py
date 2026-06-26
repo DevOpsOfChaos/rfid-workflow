@@ -10,7 +10,13 @@ from pm3_workflow_gui.technologies.base import (
     READ_STATUS_NOT_SUPPORTED_YET,
     TechnologyAdapter,
 )
-from pm3_workflow_gui.technologies.generic import GenericDetectedChipAdapter
+from pm3_workflow_gui.technologies.generic import (
+    EM410X_ADAPTER,
+    MIFARE_CLASSIC_ADAPTER,
+    T5577_ADAPTER,
+    UNKNOWN_LF_HF_ADAPTER,
+    GenericDetectedChipAdapter,
+)
 from pm3_workflow_gui.technologies.hitag_s256 import HitagS256Adapter, hitag_s256_detection
 from pm3_workflow_gui.technologies.indala import IndalaAdapter, indala_detection
 
@@ -20,11 +26,29 @@ _INDALA = IndalaAdapter()
 _GENERIC = GenericDetectedChipAdapter()
 
 
+def registered_adapters() -> tuple[TechnologyAdapter, ...]:
+    return (
+        _HITAG,
+        MIFARE_CLASSIC_ADAPTER,
+        EM410X_ADAPTER,
+        T5577_ADAPTER,
+        UNKNOWN_LF_HF_ADAPTER,
+    )
+
+
 def adapter_for(detection: DetectedTechnology | None) -> TechnologyAdapter:
     if detection and detection.technology_id == _HITAG.technology_id:
         return _HITAG
     if detection and detection.technology_id == _INDALA.technology_id:
         return _INDALA
+    if detection and detection.technology_id == MIFARE_CLASSIC_ADAPTER.technology_id:
+        return MIFARE_CLASSIC_ADAPTER
+    if detection and detection.technology_id == EM410X_ADAPTER.technology_id:
+        return EM410X_ADAPTER
+    if detection and detection.technology_id == T5577_ADAPTER.technology_id:
+        return T5577_ADAPTER
+    if detection and detection.technology_id in {"unknown_lf", "unknown_hf", "unknown"}:
+        return UNKNOWN_LF_HF_ADAPTER
     return _GENERIC
 
 

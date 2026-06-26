@@ -73,6 +73,20 @@ class WebDesktopBridge:
     def complete_first_run(self) -> dict:
         return {"ok": True, "settings": settings_payload(update_settings({"first_run_completed": True}))}
 
+    def get_pm3_path(self) -> dict:
+        return {"ok": True, "path": str(self.service.client_dir)}
+
+    def update_pm3_path(self, path) -> dict:
+        # JS may pass {path: "..."} or a plain string
+        if isinstance(path, dict):
+            path = path.get("path", "")
+        clean = (str(path) if path else "").strip()
+        if not clean:
+            return {"ok": False, "message": "Pfad darf nicht leer sein."}
+        self.service = LivePm3ReadonlyService(client_dir=clean)
+        update_settings({"last_known_pm3_path": clean})
+        return {"ok": True, "path": clean}
+
     def refresh_connection(self) -> dict:
         check = self.service.startup_check()
         snapshot = _connection_from_startup(check)
@@ -383,8 +397,6 @@ class WebDesktopBridge:
 
         plan = build_write_plan_view_model(current.profile, target_profile)
         actions = tuple(action for action in plan.disabled_actions if action.enabled and action.page != 0)
-        if not plan.compatible:
-            raise ValueError("Zielzustand ist nicht kompatibel.")
         if not actions:
             return {
                 "ok": True,
@@ -748,9 +760,12 @@ def _chip_from_profile(
 
 
 def _comparison_payload(plan) -> dict:
-    if not plan.compatible:
+    if not plan.compatible and plan.writable_difference_count:
         status = "danger"
-        message = "Nicht kompatibel · Zielzustand passt nicht zum aktuellen Chip"
+        message = f"Teilweise beschreibbar · {plan.writable_difference_count} freigegebene {_plural(plan.writable_difference_count, 'Aenderung', 'Aenderungen')}"
+    elif not plan.compatible:
+        status = "danger"
+        message = "Nicht kompatibel · keine freigegebenen Schreibbereiche"
     elif plan.writable_difference_count:
         status = "success"
         message = f"Kompatibel · {plan.writable_difference_count} {_plural(plan.writable_difference_count, 'uebernehmbare Aenderung', 'uebernehmbare Aenderungen')}"
@@ -772,7 +787,7 @@ def _comparison_payload(plan) -> dict:
                 "label": _write_label(action.page),
                 "fromValue": _compact(action.old_value),
                 "toValue": _compact(action.new_value),
-                "enabled": bool(action.enabled and plan.compatible),
+                "enabled": bool(action.enabled),
                 "reason": action.reason,
             }
             for action in plan.disabled_actions

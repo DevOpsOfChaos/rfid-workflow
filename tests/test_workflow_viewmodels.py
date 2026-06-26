@@ -8,9 +8,13 @@ from pm3_workflow_gui.profiles.storage import load_template_record
 from pm3_workflow_gui.services.live_pm3_readonly import LiveCommandResult, LivePm3ReadonlyService
 from pm3_workflow_gui.ui.viewmodel import (
     build_write_plan_view_model,
+    capability_matrix_view_model,
     chip_read_view_model_from_live_result,
     chip_read_view_model_from_hitag_read,
+    expert_navigation_items,
+    expert_tools_view_model,
     hardware_prep_from_check,
+    normal_navigation_items,
     save_confirmed_template,
     startup_view_model_from_check,
     unavailable_write_plan_view_model,
@@ -105,7 +109,7 @@ def test_template_read_scan_1_scan_2_identical_and_save(tmp_path):
     assert record.title == "Garagenchip Rohling"
     assert record.chip_type == "Hitag S256"
     assert record.technology == "LF"
-    assert record.uid_reference == "FA F9 91 79"
+    assert record.uid_reference == "A1 B2 C3 D4"
     assert record.write_uid is False
     assert record.write_config_last is True
     assert record.supported_write_plan == (4, 5, 6, 7, 1)
@@ -114,7 +118,7 @@ def test_template_read_scan_1_scan_2_identical_and_save(tmp_path):
     assert record.technology_id == "hitag_s256"
     assert record.technology_name == "Hitag S256"
     assert record.frequency == "lf"
-    assert record.identity == {"uid": "FA F9 91 79"}
+    assert record.identity == {"uid": "A1 B2 C3 D4"}
     assert record.capabilities["can_create_template"] is True
     assert record.capabilities["can_write"] is True
     assert record.write_policy == {"write_uid": False, "config_last": True}
@@ -167,10 +171,10 @@ def test_generic_hf_chip_view_model_blocks_template_and_write_plan():
     assert model.status == "read_requires_authorized_credentials"
     assert model.profile is None
     assert model.is_complete_template_read is False
-    assert "berechtigte Schlüssel" in model.message
+    assert "bekannte Zugangsdaten" in model.message
     assert plan.plan_steps == ()
     assert plan.disabled_actions == ()
-    assert "noch nicht freigeschaltet" in plan.compatibility_message
+    assert "bekannte Zugangsdaten" in plan.compatibility_message
     assert not any("lf hitag hts reader -@" in call for call in calls)
     assert not any("lf hitag hts rdbl" in call for call in calls)
 
@@ -261,7 +265,7 @@ def test_write_activation_ready_when_template_target_differences_and_authorizati
     )
 
     assert activation.write_ready is True
-    assert "freigeschaltet" in activation.reason
+    assert "Schreibmodus aktiv" in activation.reason
     assert plan.writable_difference_count == 5
     assert all(action.enabled for action in plan.disabled_actions)
 
@@ -283,7 +287,7 @@ def test_write_activation_reports_missing_template_target_authorization_and_diff
     assert no_target.write_ready is False
     assert "Zielchip" in no_target.reason
     assert no_authorization.write_ready is False
-    assert "Berechtigung" in no_authorization.reason
+    assert "Schreibmodus aktivieren" in no_authorization.reason
     assert no_differences.write_ready is False
     assert "Keine schreibbaren Unterschiede" in no_differences.reason
 
@@ -295,12 +299,12 @@ def test_write_plan_comparison_shows_current_template_values_and_uid_reference()
     plan = build_write_plan_view_model(blank, original)
     rows = {row.label: row for row in plan.rows}
 
-    assert rows["UID"].current_value == "D2DFE494"
-    assert rows["UID"].template_value == "FAF99179"
+    assert rows["UID"].current_value == "11223344"
+    assert rows["UID"].template_value == "A1B2C3D4"
     assert rows["UID"].state == "uid"
     assert "nicht schreibbar" in rows["UID"].note
     assert rows["Block 4"].current_value == "00000000"
-    assert rows["Block 4"].template_value == "FFF80697"
+    assert rows["Block 4"].template_value == "A410B420"
     assert rows["Block 4"].state == "different"
 
 
@@ -331,9 +335,9 @@ def test_write_plan_only_uid_mismatch_is_compatible():
 def test_write_plan_reports_incompatible_target_chip():
     original = hitag_profile("lf_hitag_hts_rdbl_original_pages_0_7.txt")
     incompatible = HitagS256Profile(
-        uid="D2 DF E4 94",
+        uid="11 22 33 44",
         pages={
-            0: "D2 DF E4 94",
+            0: "11 22 33 44",
             1: "C9 00 00 AA",
             4: "00 00 00 00",
         },
@@ -344,3 +348,63 @@ def test_write_plan_reports_incompatible_target_chip():
 
     assert plan.compatible is False
     assert any("Speicherumfang" in line for line in plan.summary_lines)
+
+
+def test_write_plan_allows_individual_config_when_full_target_is_incomplete():
+    original = hitag_profile("lf_hitag_hts_rdbl_original_pages_0_7.txt")
+    partial_current = HitagS256Profile(
+        uid="11 22 33 44",
+        pages={
+            0: "11 22 33 44",
+            1: "C9 00 00 AA",
+            4: "00 00 00 00",
+        },
+        ttf_pages=(4, 5, 6, 7),
+    )
+
+    plan = build_write_plan_view_model(partial_current, original)
+    actions = {action.page: action for action in plan.disabled_actions}
+
+    assert plan.compatible is False
+    assert actions[1].enabled is True
+    assert actions[4].enabled is True
+    assert actions[5].enabled is False
+    assert actions[6].enabled is False
+    assert actions[7].enabled is False
+    assert plan.writable_difference_count == 2
+
+
+def test_mode_navigation_separates_normal_and_expert_workflows():
+    assert normal_navigation_items() == ("Vorlage", "Schreiben", "Analyse")
+    assert expert_navigation_items() == ("Technologien", "Werkzeuge", "Vorlagen & Dumps", "Analyse", "Protokoll")
+
+
+def test_capability_matrix_is_generated_from_adapters():
+    rows = {row.technology_id: row for row in capability_matrix_view_model()}
+
+    assert rows["hitag_s256"].write.state == "available"
+    assert rows["mifare_classic"].detail_read.state == "requires_known_credentials"
+    assert rows["em410x"].write.state == "unavailable"
+    assert rows["t5577"].detail_read.state == "available"
+    assert rows["unknown_lf_hf"].detail_read.state == "not_implemented_yet"
+
+
+def test_hitag_s256_expert_tools_show_full_structured_functions():
+    tools = {tool.action: tool for tool in expert_tools_view_model("hitag_s256")}
+
+    assert tools["detect"].state == "available"
+    assert tools["read_memory"].label == "Details lesen"
+    assert tools["write_memory"].state == "available"
+    assert tools["restore_memory"].label == "Speicher wiederherstellen"
+    assert tools["emulate"].label == "Emulation vorbereiten"
+    assert tools["analyse_signal"].state == "available"
+
+
+def test_generic_unknown_adapter_explains_missing_detail_adapter_with_technical_state():
+    tools = {tool.action: tool for tool in expert_tools_view_model("unknown_lf_hf")}
+    text = " ".join(tool.explanation for tool in tools.values())
+
+    assert tools["read_memory"].state == "not_implemented_yet"
+    assert "noch kein Adapter implementiert" in tools["read_memory"].explanation
+    assert "noch kein Adapter implementiert" in text
+    assert "nicht implementiert" in tools["read_memory"].state_label

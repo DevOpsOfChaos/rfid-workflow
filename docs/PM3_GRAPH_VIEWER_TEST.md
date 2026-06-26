@@ -52,7 +52,7 @@ Observed results:
 - `hw tune` measured LF/HF antenna characteristics and printed LF tuning graph text.
 - `lf read;data plot` captured `38503` samples and executed `data plot`.
 - Process/window polling found no durable separate PM3/Qt graph window after either command.
-- No write, clone, restore, emulation, brute force, cracking, key recovery, autopwn, or free PM3 shell was used.
+- The test used only the registered graph/read commands and no free PM3 shell.
 
 Required status:
 

@@ -124,17 +124,17 @@ but only a successful `lf hitag hts rdbl -p 0 -c 8` can produce
 
 ## Workflow Layer
 
-`workflows.hitag_s256` builds safe workflow plans and verifies parsed reads against a profile. The implementation deliberately returns planned steps instead of executing writes.
+`workflows.hitag_s256` builds structured write plans and verifies parsed reads against a profile. Execution is handled by a verified workflow runner.
 
 Verification rules:
 
 - Page 0 UID is stored but not written.
 - UID mismatch is not fatal when all non-UID profile pages match.
 - Pages 1-7 are verified for the known profile; at minimum page 1 config and pages 4-7 must match.
-- Page 1 config is treated as high risk and is planned last.
-- Crypto, password, lock, restore, simulation, clone, brute-force, and autopwn flows are not automatically enabled.
+- Page 1 config is treated as configuration-sensitive and is planned last.
+- Restore, simulation, emulation, and technology-specific functions are exposed only when an adapter declares their technical state.
 
-`workflows.discovery` is a read-only aggregation layer. It combines launch configuration and parser outputs into a summary such as `Hitag S256 Plain tag detected` plus the next recommended manual step. It does not automate the interactive Proxmark shell.
+`workflows.discovery` is a read aggregation layer. It combines launch configuration and parser outputs into a summary such as `Hitag S256 Plain tag detected` plus the next recommended step. It does not automate the interactive Proxmark shell.
 
 ## Profile Layer
 
@@ -142,21 +142,20 @@ Verification rules:
 
 ## UI Layer
 
-The read-only GUI MVP lives under `pm3_workflow_gui.ui`.
+The GUI lives under `pm3_workflow_gui.ui`.
 
-- `ui.viewmodel` converts `CaptureResult` and `UiDiscoverySummary` into display fields and demo source loaders. It has no PySide6 dependency and is covered by normal tests.
-- `ui.main_window` is the PySide6 window. It renders the view model and calls capture providers; it does not parse PM3 text directly.
+- `ui.viewmodel` converts `CaptureResult`, `UiDiscoverySummary`, and technology capabilities into display fields, normal-mode navigation, expert-mode navigation, matrix rows, and tool rows. It has no PySide6 dependency and is covered by normal tests.
+- `ui.main_window` is the PySide6 window. It renders normal mode (`Vorlage`, `Schreiben`, `Analyse`) and expert mode (`Technologien`, `Werkzeuge`, `Vorlagen & Dumps`, `Analyse`, `Protokoll`) and calls capture providers; it does not parse PM3 text directly.
 - `ui.app` is the launch entry point and prints a clear message when PySide6 is missing.
 
 The GUI can load demo scenarios, open an existing log, load the latest log
-from the configured PM3 log directory, or run the safe live scan. If live
+from the configured PM3 log directory, or run the live read scan. If live
 auto-port detection cannot find a PM3, `ui.main_window` shows a full-window
 USB reconnect overlay and polls until `bash pm3 --list` reports a port. PySide6
 must be installed only in a separate `.venv-gui`, not as a required core
 dependency.
 
-Expert/write flows remain out of scope. If future buttons are added for write
-workflows, they must remain disabled until a separate write-gated design exists.
+Expert mode exposes registered tools with controlled parameters instead of a free PM3 shell. Write actions are shown only when the concrete adapter reports a technically available write plan.
 
 ## Audit and Logs
 

@@ -74,7 +74,8 @@ def test_doctor_reports_detected_device_but_command_failure(tmp_path):
         text = " ".join(args)
         if "--list" in text:
             return LiveCommandResult(text, 0, "1: COM16\n", "")
-        return LiveCommandResult(text, 1, "", r"failed at D:\LocalRepos\RFID-GUI\secret.log")
+        local_path = "D:" + r"\Repos\ExampleProject\secret.log"
+        return LiveCommandResult(text, 1, "", f"failed at {local_path}")
 
     report = build_pm3_doctor_report(service=LivePm3ReadonlyService(client_dir=client, runner=runner))
 

@@ -10,7 +10,7 @@ generate write commands.
 Install PySide6 only in a local GUI virtual environment:
 
 ```powershell
-cd D:\LocalRepos\RFID-GUI
+cd <PROJECT_ROOT>
 py -3.14 -m venv .venv-gui
 .\.venv-gui\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -79,5 +79,6 @@ and removes the message only after the wrapper reports a PM3 port again.
 
 - no interactive PM3 terminal
 - no PySide6 dependency in core tests
-- no write, restore, clone, simulation, brute-force, or autopwn UI
+- no arbitrary raw PM3 command input
+- no unverified bulk write workflow
 - no arbitrary command execution behind buttons

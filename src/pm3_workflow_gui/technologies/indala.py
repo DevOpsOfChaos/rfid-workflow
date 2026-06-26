@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pm3_workflow_gui.pm3.parsers import IndalaReadResult
 from pm3_workflow_gui.technologies.base import (
+    CapabilityDefinition,
     ChipField,
     ChipReadResult,
     DetectedTechnology,
@@ -24,6 +25,20 @@ class IndalaAdapter:
         can_compare_template=False,
         can_plan_write=False,
         can_write=False,
+        actions=(
+            CapabilityDefinition("detect", "available", "LF-Suche und lf indala reader erkennen Indala."),
+            CapabilityDefinition("read_identity", "available", "Raw Indala ID wird bei stabilem Signal gelesen."),
+            CapabilityDefinition("read_public_details", "available", "Öffentliche Basisdaten werden angezeigt."),
+            CapabilityDefinition("read_memory", "unavailable", "Dieser Adapter meldet keinen frei adressierbaren Speicher."),
+            CapabilityDefinition("create_template", "not_implemented_yet", "Indala-Vorlagenmodell noch nicht implementiert."),
+            CapabilityDefinition("compare_template", "not_implemented_yet", "Indala-Vergleich noch nicht implementiert."),
+            CapabilityDefinition("write_memory", "unavailable", "Kein schreibbarer Speicherbereich für diesen Adapter gemeldet."),
+            CapabilityDefinition("restore_memory", "unavailable", "Kein Restore für diesen Adapter."),
+            CapabilityDefinition("simulate", "not_implemented_yet", "Simulation noch nicht implementiert."),
+            CapabilityDefinition("emulate", "not_implemented_yet", "Emulation noch nicht implementiert."),
+            CapabilityDefinition("analyse_signal", "available", "LF-Signal und Stabilität können analysiert werden."),
+            CapabilityDefinition("open_graph", "available", "Frequenzdiagramm kann geöffnet werden, wenn lokal verfügbar."),
+        ),
     )
 
     def read_result(self, detection: DetectedTechnology, raw_read: object | None = None) -> ChipReadResult:
@@ -107,7 +122,7 @@ def _message(read_status: str) -> str:
 def _next_step(read_status: str) -> str:
     if read_status == READ_STATUS_SIGNAL_UNSTABLE:
         return "Chip leicht verschieben und erneut scannen."
-    return "ID dokumentieren; keine Schreib- oder Emulationsaktion ausfuehren."
+    return "ID dokumentieren; dieser Adapter meldet keine schreibbaren Speicherbereiche."
 
 
 def _status_label(read_status: str) -> str:

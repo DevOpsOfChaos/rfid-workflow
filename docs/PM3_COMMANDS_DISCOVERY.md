@@ -98,13 +98,13 @@ and excludes them from recognized PM3 commands.
 
 Captured Hitag S256 Plain workflow values:
 
-- Original UID: `FA F9 91 79`.
-- Blank UID: `D2 DF E4 94`.
+- Original UID: `A1 B2 C3 D4`.
+- Blank UID: `11 22 33 44`.
 - UID page 0 is read-only and must not be written in Normal Mode.
 - Original config page 1: `C9 28 00 AA`.
 - Blank-before config page 1: `C9 00 00 AA`.
 - Written blank config page 1: `C9 28 00 AA`.
-- Original/written pages 4-7 match: `FF F8 06 97`, `8C 66 C1 80`, `03 6E F7 00`, `00 00 00 00`.
+- Original/written pages 4-7 match: `A4 10 B4 20`, `C5 30 D5 40`, `E6 50 F6 60`, `00 00 00 00`.
 - Manual cabinet test succeeded despite UID mismatch, so this specific cabinet apparently did not check only UID.
 
 ## Write Commands Requiring Workflow Gates
@@ -115,7 +115,7 @@ Captured Hitag S256 Plain workflow values:
 
 - Config writes, especially page 1.
 - Lock, crypto, password, authentication changes.
-- Brute-force, attack, sniff, simulation, clone, and restore workflows.
+- Destructive, credential-recovery, or signal-capture workflows are not part of the discovery command set.
 - Do not enable crypto/authentication/password/lock options when the original is Plain/No Auth.
 - Page 1 config belongs last in the planned write order after pages 4-7.
 - Do not continue any workflow after `device_lost`; reconnect USB and restart PM3 first.

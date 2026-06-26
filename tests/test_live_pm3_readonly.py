@@ -31,7 +31,7 @@ def test_live_command_allowlist_blocks_write_like_commands():
     try:
         service.run_safe_command("lf hitag hts wrbl -p 0 -d 00000000")
     except ValueError as exc:
-        assert "outside read-only allowlist" in str(exc)
+        assert "no registered handler" in str(exc)
     else:
         raise AssertionError("write command must be blocked")
 
@@ -51,7 +51,7 @@ def test_live_command_allowlist_allows_only_targeted_indala_reader():
     try:
         service.run_safe_command("lf indala clone -r 8000000000000000", port="COM16")
     except ValueError as exc:
-        assert "outside read-only allowlist" in str(exc)
+        assert "no registered handler" in str(exc)
     else:
         raise AssertionError("Indala clone command must be blocked")
 
@@ -63,7 +63,7 @@ def test_frequency_diagram_is_disabled_without_confirmed_local_qt_window():
     try:
         service.open_frequency_diagram("COM16")
     except RuntimeError as exc:
-        assert "deaktiviert" in str(exc)
+        assert "technisch nicht verfügbar" in str(exc)
     else:
         raise AssertionError("unconfirmed PM3 graph workflow must stay disabled")
 
@@ -141,7 +141,7 @@ def test_positioning_mode_weak_signal_retries_until_maximum():
 
 def test_positioning_mode_repeated_stable_candidate_does_not_run_detail_reader():
     calls = []
-    lf_output = "[+] UID.................... D2 DF E4 94\n[+] TYPE................... PCF 7945\n[+] Chipset................ Hitag 1/S / 82xx\n"
+    lf_output = "[+] UID.................... 11 22 33 44\n[+] TYPE................... PCF 7945\n[+] Chipset................ Hitag 1/S / 82xx\n"
 
     def runner(args, timeout):
         text = " ".join(args)
@@ -155,7 +155,7 @@ def test_positioning_mode_repeated_stable_candidate_does_not_run_detail_reader()
     result = LivePm3ReadonlyService(runner=runner).position_chip("COM16", pause_seconds=0)
 
     assert result.status == "stable_detected"
-    assert result.stable_candidate.uid_or_raw_value == "D2DFE494"
+    assert result.stable_candidate.uid_or_raw_value == "11223344"
     assert sum(call.endswith(" -c lf search") for call in calls) == 2
     assert not any("lf hitag hts" in call for call in calls)
 
@@ -166,7 +166,7 @@ def test_hitag_write_refuses_uid_page():
     try:
         service.write_hitag_s256_page(0, "AA BB CC DD", "11 22 33 44", "tmpl", "AA BB CC DD")
     except ValueError as exc:
-        assert "outside approved pages" in str(exc)
+        assert "writable pages 1 and 4-7" in str(exc)
     else:
         raise AssertionError("UID page write must be blocked")
 
@@ -179,23 +179,23 @@ def test_hitag_write_runs_verify_read_and_audit(tmp_path):
         "[+] Authentication......... No\n"
         "[+] TTF data rate.......... 2 kBit\n"
         "[+] TTF mode............... Page 4, Page 5, Page 6, Page 7\n"
-        "[+]  0 | D2 DF E4 94 | . | r | UID\n"
+        "[+]  0 | 11 22 33 44 | . | r | UID\n"
         "[+]  1 | C9 28 00 AA | . | rw | Config\n"
-        "[+]  4 | FF F8 06 97 | . | rw | Data\n"
-        "[+]  5 | 8C 66 C1 80 | . | rw | Data\n"
-        "[+]  6 | 03 6E F7 00 | . | rw | Data\n"
+        "[+]  4 | A4 10 B4 20 | . | rw | Data\n"
+        "[+]  5 | C5 30 D5 40 | . | rw | Data\n"
+        "[+]  6 | E6 50 F6 60 | . | rw | Data\n"
         "[+]  7 | 00 00 00 00 | . | rw | Data\n"
     )
 
     def runner(args, timeout):
         text = " ".join(args)
         calls.append(text)
-        if "wrbl -p 4 -d FFF80697" in text:
+        if "wrbl -p 4 -d A410B420" in text:
             return LiveCommandResult(text, 0, "[+] done\n", "")
         if text.endswith(" -c lf search"):
-            return LiveCommandResult(text, 0, "[+] UID.................... D2 DF E4 94\n[+] TYPE................... PCF 7945\n[+] Chipset................ Hitag 1/S / 82xx\n", "")
+            return LiveCommandResult(text, 0, "[+] UID.................... 11 22 33 44\n[+] TYPE................... PCF 7945\n[+] Chipset................ Hitag 1/S / 82xx\n", "")
         if text.endswith(" -c lf hitag hts reader -@"):
-            return LiveCommandResult(text, 0, "[+] UID.................... D2DFE494\n", "")
+            return LiveCommandResult(text, 0, "[+] UID.................... 11223344\n", "")
         if text.endswith(" -c lf hitag hts rdbl -p 0 -c 8"):
             return LiveCommandResult(text, 0, verify_read, "")
         return LiveCommandResult(text, 1, "", "unexpected")
@@ -203,16 +203,16 @@ def test_hitag_write_runs_verify_read_and_audit(tmp_path):
     result = LivePm3ReadonlyService(runner=runner).write_hitag_s256_page(
         4,
         "00 00 00 00",
-        "FF F8 06 97",
+        "A4 10 B4 20",
         "tmpl_123",
-        "D2 DF E4 94",
+        "11 22 33 44",
         "COM16",
         tmp_path,
     )
 
     assert result.success is True
-    assert result.verification_value == "FF F8 06 97"
-    assert any("wrbl -p 4 -d FFF80697" in call for call in calls)
+    assert result.verification_value == "A4 10 B4 20"
+    assert any("wrbl -p 4 -d A410B420" in call for call in calls)
     assert any("lf hitag hts rdbl -p 0 -c 8" in call for call in calls)
     audit = (tmp_path / "hitag_s256_write_audit.jsonl").read_text(encoding="utf-8")
     assert '"template_id": "tmpl_123"' in audit
@@ -236,7 +236,7 @@ def test_live_capture_runs_only_safe_readonly_commands_and_feeds_facade():
         "hw version": " [ Proxmark3 ]\n [ Client ]\n  Iceman/master/v4.20469\n [ Model ]\n  Firmware................ PM3 GENERIC\n",
         "hw tune": "[+] LF antenna............. ok\n[+] HF antenna ( ok )\n",
         "hf search": "[!] No known/supported 13.56 MHz tags found\n",
-        "lf search": "[+] UID.................... 83 F5 E4 94\n[+] TYPE................... Hitag S\n",
+        "lf search": "[+] UID.................... 55 66 77 88\n[+] TYPE................... Hitag S\n",
     }
     calls = []
 
@@ -265,19 +265,19 @@ def test_live_capture_can_include_targeted_hitag_read_for_debug_summary():
         "hw version": " [ Proxmark3 ]\n [ Client ]\n  Iceman/master/v4.20469\n [ Model ]\n  Firmware................ PM3 GENERIC\n",
         "hw tune": "[+] LF antenna............. ok\n[+] HF antenna ( ok )\n",
         "hf search": "[!] No known/supported 13.56 MHz tags found\n",
-        "lf search": "[+] UID.................... D2 DF E4 94\n[+] TYPE................... PCF 7945\n[+] Chipset................ Hitag 1/S / 82xx\n[?] Hint: Try `lf hitag hts` commands\n",
-        "lf hitag hts reader -@": "[+] UID.................... D2DFE494\n",
+        "lf search": "[+] UID.................... 11 22 33 44\n[+] TYPE................... PCF 7945\n[+] Chipset................ Hitag 1/S / 82xx\n[?] Hint: Try `lf hitag hts` commands\n",
+        "lf hitag hts reader -@": "[+] UID.................... 11223344\n",
         "lf hitag hts rdbl -p 0 -c 8": (
             "[=] Access Hitag S in Plain mode\n"
             "[+] Memory type............ Hitag S 256\n"
             "[+] Authentication......... No\n"
             "[+] TTF data rate.......... 2 kBit\n"
             "[+] TTF mode............... Page 4, Page 5, Page 6, Page 7\n"
-            "[+]  0 | D2 DF E4 94 | . | r | UID\n"
+            "[+]  0 | 11 22 33 44 | . | r | UID\n"
             "[+]  1 | C9 28 00 AA | . | rw | Config\n"
-            "[+]  4 | FF F8 06 97 | . | rw | Data\n"
-            "[+]  5 | 8C 66 C1 80 | . | rw | Data\n"
-            "[+]  6 | 03 6E F7 00 | . | rw | Data\n"
+            "[+]  4 | A4 10 B4 20 | . | rw | Data\n"
+            "[+]  5 | C5 30 D5 40 | . | rw | Data\n"
+            "[+]  6 | E6 50 F6 60 | . | rw | Data\n"
             "[+]  7 | 00 00 00 00 | . | rw | Data\n"
         ),
     }

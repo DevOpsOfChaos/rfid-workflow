@@ -10,6 +10,12 @@ build/
 dist/
 logs/
 profiles/private/
+tests/private_fixtures/
+private/
+scratch/
+tmp/
+artifacts/
+release/
 *.sqlite
 *.db
 *.log

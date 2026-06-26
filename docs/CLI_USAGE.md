@@ -52,7 +52,7 @@ capture layer reports them separately:
 
 ```text
 Ignored host commands: 2
-- cd d:\localrepos\rfid-gui
+- cd <PROJECT_ROOT>
 - py -3.14 -m pm3_workflow_gui.cli latest-log-summary ...
 ```
 

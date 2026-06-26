@@ -93,7 +93,8 @@ def test_private_denylist_match_blocks_export(tmp_path):
 
 def test_local_windows_path_blocks_export(tmp_path):
     repo = _repo(tmp_path)
-    (repo / "src" / "app.py").write_text(r"path = 'D:\LocalRepos\RFID-GUI'", encoding="utf-8")
+    local_path = "D:" + r"\Repos\ExampleProject"
+    (repo / "src" / "app.py").write_text("path = '" + local_path + "'", encoding="utf-8")
 
     with pytest.raises(PublicExportBlocked) as exc:
         prepare_public_export(repo, tmp_path / "public-candidate", repo / "deny.txt", repo / "manifest.txt", enforce_local_repos=False)
@@ -109,6 +110,22 @@ def test_screenshot_file_blocks_export(tmp_path):
         prepare_public_export(repo, tmp_path / "public-candidate", repo / "deny.txt", repo / "manifest.txt", enforce_local_repos=False)
 
     assert any("screenshots" in finding.reason for finding in exc.value.findings)
+
+
+def test_private_fixture_dir_blocks_export(tmp_path):
+    repo = _repo(tmp_path)
+    private_fixture = repo / "tests" / "private_fixtures"
+    private_fixture.mkdir(parents=True)
+    (private_fixture / "sample.txt").write_text("private", encoding="utf-8")
+    (repo / "manifest.txt").write_text(
+        "[include]\nREADME.md\npyproject.toml\nsrc/\ntests/\n[exclude]\n.git/\n*.png\n*.log\n.env\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PublicExportBlocked) as exc:
+        prepare_public_export(repo, tmp_path / "public-candidate", repo / "deny.txt", repo / "manifest.txt", enforce_local_repos=False)
+
+    assert any(finding.path == "tests/private_fixtures/sample.txt" for finding in exc.value.findings)
 
 
 def test_manifest_outside_file_is_not_exported(tmp_path):
