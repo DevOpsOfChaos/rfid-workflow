@@ -54,6 +54,9 @@ class FakeService:
             raise AssertionError("unexpected read_chip call")
         return self.reads.pop(0)
 
+    def read_hitag_s256(self, port=None):
+        return self.read_chip(port)
+
     def write_hitag_s256_page(self, *args):
         self.write_calls.append(args)
         if self.write_results:
@@ -134,6 +137,8 @@ def profile_with_updates(base: HitagS256Profile, updates: dict[int, str], target
         mode=base.mode,
         ttf_pages=target.ttf_pages,
         ttf_data_rate=target.ttf_data_rate,
+        template_scope=target.template_scope,
+        uid_policy=target.uid_policy,
         write_order=target.write_order,
     )
 
@@ -284,7 +289,7 @@ def test_scan_after_template_save_starts_fresh_operation_and_replaces_result(tmp
     assert service.read_calls == 4
     assert last_scan["confirmed"] is True
     assert last_scan["chip"]["uid"] == compact(chip_b.uid)
-    assert last_scan["chip"]["memoryRegions"][0]["value"] == compact(chip_b.pages[4])
+    assert next(region for region in last_scan["chip"]["memoryRegions"] if region["id"] == "page_4")["value"] == compact(chip_b.pages[4])
 
 
 def test_failed_second_scan_after_previous_success_does_not_reconfirm_old_chip(tmp_path):
@@ -309,7 +314,7 @@ def test_failed_second_scan_after_previous_success_does_not_reconfirm_old_chip(t
     assert last_scan["confirmed"] is False
     assert last_scan["canSave"] is False
     assert last_scan["chip"]["uid"] == compact(chip_b.uid)
-    assert last_scan["chip"]["memoryRegions"][0]["value"] == compact(chip_b.pages[4])
+    assert next(region for region in last_scan["chip"]["memoryRegions"] if region["id"] == "page_4")["value"] == compact(chip_b.pages[4])
 
 
 def test_scan_after_connection_lost_requires_successful_reconnection(tmp_path):
@@ -437,7 +442,7 @@ def test_write_all_plans_open_hitag_regions_in_order_with_config_last(tmp_path):
     page4567 = profile_with_updates(page456, {7: target_profile.pages[7]}, target_profile)
     final = profile_with_updates(page4567, {1: target_profile.pages[1]}, target_profile)
     service = FakeService(
-        reads=(hitag_result_from_profile(current_profile),),
+        reads=(hitag_result_from_profile(current_profile), hitag_result_from_profile(final)),
         write_results=(
             write_result(4, current_profile.pages[4], target_profile.pages[4], page4),
             write_result(5, current_profile.pages[5], target_profile.pages[5], page45),
@@ -458,6 +463,7 @@ def test_write_all_plans_open_hitag_regions_in_order_with_config_last(tmp_path):
     assert operation["state"] == "succeeded"
     assert [args[0] for args in service.write_calls] == [4, 5, 6, 7, 1]
     assert operation["details"]["completed_regions"] == ["page_4", "page_5", "page_6", "page_7", "page_1"]
+    assert operation["result"]["final_verification"]["full_equivalence"] is True
     assert comparison["actions"] == []
 
 

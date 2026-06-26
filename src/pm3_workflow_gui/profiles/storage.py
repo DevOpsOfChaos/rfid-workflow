@@ -24,6 +24,8 @@ def load_hitag_s256_profile(path: str | Path) -> HitagS256Profile:
         uid=payload["uid"],
         pages=pages,
         mode=payload.get("mode", "plain_no_auth"),
+        template_scope=payload.get("template_scope", "legacy_partial"),
+        uid_policy=payload.get("uid_policy", "reference_only"),
         ttf_pages=tuple(payload.get("ttf_pages", (4, 5, 6, 7))),
         ttf_data_rate=payload.get("ttf_data_rate", "2 kBit"),
         write_uid=payload.get("write_uid", False),
@@ -58,10 +60,27 @@ class TemplateRecord:
     validation_requirements: tuple[str, ...] = ("second_scan_must_match",)
     write_policy: dict[str, bool | str] = field(default_factory=dict)
     template_creation_allowed: bool = True
+    template_scope: str = "full_profile"
+    uid_policy: str = "reference_only"
 
     @classmethod
     def from_hitag_s256_profile(cls, title: str, description: str, profile: HitagS256Profile) -> "TemplateRecord":
-        relevant_pages = {page: profile.pages[page] for page in sorted(profile.pages) if page in {4, 5, 6, 7}}
+        if not profile.can_be_full_profile_template:
+            raise ValueError("Full Hitag S256 templates require pages 0-7.")
+        profile = HitagS256Profile(
+            uid=profile.uid,
+            pages=profile.pages,
+            mode=profile.mode,
+            template_scope="full_profile",
+            uid_policy=profile.uid_policy,
+            ttf_pages=profile.ttf_pages,
+            ttf_data_rate=profile.ttf_data_rate,
+            write_uid=profile.write_uid,
+            write_config_last=profile.write_config_last,
+            write_order=profile.write_order,
+            created_at=profile.created_at,
+        )
+        relevant_pages = {page: profile.pages[page] for page in sorted(profile.pages) if page != 0}
         return cls(
             title=title.strip(),
             description=description.strip(),
@@ -93,8 +112,10 @@ class TemplateRecord:
                 "can_write": True,
             },
             validation_requirements=("second_scan_must_match",),
-            write_policy={"write_uid": False, "config_last": True},
+            write_policy={"write_uid": False, "config_last": True, "uid_policy": profile.uid_policy, "template_scope": "full_profile"},
             template_creation_allowed=True,
+            template_scope="full_profile",
+            uid_policy=profile.uid_policy,
         )
 
 
@@ -115,10 +136,14 @@ def load_template_record(path: str | Path) -> TemplateRecord:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     profile_payload = payload["profile"]
     pages = {int(page): data for page, data in profile_payload["pages"].items()}
+    scope = payload.get("template_scope") or profile_payload.get("template_scope") or "legacy_partial"
+    uid_policy = payload.get("uid_policy") or profile_payload.get("uid_policy") or payload.get("write_policy", {}).get("uid_policy", "reference_only")
     profile = HitagS256Profile(
         uid=profile_payload["uid"],
         pages=pages,
         mode=profile_payload.get("mode", "plain_no_auth"),
+        template_scope=scope,
+        uid_policy=uid_policy,
         ttf_pages=tuple(profile_payload.get("ttf_pages", (4, 5, 6, 7))),
         ttf_data_rate=profile_payload.get("ttf_data_rate", "unknown"),
         write_uid=profile_payload.get("write_uid", False),
@@ -150,9 +175,16 @@ def load_template_record(path: str | Path) -> TemplateRecord:
         validation_requirements=tuple(payload.get("validation_requirements", ("second_scan_must_match",))),
         write_policy=payload.get(
             "write_policy",
-            {"write_uid": payload.get("write_uid", False), "config_last": payload.get("write_config_last", True)},
+            {
+                "write_uid": payload.get("write_uid", False),
+                "config_last": payload.get("write_config_last", True),
+                "uid_policy": uid_policy,
+                "template_scope": scope,
+            },
         ),
         template_creation_allowed=payload.get("template_creation_allowed", True),
+        template_scope=scope,
+        uid_policy=uid_policy,
     )
 
 
@@ -182,6 +214,8 @@ def _template_record_to_payload(record: TemplateRecord) -> dict:
         "capabilities": record.capabilities or _hitag_capabilities_payload(),
         "validation_requirements": list(record.validation_requirements),
         "write_policy": record.write_policy or {"write_uid": record.write_uid, "config_last": record.write_config_last},
+        "template_scope": record.template_scope,
+        "uid_policy": record.uid_policy,
         "template_creation_allowed": record.template_creation_allowed,
         "chip_type": record.chip_type,
         "technology": record.technology,

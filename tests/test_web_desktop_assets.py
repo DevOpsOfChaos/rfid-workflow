@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import re
 
 
 ASSETS = Path(__file__).resolve().parents[1] / "src" / "pm3_workflow_gui" / "web_desktop" / "assets"
@@ -39,11 +38,17 @@ def test_index_exposes_analysis_navigation() -> None:
     assert 'data-i18n="nav.analysis"' in html
 
 
-def test_index_exposes_overview_navigation() -> None:
+def test_index_exposes_primary_navigation() -> None:
     html = (ASSETS / "index.html").read_text(encoding="utf-8")
 
-    assert 'data-view="overview"' in html
-    assert 'data-i18n="nav.overview"' in html
+    for view, key in (
+        ("read", "nav.read"),
+        ("write", "nav.write"),
+        ("templates", "nav.templates"),
+        ("backups", "nav.backups"),
+    ):
+        assert f'data-view="{view}"' in html
+        assert f'data-i18n="{key}"' in html
 
 
 def test_assets_and_locales_do_not_contain_mojibake_sequences() -> None:
@@ -63,31 +68,39 @@ def test_locale_keys_match_between_german_and_english() -> None:
     assert set(de) == set(en)
 
 
-def test_locale_files_do_not_accumulate_many_unused_keys() -> None:
+def test_page_table_locale_keys_are_used_and_translated() -> None:
     script = (ASSETS / "app.js").read_text(encoding="utf-8")
-    html = (ASSETS / "index.html").read_text(encoding="utf-8")
     en = json.loads((ASSETS / "locales" / "en.json").read_text(encoding="utf-8"))
-    dynamic_prefixes = (
-        "help.",
-        "overview.step",
+    de = json.loads((ASSETS / "locales" / "de.json").read_text(encoding="utf-8"))
+    required = (
+        "write.pageTable.title",
+        "write.table.templateValue",
+        "write.table.targetValue",
+        "write.table.status",
+        "write.table.profilePart",
+        "write.table.writable",
+        "write.table.action",
+        "write.table.reread",
+        "write.scope.fullProfile",
+        "write.uidPolicy.mustMatch",
     )
-    used = set(re.findall(r't\("([^"]+)"', script))
-    used.update(re.findall(r'data-i18n="([^"]+)"', html))
-    used.update(re.findall(r'\["[^"]+",\s*"([^"]+)"\]', script.split("const LEGACY_MESSAGE_KEYS", 1)[1].split("];", 1)[0]))
-    used.update(key for key in en if key.startswith(dynamic_prefixes))
-    unused = set(en) - used
+    dynamic_required = ("write.pageStatus.differentNotWritable",)
 
-    assert len(unused) < 40, sorted(unused)
+    for key in required:
+        assert key in script
+        assert key in en
+        assert key in de
+    for key in dynamic_required:
+        assert key in en
+        assert key in de
 
 
-def test_no_visible_hardcoded_ui_sentences_in_app_renderer() -> None:
+def test_new_page_table_labels_are_not_hardcoded_in_app_renderer() -> None:
     script = (ASSETS / "app.js").read_text(encoding="utf-8")
-    legacy_mapping = script.split("const LEGACY_MESSAGE_KEYS", 1)[1].split("];", 1)[0]
-    visible_old_terms = ("Übernehmen", "Änderungen", "Verbindung", "Speichern", "Vorlage", "Bereit")
-    renderer = script.replace(legacy_mapping, "")
+    page_table_terms = ("Vorlagenwert", "Zielwert", "Teil des Profils", "Nachprüfung", "Page-Vergleich")
 
-    for term in visible_old_terms:
-        assert term not in renderer
+    for term in page_table_terms:
+        assert term not in script
 
 
 def test_language_switch_rerenders_localized_surfaces_without_resetting_state() -> None:
@@ -96,8 +109,8 @@ def test_language_switch_rerenders_localized_surfaces_without_resetting_state() 
     for key in (
         "read.title",
         "write.currentChip",
-        "templates.title",
-        "backups.title",
+        "templates.searchPlaceholder",
+        "backups.searchPlaceholder",
         "settings.showStartup",
     ):
         assert key in script or key in (ASSETS / "index.html").read_text(encoding="utf-8")

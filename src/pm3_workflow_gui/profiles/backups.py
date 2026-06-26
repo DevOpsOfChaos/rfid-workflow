@@ -51,6 +51,8 @@ def load_backup_record(path: str | Path) -> BackupRecord:
         uid=profile_payload["uid"],
         pages={int(page): value for page, value in profile_payload["pages"].items()},
         mode=profile_payload.get("mode", "plain_no_auth"),
+        template_scope=profile_payload.get("template_scope", "partial_update"),
+        uid_policy=profile_payload.get("uid_policy", "reference_only"),
         ttf_pages=tuple(profile_payload.get("ttf_pages", (4, 5, 6, 7))),
         ttf_data_rate=profile_payload.get("ttf_data_rate", "unknown"),
         write_uid=profile_payload.get("write_uid", False),

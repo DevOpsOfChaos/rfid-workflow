@@ -1,6 +1,9 @@
+import json
+
 import pytest
 
 from pm3_workflow_gui.profiles.schema import HitagS256Profile
+from pm3_workflow_gui.profiles.storage import load_template_record, save_template_record, TemplateRecord
 from pm3_workflow_gui.workflows.hitag_s256 import build_hitag_s256_write_plan
 
 
@@ -20,6 +23,58 @@ def test_hitag_s256_profile_accepts_known_plain_profile():
     profile = HitagS256Profile(uid="a1 b2 c3 d4", pages=KNOWN_PAGES)
     assert profile.uid == "A1 B2 C3 D4"
     assert profile.writable_data_pages == (4, 5, 6, 7)
+    assert profile.is_complete_snapshot is True
+    assert profile.can_be_full_profile_template is True
+
+
+def test_hitag_s256_profile_missing_page_2_or_3_is_not_full_profile_capable():
+    pages = dict(KNOWN_PAGES)
+    pages.pop(2)
+    profile = HitagS256Profile(uid="A1 B2 C3 D4", pages=pages)
+
+    assert profile.is_complete_snapshot is False
+    assert profile.can_be_full_profile_template is False
+    assert profile.missing_expected_pages == (2,)
+
+
+def test_hitag_s256_profile_missing_page_5_is_not_full_profile_capable():
+    pages = dict(KNOWN_PAGES)
+    pages.pop(5)
+    profile = HitagS256Profile(uid="A1 B2 C3 D4", pages=pages)
+
+    assert profile.is_complete_snapshot is False
+    assert profile.can_be_full_profile_template is False
+    assert profile.missing_expected_pages == (5,)
+
+
+def test_full_profile_template_saves_and_loads_pages_0_to_7(tmp_path):
+    profile = HitagS256Profile(uid="A1 B2 C3 D4", pages=KNOWN_PAGES)
+    record = TemplateRecord.from_hitag_s256_profile("Synthetic", "", profile)
+
+    path = save_template_record(record, tmp_path)
+    loaded = load_template_record(path)
+
+    assert loaded.template_scope == "full_profile"
+    assert loaded.profile.template_scope == "full_profile"
+    assert set(loaded.profile.pages) == set(range(8))
+    assert loaded.profile.pages[2] == "44 45 4D 4F"
+
+
+def test_legacy_template_without_scope_loads_as_legacy_partial(tmp_path):
+    payload = {
+        "title": "Legacy",
+        "profile": {
+            "uid": "A1 B2 C3 D4",
+            "pages": {str(page): value for page, value in KNOWN_PAGES.items()},
+        },
+    }
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = load_template_record(path)
+
+    assert loaded.template_scope == "legacy_partial"
+    assert loaded.profile.template_scope == "legacy_partial"
 
 
 def test_hitag_s256_profile_rejects_uid_page_mismatch():

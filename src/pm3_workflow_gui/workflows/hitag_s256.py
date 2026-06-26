@@ -63,16 +63,20 @@ def build_hitag_s256_write_plan(profile: HitagS256Profile) -> list[WorkflowStep]
 def verify_hitag_s256_profile(target_read: HitagSRead, profile: HitagS256Profile) -> VerificationResult:
     target_pages = {page: item.data for page, item in target_read.pages.items()}
     uid_matches = _compact(profile.uid) == target_read.uid
-    pages_to_verify = tuple(page for page in sorted(profile.pages) if page != 0)
+    pages_to_verify = tuple(page for page in profile.equivalence_pages if page != 0)
     missing_pages = tuple(page for page in pages_to_verify if page not in target_pages)
     mismatched_pages = tuple(
         page
         for page in pages_to_verify
         if page in target_pages and _compact(profile.pages[page]) != target_pages[page]
     )
-    if missing_pages or mismatched_pages:
+    if profile.template_scope == "full_profile" and (profile.missing_expected_pages or any(page not in target_pages for page in range(8))):
         status = "failed"
-    elif uid_matches:
+    elif profile.uid_policy == "must_match" and not uid_matches:
+        status = "failed"
+    elif missing_pages or mismatched_pages:
+        status = "failed"
+    elif uid_matches or profile.uid_policy == "ignore_for_equivalence":
         status = "verified"
     else:
         status = "verified_with_uid_mismatch"

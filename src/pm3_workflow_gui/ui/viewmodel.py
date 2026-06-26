@@ -6,6 +6,7 @@ from typing import Literal
 
 from pm3_workflow_gui.pm3.parsers import HitagSRead, HwTune, HwVersion, IndalaReadResult
 from pm3_workflow_gui.profiles.schema import HitagS256Profile
+from pm3_workflow_gui.profiles.schema import HITAG_S256_EXPECTED_PAGES, HITAG_S256_WRITE_SUPPORTED_PAGES
 from pm3_workflow_gui.profiles.storage import TemplateRecord, save_template_record
 from pm3_workflow_gui.services.capture import (
     CaptureResult,
@@ -32,7 +33,7 @@ from pm3_workflow_gui.technologies.registry import adapter_for, detect_technolog
 from pm3_workflow_gui.workflows.hitag_s256 import profile_from_hitag_s_read
 
 Severity = Literal["ok", "warning", "error", "unknown"]
-ValueState = Literal["same", "different", "uid", "config", "incompatible"]
+ValueState = Literal["same", "different", "uid", "config", "incompatible", "missing", "not_in_scope", "not_writable"]
 
 DEFAULT_LOG_DIR = Path(r"C:\Tools\proxmark3\client\.proxmark3\logs")
 RECOMMENDED_START_COMMAND = r'cmd /k "cd /d C:\Tools\proxmark3\client && call setup.bat && bash pm3"'
@@ -125,7 +126,11 @@ class ChipReadViewModel:
 
     @property
     def is_complete_template_read(self) -> bool:
-        return self.profile is not None and bool(self.capabilities and self.capabilities.can_create_template)
+        return (
+            self.profile is not None
+            and self.profile.is_complete_snapshot
+            and bool(self.capabilities and self.capabilities.can_create_template)
+        )
 
 
 @dataclass(frozen=True)
@@ -161,6 +166,29 @@ class DisabledWriteActionViewModel:
 
 
 @dataclass(frozen=True)
+class PageCapabilityViewModel:
+    page: int
+    template_value: str
+    target_value: str
+    status: str
+    status_key: str
+    included_in_profile: bool
+    writable: bool
+    action: str
+    re_read_verified: bool
+    readable: bool
+    present_in_template: bool
+    present_on_target: bool
+    equal: bool
+    different: bool
+    write_supported: bool
+    write_allowed_for_this_plan: bool
+    written: bool = False
+    blocked_reason: str = ""
+    blocked_reason_key: str = ""
+
+
+@dataclass(frozen=True)
 class WritePlanViewModel:
     compatible: bool
     compatibility_message: str
@@ -170,6 +198,11 @@ class WritePlanViewModel:
     disabled_actions: tuple[DisabledWriteActionViewModel, ...]
     difference_count: int = 0
     writable_difference_count: int = 0
+    page_matrix: tuple[PageCapabilityViewModel, ...] = ()
+    profile_scope: str = "partial_update"
+    uid_policy: str = "reference_only"
+    equivalence_status: str = ""
+    equivalence_status_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -489,36 +522,36 @@ def save_confirmed_template(
 
 def build_write_plan_view_model(current: HitagS256Profile, template: TemplateRecord | HitagS256Profile) -> WritePlanViewModel:
     template_profile = template.profile if isinstance(template, TemplateRecord) else template
-    incompatible_reasons = _incompatible_reasons(current, template_profile)
-    rows = list(_comparison_rows(current, template_profile, incompatible=bool(incompatible_reasons)))
-    differing_writable_pages = tuple(
-        page
-        for page in template_profile.writable_data_pages
-        if current.pages.get(page) != template_profile.pages.get(page)
-    )
-    config_differs = current.config_page() != template_profile.config_page()
-    only_uid_mismatch = current.uid != template_profile.uid and not differing_writable_pages and not config_differs
+    page_matrix = _page_capability_matrix(current, template_profile)
+    incompatible_reasons = _incompatible_reasons(current, template_profile, page_matrix)
+    rows = list(_comparison_rows(current, template_profile, page_matrix, incompatible=bool(incompatible_reasons)))
+    uid_differs = current.uid != template_profile.uid
+    changed_pages = {
+        row.page
+        for row in page_matrix
+        if row.page != 0 and row.included_in_profile and not row.equal
+    }
+    only_uid_mismatch = uid_differs and not changed_pages
     compatible = not incompatible_reasons
-    if only_uid_mismatch:
+    equivalence_status, equivalence_status_key = _equivalence_status(current, template_profile, page_matrix, incompatible_reasons)
+    if only_uid_mismatch and template_profile.uid_policy != "must_match":
         compatibility_message = "Kompatibilität: Zielchip ist geeignet; nur UID weicht ab"
+    elif compatible and changed_pages:
+        compatibility_message = "Kompatibilität: Teiländerungen sind technisch möglich"
     elif compatible:
-        compatibility_message = "Kompatibilität: Zielchip ist geeignet"
+        compatibility_message = "Vollständige Daten-Gleichwertigkeit verifiziert"
     else:
-        compatibility_message = "Kompatibilität: Zielchip ist nicht geeignet"
-    summary = []
-    summary.extend(incompatible_reasons)
-    if differing_writable_pages:
-        summary.append(f"{len(differing_writable_pages)} Speicherbereiche unterscheiden sich")
-    if config_differs:
-        summary.append("Konfiguration muss angepasst werden")
-    if only_uid_mismatch:
+        compatibility_message = equivalence_status
+    summary = list(incompatible_reasons)
+    differing_profile_pages = tuple(row.page for row in page_matrix if row.included_in_profile and row.different and row.page != 0)
+    if differing_profile_pages:
+        summary.append(f"{len(differing_profile_pages)} Profil-Pages unterscheiden sich")
+    if only_uid_mismatch and template_profile.uid_policy != "must_match":
         summary.append("Nur UID weicht ab; UID ist nicht schreibbar")
     if not summary:
-        summary.append("Alle relevanten Bereiche passen")
-    changed_pages = set(differing_writable_pages)
-    if config_differs:
-        changed_pages.add(1)
-    plan_pages = tuple(page for page in template_profile.write_order if page in changed_pages and page in {4, 5, 6, 7, 1})
+        summary.append(equivalence_status)
+    action_pages = {row.page for row in page_matrix if row.page != 0 and row.included_in_profile and not row.equal}
+    plan_pages = tuple(page for page in template_profile.write_order if page in action_pages and page in HITAG_S256_WRITE_SUPPORTED_PAGES)
     plan_steps = tuple(
         f"{index}. {'Konfiguration schreiben' if page == 1 else f'Block {page} schreiben'}"
         for index, page in enumerate(plan_pages, start=1)
@@ -526,11 +559,11 @@ def build_write_plan_view_model(current: HitagS256Profile, template: TemplateRec
     disabled_actions = tuple(
         DisabledWriteActionViewModel(
             "Konfiguration schreiben" if page == 1 else f"Block {page} schreiben",
-            _write_action_block_reason(page, current, template_profile),
+            _write_action_block_reason(page, current, template_profile, page_matrix),
             page,
             _compact_display(current.pages.get(page)),
             _compact_display(template_profile.pages.get(page)),
-            _write_action_available(page, current, template_profile),
+            _write_action_available(page, current, template_profile, page_matrix),
         )
         for page in plan_pages
     )
@@ -542,8 +575,13 @@ def build_write_plan_view_model(current: HitagS256Profile, template: TemplateRec
         tuple(rows),
         plan_steps,
         disabled_actions,
-        len(changed_pages) + (1 if current.uid != template_profile.uid else 0),
+        len(changed_pages) + (1 if uid_differs else 0),
         writable_difference_count,
+        page_matrix,
+        template_profile.template_scope,
+        template_profile.uid_policy,
+        equivalence_status,
+        equivalence_status_key,
     )
 
 
@@ -795,58 +833,230 @@ def _profile_differences(first: HitagS256Profile, second: HitagS256Profile) -> t
 def _comparison_rows(
     current: HitagS256Profile,
     template: HitagS256Profile,
+    page_matrix: tuple[PageCapabilityViewModel, ...],
     incompatible: bool = False,
 ) -> tuple[ComparisonRowViewModel, ...]:
     chip_type_state: ValueState = "incompatible" if current.mode != template.mode else "same"
-    config_state: ValueState
-    if current.config_page() == template.config_page():
-        config_state = "same"
-    else:
-        config_state = "incompatible" if incompatible else "config"
     rows = [
         ComparisonRowViewModel("Chiptyp", "Hitag S256", "Hitag S256", chip_type_state),
-        ComparisonRowViewModel("UID", _compact_display(current.uid), _compact_display(template.uid), "uid", "UID ist nicht schreibbar"),
-        ComparisonRowViewModel(
-            "Config",
-            _compact_display(current.config_page()),
-            _compact_display(template.config_page()),
-            config_state,
-            "Konfiguration wird zuletzt behandelt",
-        ),
     ]
-    relevant_pages = tuple(page for page in sorted(set(current.writable_data_pages) | set(template.writable_data_pages)) if page in {4, 5, 6, 7})
-    for page in relevant_pages:
-        current_value = current.pages.get(page, "fehlt")
-        template_value = template.pages.get(page, "fehlt")
-        if current_value == template_value:
-            state: ValueState = "same"
+    for page_row in page_matrix:
+        if page_row.page == 0:
+            rows.append(
+                ComparisonRowViewModel(
+                    "UID",
+                    page_row.target_value,
+                    page_row.template_value,
+                    "uid" if not page_row.different or template.uid_policy != "must_match" else "incompatible",
+                    "UID ist Referenzbereich und nicht schreibbar",
+                )
+            )
+            continue
+        state: ValueState
+        if not page_row.included_in_profile:
+            state = "not_in_scope"
+        elif not page_row.present_in_template or not page_row.present_on_target:
+            state = "missing"
+        elif page_row.equal:
+            state = "same"
+        elif page_row.page == 1:
+            state = "incompatible" if incompatible and not page_row.write_allowed_for_this_plan else "config"
+        elif not page_row.write_supported:
+            state = "not_writable"
         else:
-            state = "incompatible" if incompatible else "different"
-        rows.append(ComparisonRowViewModel(f"Block {page}", _compact_display(current_value), _compact_display(template_value), state))
+            state = "incompatible" if incompatible and not page_row.write_allowed_for_this_plan else "different"
+        rows.append(
+            ComparisonRowViewModel(
+                "Config" if page_row.page == 1 else f"Block {page_row.page}",
+                page_row.target_value,
+                page_row.template_value,
+                state,
+                page_row.blocked_reason or page_row.status,
+            )
+        )
     return tuple(rows)
 
 
-def _incompatible_reasons(current: HitagS256Profile, template: HitagS256Profile) -> tuple[str, ...]:
+def _page_capability_matrix(current: HitagS256Profile, template: HitagS256Profile) -> tuple[PageCapabilityViewModel, ...]:
+    rows: list[PageCapabilityViewModel] = []
+    for page in HITAG_S256_EXPECTED_PAGES:
+        present_in_template = page in template.pages
+        present_on_target = page in current.pages
+        template_value = _compact_display(template.pages.get(page))
+        target_value = _compact_display(current.pages.get(page))
+        included = _included_in_equivalence_scope(page, template)
+        equal = present_in_template and present_on_target and template.pages.get(page) == current.pages.get(page)
+        different = present_in_template and present_on_target and not equal
+        write_supported = page in HITAG_S256_WRITE_SUPPORTED_PAGES
+        write_allowed = (
+            included
+            and write_supported
+            and page != 0
+            and present_in_template
+            and present_on_target
+            and different
+        )
+        status, status_key = _page_status(page, included, present_in_template, present_on_target, equal, write_supported)
+        blocked_reason, blocked_reason_key = _page_block_reason(
+            page, included, present_in_template, present_on_target, equal, write_supported
+        )
+        rows.append(
+            PageCapabilityViewModel(
+                page=page,
+                template_value=template_value,
+                target_value=target_value,
+                status=status,
+                status_key=status_key,
+                included_in_profile=included,
+                writable=write_allowed,
+                action="page_write" if write_allowed else "",
+                re_read_verified=False,
+                readable=present_on_target,
+                present_in_template=present_in_template,
+                present_on_target=present_on_target,
+                equal=equal,
+                different=different,
+                write_supported=write_supported,
+                write_allowed_for_this_plan=write_allowed,
+                blocked_reason=blocked_reason,
+                blocked_reason_key=blocked_reason_key,
+            )
+        )
+    return tuple(rows)
+
+
+def _included_in_equivalence_scope(page: int, template: HitagS256Profile) -> bool:
+    if template.template_scope == "full_profile":
+        if page == 0:
+            return template.uid_policy == "must_match"
+        return True
+    if page == 0:
+        return False
+    return page in template.pages
+
+
+def _page_status(
+    page: int,
+    included: bool,
+    present_in_template: bool,
+    present_on_target: bool,
+    equal: bool,
+    write_supported: bool,
+) -> tuple[str, str]:
+    if page == 0 and not included:
+        return "UID-Referenz", "write.pageStatus.uidReference"
+    if not included:
+        return "Nicht Teil dieser Änderung", "write.pageStatus.notInScope"
+    if not present_in_template:
+        return "Fehlt in Vorlage", "write.pageStatus.missingTemplate"
+    if not present_on_target:
+        return "Fehlt auf Ziel", "write.pageStatus.missingTarget"
+    if equal:
+        return "Gleich", "write.pageStatus.equal"
+    if not write_supported:
+        return "Abweichend · nicht schreibbar", "write.pageStatus.differentNotWritable"
+    return "Abweichend", "write.pageStatus.different"
+
+
+def _page_block_reason(
+    page: int,
+    included: bool,
+    present_in_template: bool,
+    present_on_target: bool,
+    equal: bool,
+    write_supported: bool,
+) -> tuple[str, str]:
+    if page == 0:
+        return "UID ist nicht schreibbar", "write.blockReason.uidReadOnly"
+    if not included or equal:
+        return "", ""
+    if not present_in_template:
+        return "Zielwert fehlt", "write.blockReason.templateMissing"
+    if not present_on_target:
+        return "Bereich wurde am aktuellen Chip nicht gelesen", "write.blockReason.targetMissing"
+    if not write_supported:
+        return "Adapter meldet keine getestete Schreibfreigabe fuer diese Page", "write.blockReason.unsupportedPage"
+    return "", ""
+
+
+def _incompatible_reasons(
+    current: HitagS256Profile,
+    template: HitagS256Profile,
+    page_matrix: tuple[PageCapabilityViewModel, ...],
+) -> tuple[str, ...]:
     reasons: list[str] = []
     if current.mode != template.mode:
         reasons.append("falscher Chiptyp oder Modus")
-    missing_pages = [page for page in template.writable_data_pages if page not in current.pages]
-    if missing_pages:
-        reasons.append("falscher Speicherumfang")
+    if template.template_scope == "full_profile":
+        if template.missing_expected_pages:
+            reasons.append("Vorlage unvollständig")
+        if current.missing_expected_pages:
+            reasons.append("Zielscan unvollständig")
+        if template.uid_policy == "must_match" and current.uid != template.uid:
+            reasons.append("UID stimmt nicht mit der Vorlage überein")
+        blocked_required = [
+            row.page
+            for row in page_matrix
+            if row.included_in_profile
+            and row.page != 0
+            and not row.equal
+            and (not row.write_supported or not row.present_in_template or not row.present_on_target)
+        ]
+        if blocked_required:
+            reasons.append("Erforderliche Page ist nicht schreibbar")
     return tuple(reasons)
 
 
-def _write_action_available(page: int, current: HitagS256Profile, template: HitagS256Profile) -> bool:
+def _equivalence_status(
+    current: HitagS256Profile,
+    template: HitagS256Profile,
+    page_matrix: tuple[PageCapabilityViewModel, ...],
+    incompatible_reasons: tuple[str, ...],
+) -> tuple[str, str]:
+    if template.template_scope != "full_profile":
+        if any(row.different for row in page_matrix if row.included_in_profile):
+            return "Teiländerung geplant - vollständige Gleichwertigkeit nicht verifiziert", "write.equivalence.partialPending"
+        return "Teiländerung ohne vollständige Gleichwertigkeitsbehauptung", "write.equivalence.partial"
+    if "Vorlage unvollständig" in incompatible_reasons:
+        return "Vorlage unvollständig", "write.equivalence.templateIncomplete"
+    if "Zielscan unvollständig" in incompatible_reasons:
+        return "Zielscan unvollständig", "write.equivalence.targetIncomplete"
+    if "UID stimmt nicht mit der Vorlage überein" in incompatible_reasons:
+        return "UID stimmt nicht mit der Vorlage überein", "write.equivalence.uidMismatch"
+    if "Erforderliche Page ist nicht schreibbar" in incompatible_reasons:
+        return "Erforderliche Page ist nicht schreibbar", "write.equivalence.requiredPageNotWritable"
+    if any(row.different for row in page_matrix if row.included_in_profile):
+        return "Datenprofil weicht ab", "write.equivalence.profileDiffers"
+    if current.uid != template.uid and template.uid_policy == "reference_only":
+        return "Vollständige Daten-Gleichwertigkeit verifiziert; UID nur Referenz", "write.equivalence.verifiedUidReference"
+    return "Vollständige Daten-Gleichwertigkeit verifiziert", "write.equivalence.verified"
+
+
+def _write_action_available(
+    page: int,
+    current: HitagS256Profile,
+    template: HitagS256Profile,
+    page_matrix: tuple[PageCapabilityViewModel, ...] | None = None,
+) -> bool:
+    row = next((item for item in page_matrix or () if item.page == page), None)
+    if row is not None:
+        return row.write_allowed_for_this_plan and current.mode == template.mode
     return (
         page != 0
         and current.mode == template.mode
         and page in current.pages
         and page in template.pages
+        and page in HITAG_S256_WRITE_SUPPORTED_PAGES
     )
 
 
-def _write_action_block_reason(page: int, current: HitagS256Profile, template: HitagS256Profile) -> str:
-    if _write_action_available(page, current, template):
+def _write_action_block_reason(
+    page: int,
+    current: HitagS256Profile,
+    template: HitagS256Profile,
+    page_matrix: tuple[PageCapabilityViewModel, ...] | None = None,
+) -> str:
+    if _write_action_available(page, current, template, page_matrix):
         return ""
     if page == 0:
         return "UID ist nicht schreibbar"
@@ -856,6 +1066,8 @@ def _write_action_block_reason(page: int, current: HitagS256Profile, template: H
         return "Bereich wurde am aktuellen Chip nicht gelesen"
     if page not in template.pages:
         return "Zielwert fehlt"
+    if page not in HITAG_S256_WRITE_SUPPORTED_PAGES:
+        return "Bereich nicht als schreibbar getestet"
     return "Bereich nicht freigegeben"
 
 

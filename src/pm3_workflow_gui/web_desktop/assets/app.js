@@ -998,6 +998,7 @@ function patchActionPanel() {
   if (!rows.length) {
     replaceHtml("[data-action-panel]", `
       <div style="font-size:14px;font-weight:700;color:#F1F5F9;margin-bottom:12px;">${escapeHtml(t("write.changes","Änderungen"))}</div>
+      ${renderPageMatrix()}
       <div style="display:flex;align-items:center;gap:8px;padding:12px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:10px;color:#22C55E;font-weight:600;">
         ✓ ${escapeHtml(t("write.matchesTarget","Chip entspricht dem Zielzustand"))}
       </div>
@@ -1058,6 +1059,7 @@ function patchActionPanel() {
 
   replaceHtml("[data-action-panel]", `
     ${dangerBanner}
+    ${renderPageMatrix()}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
       <div style="font-size:14px;font-weight:700;color:#F1F5F9;">${escapeHtml(t("write.changes","Änderungen"))}
         <span style="font-size:11px;background:${openCount?"rgba(245,158,11,.15)":"rgba(34,197,94,.12)"};color:${openCount?"#F59E0B":"#22C55E"};border:1px solid ${openCount?"rgba(245,158,11,.3)":"rgba(34,197,94,.25)"};padding:1px 7px;border-radius:4px;margin-left:6px;">${openCount}</span>
@@ -1067,6 +1069,79 @@ function patchActionPanel() {
     ${progressLine}
     <div>${cards}</div>
   `);
+}
+
+function renderPageMatrix() {
+  const comparison = state.comparison;
+  const rows = comparison?.page_rows || [];
+  if (!rows.length) return "";
+  const scopeKey = comparison.profile_scope === "full_profile"
+    ? "write.scope.fullProfile"
+    : comparison.profile_scope === "legacy_partial"
+      ? "write.scope.legacyPartial"
+      : "write.scope.partialUpdate";
+  const uidKey = comparison.uid_policy === "must_match"
+    ? "write.uidPolicy.mustMatch"
+    : comparison.uid_policy === "ignore_for_equivalence"
+      ? "write.uidPolicy.ignore"
+      : "write.uidPolicy.reference";
+  const equivalence = comparison.equivalence_status_key
+    ? t(comparison.equivalence_status_key, comparison.equivalence_status)
+    : comparison.equivalence_status;
+  const htmlRows = rows.map((row) => {
+    const action = (comparison.actions || []).find((item) => item.page === row.page);
+    const op = action ? state.writeOperations[action.region_id] : null;
+    const done = action && (state.completedActions[action.region_id] || op?.state === "succeeded");
+    const verified = done || row.re_read_verified;
+    const status = row.status_key ? t(row.status_key, row.status) : row.status;
+    const blocked = row.blocked_reason_key ? t(row.blocked_reason_key, row.blocked_reason) : row.blocked_reason;
+    const writable = row.write_supported
+      ? row.write_allowed_for_this_plan ? t("write.table.writeAllowed") : t("write.table.writeSupported")
+      : t("write.table.notWritable");
+    const actionText = action
+      ? action.enabled ? t("write.table.actionAvailable") : (action.reason || blocked || t("write.table.actionBlocked"))
+      : row.page === 0 ? t("write.table.referenceOnly") : row.included_in_profile ? (blocked || t("write.table.noAction")) : t("write.table.notInScope");
+    return `
+      <tr>
+        <td style="padding:7px 8px;color:#CBD5E1;font-weight:700;white-space:nowrap;">${row.page === 0 ? escapeHtml(t("write.table.uidPage")) : `P${escapeHtml(row.page)}`}</td>
+        <td style="padding:7px 8px;font-family:var(--mono);font-size:10.5px;color:#94A3B8;">${escapeHtml(row.template_value || t("write.table.missing"))}</td>
+        <td style="padding:7px 8px;font-family:var(--mono);font-size:10.5px;color:#94A3B8;">${escapeHtml(row.target_value || t("write.table.missing"))}</td>
+        <td style="padding:7px 8px;color:${row.equal ? "#22C55E" : row.different ? "#F59E0B" : "#94A3B8"};">${escapeHtml(status)}</td>
+        <td style="padding:7px 8px;color:#94A3B8;">${escapeHtml(row.included_in_profile ? t("write.table.yes") : t("write.table.no"))}</td>
+        <td style="padding:7px 8px;color:${row.write_allowed_for_this_plan ? "#22C55E" : row.write_supported ? "#94A3B8" : "#EF4444"};">${escapeHtml(writable)}</td>
+        <td style="padding:7px 8px;color:#94A3B8;">${escapeHtml(actionText)}</td>
+        <td style="padding:7px 8px;color:${verified ? "#22C55E" : "#94A3B8"};">${escapeHtml(verified ? t("write.table.verified") : t("write.table.pending"))}</td>
+      </tr>
+    `;
+  }).join("");
+  return `
+    <div style="border:1px solid #1E3050;background:#0F1A2B;border-radius:8px;margin-bottom:12px;overflow:hidden;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid #1E3050;">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#F1F5F9;">${escapeHtml(t("write.pageTable.title"))}</div>
+          <div style="font-size:11px;color:#94A3B8;margin-top:3px;">${escapeHtml(t(scopeKey))} · ${escapeHtml(t(uidKey))}</div>
+        </div>
+        <div style="font-size:11px;color:#CBD5E1;text-align:right;max-width:280px;">${escapeHtml(equivalence || "")}</div>
+      </div>
+      <div style="overflow:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:11.5px;min-width:760px;">
+          <thead style="background:#111D30;color:#64748B;text-transform:uppercase;font-size:10px;letter-spacing:.5px;">
+            <tr>
+              <th style="text-align:left;padding:7px 8px;">${escapeHtml(t("write.table.page"))}</th>
+              <th style="text-align:left;padding:7px 8px;">${escapeHtml(t("write.table.templateValue"))}</th>
+              <th style="text-align:left;padding:7px 8px;">${escapeHtml(t("write.table.targetValue"))}</th>
+              <th style="text-align:left;padding:7px 8px;">${escapeHtml(t("write.table.status"))}</th>
+              <th style="text-align:left;padding:7px 8px;">${escapeHtml(t("write.table.profilePart"))}</th>
+              <th style="text-align:left;padding:7px 8px;">${escapeHtml(t("write.table.writable"))}</th>
+              <th style="text-align:left;padding:7px 8px;">${escapeHtml(t("write.table.action"))}</th>
+              <th style="text-align:left;padding:7px 8px;">${escapeHtml(t("write.table.reread"))}</th>
+            </tr>
+          </thead>
+          <tbody>${htmlRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 function renderWriteAnimating() {

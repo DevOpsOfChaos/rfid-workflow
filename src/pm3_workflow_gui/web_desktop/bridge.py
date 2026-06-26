@@ -461,12 +461,38 @@ class WebDesktopBridge:
                 }
             )
 
+        progress(
+            {
+                "message": "Finaler Komplett-Read wird ausgefuehrt ...",
+                "message_key": "write.finalReadRunning",
+                "active_region": None,
+                "completed_regions": list(completed),
+                "completed_steps": total,
+                "total_steps": total,
+            }
+        )
+        final_read = self.service.read_hitag_s256(check.port)
+        self._raise_if_device_lost(final_read)
+        final_model = chip_read_view_model_from_live_result(final_read)
+        if final_model.profile is not None:
+            self.state.set_current_chip(final_model, snapshot["current_backup"])
         final_comparison = self.compare_current_to_target().get("comparison")
+        equivalence_status = (final_comparison or {}).get("equivalence_status") or "Teiländerung erfolgreich - vollständige Gleichwertigkeit nicht bestätigt"
+        full_equivalence = (final_comparison or {}).get("equivalence_status_key") in {
+            "write.equivalence.verified",
+            "write.equivalence.verifiedUidReference",
+        }
         return {
             "ok": True,
-            "message": "Alle Unterschiede uebernommen und verifiziert",
+            "message": "Alle Unterschiede uebernommen und verifiziert" if full_equivalence else "Teiländerung erfolgreich - vollständige Gleichwertigkeit nicht bestätigt",
+            "message_key": "write.allVerified" if full_equivalence else "write.partialSuccessNotFull",
             "completed_regions": completed,
             "comparison": final_comparison,
+            "final_verification": {
+                "full_equivalence": full_equivalence,
+                "status": equivalence_status,
+                "status_key": (final_comparison or {}).get("equivalence_status_key", ""),
+            },
             "chip": self.get_current_chip().get("chip"),
         }
 
@@ -726,11 +752,12 @@ def _chip_from_profile(
     regions = [
         {
             "id": f"page_{page}",
-            "label": f"Block {page}",
+            "label": "UID / Page 0" if page == 0 else f"Page {page}",
             "value": _compact(profile.pages.get(page)),
             "writable": page in profile.write_order and page != 0,
+            "role": "uid_reference" if page == 0 else "config" if page == 1 else "data",
         }
-        for page in sorted(page for page in profile.pages if page in {4, 5, 6, 7})
+        for page in sorted(page for page in profile.pages if page in set(range(8)))
     ]
     config = _compact(profile.config_page())
     return {
@@ -753,6 +780,9 @@ def _chip_from_profile(
             "Config": config or "",
             "Datenrate": profile.ttf_data_rate,
             "Modus": profile.mode,
+            "Vorlagenmodus": profile.template_scope,
+            "UID-Policy": profile.uid_policy,
+            "Vollstaendiger Snapshot": "ja" if profile.is_complete_snapshot else "nein",
             "Scanzeitpunkt": _display_datetime(created_at),
             "Status zweiter Scan": second_scan_status,
         },
@@ -776,10 +806,15 @@ def _comparison_payload(plan) -> dict:
         "compatible": plan.compatible,
         "status": status,
         "message": message,
+        "profile_scope": plan.profile_scope,
+        "uid_policy": plan.uid_policy,
+        "equivalence_status": plan.equivalence_status,
+        "equivalence_status_key": plan.equivalence_status_key,
         "summary": list(plan.summary_lines),
         "difference_count": plan.difference_count,
         "writable_difference_count": plan.writable_difference_count,
         "rows": [asdict(row) for row in plan.rows],
+        "page_rows": [asdict(row) for row in plan.page_matrix],
         "actions": [
             {
                 "region_id": f"page_{action.page}",

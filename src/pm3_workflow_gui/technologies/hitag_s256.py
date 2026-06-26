@@ -62,11 +62,16 @@ class HitagS256Adapter:
             ChipField("Config", _compact_display(raw_read.config_page)),
             ChipField("Datenrate", raw_read.ttf_data_rate or "unknown"),
             ChipField("TTF-Modus", _mode_label(raw_read.ttf_mode)),
-            ChipField("Blöcke 4-7", _memory_ranges(profile.writable_data_pages)),
+            ChipField("Pages 0-7", "vollständig" if profile.is_complete_snapshot else f"unvollständig; fehlt {_memory_ranges(profile.missing_expected_pages)}"),
         )
         memory_fields = tuple(
-            ChipField(f"Block {page}", _compact_display(profile.pages[page]), "Datenbereich")
-            for page in sorted(profile.writable_data_pages)
+            ChipField(
+                f"Page {page}",
+                _compact_display(profile.pages[page]),
+                "UID / Referenz" if page == 0 else "Konfiguration" if page == 1 else "lesbar und vergleichbar" if page in {2, 3} else "Datenbereich",
+            )
+            for page in sorted(profile.pages)
+            if page in set(range(8))
         )
         public_configuration = (
             ChipField("Config Page 1", _compact_display(profile.config_page()), "Konfiguration · zuletzt schreiben"),
@@ -79,7 +84,14 @@ class HitagS256Adapter:
             fields=identity_fields,
             memory_sections=memory_fields,
             public_configuration=public_configuration,
-            warnings=("UID Page 0 wird nie geschrieben.",),
+            warnings=tuple(
+                warning
+                for warning in (
+                    "UID Page 0 wird nie geschrieben.",
+                    None if profile.is_complete_snapshot else "Unvollständiger Hitag-S256-Read: nicht als Full-Profile-Vorlage verwendbar.",
+                )
+                if warning
+            ),
             next_step="Zweiten Scan durchführen oder als Zielchip read-only vergleichen.",
             read_status=READ_STATUS_FULL_SUPPORTED_READ,
             support_level="full_supported_read",

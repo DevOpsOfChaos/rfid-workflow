@@ -9,7 +9,7 @@ from pm3_workflow_gui.services.pm3_graph_viewer import Pm3GraphWorkflow
 from pm3_workflow_gui.ui.viewmodel import load_live_scan_view_model
 
 
-def test_connection_status_uses_pm3_wrapper_list_without_forced_com_port():
+def test_connection_status_uses_direct_pm3_list_without_forced_com_port():
     calls = []
 
     def runner(args, timeout):
@@ -21,7 +21,7 @@ def test_connection_status_uses_pm3_wrapper_list_without_forced_com_port():
 
     assert status.connected is True
     assert status.ports == ("COM11",)
-    assert "bash pm3 --list" in " ".join(calls[0])
+    assert "proxmark3.exe --list" in " ".join(calls[0])
     assert "-p COM16" not in " ".join(calls[0])
 
 

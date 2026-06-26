@@ -113,7 +113,9 @@ def test_template_read_scan_1_scan_2_identical_and_save(tmp_path):
     assert record.write_uid is False
     assert record.write_config_last is True
     assert record.supported_write_plan == (4, 5, 6, 7, 1)
-    assert set(record.relevant_pages) == {4, 5, 6, 7}
+    assert set(record.relevant_pages) == {1, 2, 3, 4, 5, 6, 7}
+    assert record.template_scope == "full_profile"
+    assert record.profile.template_scope == "full_profile"
     assert record.template_id.startswith("tmpl_")
     assert record.technology_id == "hitag_s256"
     assert record.technology_name == "Hitag S256"
@@ -121,7 +123,12 @@ def test_template_read_scan_1_scan_2_identical_and_save(tmp_path):
     assert record.identity == {"uid": "A1 B2 C3 D4"}
     assert record.capabilities["can_create_template"] is True
     assert record.capabilities["can_write"] is True
-    assert record.write_policy == {"write_uid": False, "config_last": True}
+    assert record.write_policy == {
+        "write_uid": False,
+        "config_last": True,
+        "uid_policy": "reference_only",
+        "template_scope": "full_profile",
+    }
     assert record.template_creation_allowed is True
 
 
@@ -347,7 +354,7 @@ def test_write_plan_reports_incompatible_target_chip():
     plan = build_write_plan_view_model(incompatible, original)
 
     assert plan.compatible is False
-    assert any("Speicherumfang" in line for line in plan.summary_lines)
+    assert any("Zielscan unvollständig" in line for line in plan.summary_lines)
 
 
 def test_write_plan_allows_individual_config_when_full_target_is_incomplete():
@@ -372,6 +379,110 @@ def test_write_plan_allows_individual_config_when_full_target_is_incomplete():
     assert actions[6].enabled is False
     assert actions[7].enabled is False
     assert plan.writable_difference_count == 2
+
+
+def test_partial_update_allows_page_1_when_page_2_or_3_is_missing_or_different():
+    current = HitagS256Profile(
+        uid="11 22 33 44",
+        pages={
+            0: "11 22 33 44",
+            1: "00 00 00 01",
+            4: "10 10 10 10",
+        },
+        template_scope="partial_update",
+    )
+    template = HitagS256Profile(
+        uid="AA BB CC DD",
+        pages={
+            0: "AA BB CC DD",
+            1: "00 00 00 02",
+            2: "22 22 22 22",
+        },
+        template_scope="partial_update",
+    )
+
+    plan = build_write_plan_view_model(current, template)
+    actions = {action.page: action for action in plan.disabled_actions}
+
+    assert actions[1].enabled is True
+    assert 2 not in actions
+    assert plan.writable_difference_count == 1
+
+
+def test_full_profile_detects_page_2_difference_and_blocks_full_equivalence_when_not_writable():
+    current = hitag_profile("lf_hitag_hts_rdbl_original_pages_0_7.txt")
+    template_pages = dict(current.pages)
+    template_pages[2] = "22 22 22 22"
+    template = HitagS256Profile(
+        uid=current.uid,
+        pages=template_pages,
+        template_scope="full_profile",
+        uid_policy="reference_only",
+        ttf_pages=current.ttf_pages,
+    )
+
+    plan = build_write_plan_view_model(current, template)
+    page2 = next(row for row in plan.page_matrix if row.page == 2)
+
+    assert page2.different is True
+    assert page2.write_supported is False
+    assert plan.compatible is False
+    assert plan.equivalence_status_key == "write.equivalence.requiredPageNotWritable"
+
+
+def test_page_0_is_never_part_of_a_write_plan():
+    current = hitag_profile("lf_hitag_hts_rdbl_written_blank_pages_0_7.txt")
+    template_pages = dict(current.pages)
+    template_pages[0] = "AA BB CC DD"
+    template = HitagS256Profile(
+        uid="AA BB CC DD",
+        pages=template_pages,
+        template_scope="full_profile",
+        uid_policy="must_match",
+        ttf_pages=current.ttf_pages,
+    )
+
+    plan = build_write_plan_view_model(current, template)
+
+    assert all(action.page != 0 for action in plan.disabled_actions)
+    assert next(row for row in plan.page_matrix if row.page == 0).write_allowed_for_this_plan is False
+
+
+def test_uid_policy_reference_only_allows_payload_equivalence_with_uid_difference():
+    current = hitag_profile("lf_hitag_hts_rdbl_written_blank_pages_0_7.txt")
+    template_pages = dict(current.pages)
+    template_pages[0] = "AA BB CC DD"
+    template = HitagS256Profile(
+        uid="AA BB CC DD",
+        pages=template_pages,
+        template_scope="full_profile",
+        uid_policy="reference_only",
+        ttf_pages=current.ttf_pages,
+    )
+
+    plan = build_write_plan_view_model(current, template)
+
+    assert plan.compatible is True
+    assert plan.equivalence_status_key == "write.equivalence.verifiedUidReference"
+    assert plan.writable_difference_count == 0
+
+
+def test_uid_policy_must_match_blocks_full_equivalence_with_uid_difference():
+    current = hitag_profile("lf_hitag_hts_rdbl_written_blank_pages_0_7.txt")
+    template_pages = dict(current.pages)
+    template_pages[0] = "AA BB CC DD"
+    template = HitagS256Profile(
+        uid="AA BB CC DD",
+        pages=template_pages,
+        template_scope="full_profile",
+        uid_policy="must_match",
+        ttf_pages=current.ttf_pages,
+    )
+
+    plan = build_write_plan_view_model(current, template)
+
+    assert plan.compatible is False
+    assert plan.equivalence_status_key == "write.equivalence.uidMismatch"
 
 
 def test_mode_navigation_separates_normal_and_expert_workflows():
