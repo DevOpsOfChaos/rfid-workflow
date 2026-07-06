@@ -110,10 +110,10 @@ def _next_step(detection: DetectedTechnology, read_status: str) -> str:
     if read_status == READ_STATUS_REQUIRES_AUTHORIZED_CREDENTIALS:
         return "Bekannte Zugangsdaten verwalten; Detailread danach gezielt starten."
     if detection.technology_id == "em410x":
-        return "ID kann dokumentiert werden; keine Template-Erstellung in V1."
+        return "ID kann dokumentiert werden; kein vollständiger Vorlagen-Read für diesen Chiptyp."
     if detection.technology_id == "indala":
-        return "ID dokumentieren; keine Template-Erstellung in V1."
-    return "Analyse öffnen; Detailread und Vorlagen-Workflow sind für diesen Chiptyp noch nicht verfügbar."
+        return "ID dokumentieren; kein vollständiger Vorlagen-Read für diesen Chiptyp."
+    return "Analyse öffnen; dieser Chiptyp liefert keinen vollständigen Vorlagen-Read."
 
 
 def _warnings(detection: DetectedTechnology) -> tuple[str, ...]:

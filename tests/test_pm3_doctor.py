@@ -81,7 +81,30 @@ def test_doctor_reports_detected_device_but_command_failure(tmp_path):
 
     assert report.device_found is True
     assert report.command_check_passed is False
-    assert report.command_check_reason == "failed at <local-path>"
+    assert report.command_check_reason == "Proxmark port was found, but PM3 command execution failed. Reason: failed at <local-path>"
+
+
+def test_doctor_reports_relevant_failure_line_instead_of_session_log(tmp_path):
+    client = _client_dir(tmp_path)
+    output = (
+        "[=] Session log C:\\Tools\\proxmark3\\client\\.proxmark3\\logs\\log.txt\n"
+        "[+] loaded `C:\\Tools\\proxmark3\\client\\.proxmark3\\preferences.json`\n"
+        "[+] execute command from commandline: hw version\n"
+        "[!!] ERROR: could not open serial port COM16\n"
+    )
+
+    def runner(args, timeout):
+        text = " ".join(args)
+        if "--list" in text:
+            return LiveCommandResult(text, 0, "1: COM16\n", "")
+        return LiveCommandResult(text, 1, output, "")
+
+    report = build_pm3_doctor_report(service=LivePm3ReadonlyService(client_dir=client, runner=runner))
+
+    assert report.device_found is True
+    assert report.command_check_passed is False
+    assert "could not open serial port COM16" in report.command_check_reason
+    assert "Session log" not in report.command_check_reason
 
 
 def test_doctor_reports_version_recognized_but_untested(tmp_path):

@@ -414,7 +414,7 @@ def _recommended_next_step(
     if evidence.state in {"signal_detected_but_ambiguous", "signal_unstable", "technology_candidate"}:
         return "Chip mittig auflegen oder leicht verschieben und erneut scannen"
     if tag_type_guess not in {"unknown", "none"}:
-        return "Analyse öffnen; Detailread und Vorlagen-Workflow sind für diesen Chiptyp noch nicht verfügbar"
+        return "Analyse öffnen; dieser Chiptyp liefert keinen vollständigen Vorlagen-Read"
     if discovery_data_status == "not captured":
         return "Run hf search and lf search with the tag present"
     return "Place tag on antenna and run hf search / lf search"

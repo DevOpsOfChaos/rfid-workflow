@@ -47,7 +47,7 @@ The first read-only discovery foundation is parser-first. The project stores cap
 - verification status when a reference profile is supplied
 - short risk notes and the recommended next manual step
 
-The PySide6 GUI calls this service layer. It should not directly run parser
+The GUI calls this service layer. It should not directly run parser
 regexes or construct Proxmark command strings.
 
 The facade also owns session-health state for captured logs:
@@ -142,17 +142,18 @@ Verification rules:
 
 ## UI Layer
 
-The GUI lives under `pm3_workflow_gui.ui`.
+The current desktop GUI lives under `pm3_workflow_gui.web_desktop`.
 
-- `ui.viewmodel` converts `CaptureResult`, `UiDiscoverySummary`, and technology capabilities into display fields, normal-mode navigation, expert-mode navigation, matrix rows, and tool rows. It has no PySide6 dependency and is covered by normal tests.
-- `ui.main_window` is the PySide6 window. It renders normal mode (`Vorlage`, `Schreiben`, `Analyse`) and expert mode (`Technologien`, `Werkzeuge`, `Vorlagen & Dumps`, `Analyse`, `Protokoll`) and calls capture providers; it does not parse PM3 text directly.
-- `ui.app` is the launch entry point and prints a clear message when PySide6 is missing.
+- `ui.viewmodel` converts `CaptureResult`, `UiDiscoverySummary`, and technology capabilities into display fields, normal-mode navigation, expert-mode navigation, matrix rows, and tool rows. It has no desktop runtime dependency and is covered by normal tests.
+- `web_desktop.bridge` exposes the controlled service API to the browser UI.
+- `web_desktop.assets` contains the HTML, CSS, JavaScript, and locale files for the pywebview desktop surface.
+- `web_desktop.app` is the launch entry point and prints a clear message when pywebview is missing.
 
 The GUI can load demo scenarios, open an existing log, load the latest log
 from the configured PM3 log directory, or run the live read scan. If live
-auto-port detection cannot find a PM3, `ui.main_window` shows a full-window
-USB reconnect overlay and polls until `bash pm3 --list` reports a port. PySide6
-must be installed only in a separate `.venv-gui`, not as a required core
+auto-port detection cannot find a PM3, the web desktop UI shows a full-window
+USB reconnect overlay and polls until `bash pm3 --list` reports a port. GUI
+dependencies must be installed only in a separate `.venv-gui`, not as a required core
 dependency.
 
 Expert mode exposes registered tools with controlled parameters instead of a free PM3 shell. Write actions are shown only when the concrete adapter reports a technically available write plan.

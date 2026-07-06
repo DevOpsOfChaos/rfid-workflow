@@ -81,7 +81,7 @@ def test_facade_reports_generic_hf_chip_with_basic_support():
     assert summary.tag_frequency_guess == "hf"
     assert summary.tag_type_guess == "mifare_classic"
     assert summary.support_level == "identity_read"
-    assert "noch nicht verfügbar" in summary.recommended_next_step
+    assert "keinen vollständigen Vorlagen-Read" in summary.recommended_next_step
 
 
 def test_facade_reports_weak_lf_signal_as_ambiguous_not_unknown_chip():

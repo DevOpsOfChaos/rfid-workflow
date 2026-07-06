@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import time
 from typing import Callable
@@ -212,7 +213,7 @@ class LivePm3ReadonlyService:
             error = "timeout while waiting for Proxmark3 port list"
         else:
             error = (
-                direct_error
+                _connection_probe_error(direct_error, _first_error(bash_result))
                 or _first_error(bash_result)
                 or f"{DEVICE_NOT_FOUND_ERROR} (Pfad: {self.proxmark_exe})"
             )
@@ -235,7 +236,7 @@ class LivePm3ReadonlyService:
             return Pm3StartupCheck(
                 connected=False,
                 port=port,
-                message=COMMAND_EXECUTION_FAILED,
+                message=_command_failure_reason(hw_version),
                 raw_status=status,
                 hw_version=hw_version,
             )
@@ -260,7 +261,7 @@ class LivePm3ReadonlyService:
         hw_tune = self.run_safe_command("hw tune", port=selected_port)
         output = _combined_output(hw_tune)
         if hw_tune.timed_out or not _hw_tune_is_meaningful(output):
-            return Pm3HardwareCheck(False, selected_port, message=COMMAND_EXECUTION_FAILED, hw_tune=hw_tune)
+            return Pm3HardwareCheck(False, selected_port, message=_command_failure_reason(hw_tune), hw_tune=hw_tune)
         parsed = parse_hw_tune(output)
         ok = parsed.lf_antenna_status == "ok" and parsed.hf_antenna_status == "ok"
         return Pm3HardwareCheck(
@@ -446,7 +447,7 @@ class LivePm3ReadonlyService:
                 selected_port,
                 lf_search,
                 None,
-                "Chip erkannt. Vollständiges Lesen und Vorlagen-Erstellung sind für diesen Chiptyp noch nicht verfügbar.",
+                "Chip erkannt. Dieser Chiptyp liefert keinen vollständigen Vorlagen-Read.",
                 raw_results,
                 hf_search,
                 detected,
@@ -688,7 +689,7 @@ class LivePm3ReadonlyService:
                     "basic_detection",
                     selected_port,
                     lf_search,
-                    message="Chip erkannt. Vollständiges Lesen und Vorlagen-Erstellung sind für diesen Chiptyp noch nicht verfügbar.",
+                    message="Chip erkannt. Dieser Chiptyp liefert keinen vollständigen Vorlagen-Read.",
                     raw_results=tuple(lf_results),
                     detected_technology=detected,
                 )
@@ -758,7 +759,7 @@ class LivePm3ReadonlyService:
                 selected_port,
                 lf_search,
                 last_hitag_read,
-                "Dieser Chiptyp wird erkannt, aber ein vollständiger Vorlagen-Read ist in V1 noch nicht verfügbar.",
+                "Dieser Chiptyp wurde erkannt, liefert aber keinen vollständigen Vorlagen-Read.",
                 tuple(lf_results + reader_results + rdbl_results),
             )
         return HitagS256LiveReadResult(
@@ -1037,13 +1038,25 @@ def _looks_like_command_catalog(output: str) -> bool:
 def _parse_pm3_list_ports(output: str) -> list[str]:
     ports: list[str] = []
     for line in output.splitlines():
-        stripped = line.strip()
-        if ": " not in stripped:
-            continue
-        _, value = stripped.split(": ", 1)
-        if value:
-            ports.append(value.strip())
+        for match in re.finditer(r"(?i)\bCOM\d+\b", line):
+            port = match.group(0).upper()
+            if port not in ports:
+                ports.append(port)
     return ports
+
+
+def _connection_probe_error(direct_error: str | None, wrapper_error: str | None) -> str | None:
+    direct = (direct_error or "").strip()
+    wrapper = (wrapper_error or "").strip()
+    if not direct:
+        return wrapper or None
+    if "invalid parameter: --list" in direct.lower():
+        if wrapper:
+            return f"Direct proxmark3.exe does not support --list; wrapper probe failed: {wrapper}"
+        return "Direct proxmark3.exe does not support --list and wrapper probe found no port"
+    if wrapper and wrapper != direct:
+        return f"{direct}; wrapper probe: {wrapper}"
+    return direct
 
 
 def _first_error(result: LiveCommandResult) -> str | None:
@@ -1053,6 +1066,54 @@ def _first_error(result: LiveCommandResult) -> str | None:
             if stripped:
                 return stripped
     return None
+
+
+def _command_failure_reason(result: LiveCommandResult) -> str:
+    if result.timed_out:
+        return "PM3 command timed out. Close other PM3 windows, reconnect USB, and retry."
+    output = _combined_output(result)
+    relevant = _first_relevant_error_line(output)
+    if relevant:
+        return f"{COMMAND_EXECUTION_FAILED} Reason: {_sanitize_local_paths(relevant)}"
+    return f"{COMMAND_EXECUTION_FAILED} Exit code {result.returncode}; no parseable command output."
+
+
+def _first_relevant_error_line(output: str) -> str | None:
+    noise_prefixes = (
+        "[=] session log",
+        "[+] loaded ",
+        "[+] execute command from commandline:",
+    )
+    priority_markers = (
+        "error",
+        "failed",
+        "cannot",
+        "could not",
+        "timeout",
+        "access is denied",
+        "permission",
+        "busy",
+        "invalid parameter",
+        "no port",
+    )
+    fallback: str | None = None
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        lowered = stripped.lower()
+        if lowered.startswith(noise_prefixes):
+            continue
+        if any(marker in lowered for marker in priority_markers):
+            return stripped
+        if fallback is None:
+            fallback = stripped
+    return fallback
+
+
+def _sanitize_local_paths(value: str) -> str:
+    sanitized = re.sub(r"(?i)\b[A-Z]:\\[^\s]+", "<local-path>", value)
+    return re.sub(r"(?i)/(?:Users|home)/[^\s]+", "<local-path>", sanitized).strip()
 
 
 def _result_errors(results: list[LiveCommandResult]) -> list[str]:

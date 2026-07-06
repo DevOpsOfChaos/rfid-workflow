@@ -25,6 +25,49 @@ def test_connection_status_uses_direct_pm3_list_without_forced_com_port():
     assert "-p COM16" not in " ".join(calls[0])
 
 
+def test_connection_status_does_not_treat_pm3_usage_text_as_port():
+    calls = []
+
+    def runner(args, timeout):
+        text = " ".join(args)
+        calls.append(text)
+        if "--list" in text and "proxmark3.exe" in text:
+            return LiveCommandResult(
+                text,
+                1,
+                "syntax: proxmark3.exe [-h|-t|-m|--fulltext]\n",
+                "[!!] ERROR: invalid parameter: --list\n",
+            )
+        if "--list" in text:
+            return LiveCommandResult(text, 0, "1: COM16\n", "")
+        return LiveCommandResult(text, 1, "", "unexpected")
+
+    status = LivePm3ReadonlyService(runner=runner).connection_status()
+
+    assert status.connected is True
+    assert status.ports == ("COM16",)
+    assert len(calls) == 2
+
+
+def test_connection_status_reports_wrapper_failure_when_direct_list_is_unsupported():
+    def runner(args, timeout):
+        text = " ".join(args)
+        if "--list" in text and "proxmark3.exe" in text:
+            return LiveCommandResult(
+                text,
+                1,
+                "syntax: proxmark3.exe [-h|-t|-m|--fulltext]\n",
+                "[!!] ERROR: invalid parameter: --list\n",
+            )
+        return LiveCommandResult(text, 1, "", "No port found")
+
+    status = LivePm3ReadonlyService(runner=runner).connection_status()
+
+    assert status.connected is False
+    assert status.ports == ()
+    assert status.last_error == "Direct proxmark3.exe does not support --list; wrapper probe failed: No port found"
+
+
 def test_live_command_allowlist_blocks_write_like_commands():
     service = LivePm3ReadonlyService(runner=lambda args, timeout: LiveCommandResult("", 0, "", ""))
 
@@ -328,6 +371,28 @@ def test_empty_hw_version_output_is_not_success():
     assert capture.inputs.hw_version is None
     assert summary.session_status == "command_failed"
     assert summary.last_error == COMMAND_EXECUTION_FAILED
+
+
+def test_startup_check_reports_relevant_command_failure_instead_of_session_log():
+    output = (
+        "[=] Session log C:\\Tools\\proxmark3\\client\\.proxmark3\\logs\\log.txt\n"
+        "[+] loaded `C:\\Tools\\proxmark3\\client\\.proxmark3\\preferences.json`\n"
+        "[+] execute command from commandline: hw version\n"
+        "[!!] ERROR: could not open serial port COM16\n"
+    )
+
+    def runner(args, timeout):
+        text = " ".join(args)
+        if "--list" in text:
+            return LiveCommandResult(text, 0, "1: COM16\n", "")
+        return LiveCommandResult(text, 1, output, "")
+
+    check = LivePm3ReadonlyService(runner=runner).startup_check()
+
+    assert check.connected is False
+    assert check.port == "COM16"
+    assert "could not open serial port COM16" in check.message
+    assert "Session log" not in check.message
 
 
 def test_real_hw_version_output_sets_target_client_and_firmware():

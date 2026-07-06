@@ -163,18 +163,15 @@ deliberately blocked.
 The GUI MVP uses the same read-only services:
 
 ```powershell
-python -m pm3_workflow_gui.ui.app
+.\Start-RFID-GUI.ps1
 ```
 
-PySide6 is optional for core development and should be installed only in
-`.venv-gui`:
+The GUI dependencies are optional for core development and should be installed
+only in `.venv-gui`:
 
 ```powershell
-py -3.14 -m venv .venv-gui
-.\.venv-gui\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install PySide6
+.\scripts\install-windows.ps1
 ```
 
-If PySide6 is missing, the launcher prints a clear setup message. See
+If pywebview is missing, the launcher prints a clear setup message. See
 `docs/GUI_READONLY_MVP.md` for the GUI data sources and limitations.

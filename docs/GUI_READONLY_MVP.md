@@ -7,28 +7,25 @@ generate write commands.
 
 ## Start
 
-Install PySide6 only in a local GUI virtual environment:
+Install the GUI only in the local project virtual environment:
 
 ```powershell
 cd <PROJECT_ROOT>
-py -3.14 -m venv .venv-gui
-.\.venv-gui\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install PySide6
-python -m pm3_workflow_gui.ui.app
+.\scripts\install-windows.ps1
+.\Start-RFID-GUI.ps1
 ```
 
 Alternatively, after activating `.venv-gui`, install the optional GUI extra:
 
 ```powershell
 python -m pip install -e .[gui]
-python -m pm3_workflow_gui.ui.app
+.\Start-RFID-GUI.ps1
 ```
 
-If PySide6 is missing, the app exits with:
+If pywebview is missing, the app exits with:
 
 ```text
-PySide6 is not installed. Create and activate .venv-gui, then install PySide6.
+pywebview ist nicht installiert. Bitte die Projekt-GUI-Venv verwenden: .\.venv-gui\Scripts\python.exe -m pip install pywebview
 ```
 
 ## Data Sources
@@ -78,7 +75,7 @@ and removes the message only after the wrapper reports a PM3 port again.
 ## Explicit Non-goals
 
 - no interactive PM3 terminal
-- no PySide6 dependency in core tests
+- no pywebview dependency in core tests
 - no arbitrary raw PM3 command input
 - no unverified bulk write workflow
 - no arbitrary command execution behind buttons

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
@@ -214,6 +215,28 @@ def test_refresh_connection_does_not_block_recognized_untested_pm3(tmp_path):
     assert state["compatibility"] == "recognized_untested"
 
 
+def test_refresh_connection_returns_disconnected_payload_and_debug_log_on_exception(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+
+    class BrokenService:
+        client_dir = Path("C:/Tools/proxmark3/client")
+        proxmark_exe = client_dir / "proxmark3.exe"
+
+        def startup_check(self):
+            raise RuntimeError("boom")
+
+    bridge = WebDesktopBridge(BrokenService(), template_dir=tmp_path, backup_dir=tmp_path)
+
+    state = bridge.refresh_connection()
+    log_path = tmp_path / "localappdata" / "PM3Workflow" / "gui-debug.log"
+    events = [json.loads(line)["event"] for line in log_path.read_text(encoding="utf-8").splitlines()]
+
+    assert state["connected"] is False
+    assert state["status"] == "disconnected"
+    assert "boom" in state["message"]
+    assert events == ["refresh_connection.start", "refresh_connection.error"]
+
+
 def test_scan_requires_matching_second_read_before_template_save(tmp_path):
     bridge = WebDesktopBridge(
         FakeService(
@@ -261,6 +284,74 @@ def test_confirmed_scan_saves_template_after_storage_write(tmp_path):
     assert len(templates) == 1
     assert templates[0]["name"] == "Garage"
     assert len(list((tmp_path / "templates").glob("*.json"))) == 1
+
+
+def test_scan_operation_reports_distinct_progress_steps(tmp_path):
+    bridge = WebDesktopBridge(
+        FakeService(
+            reads=(
+                hitag_result("lf_hitag_hts_rdbl_original_pages_0_7.txt"),
+                hitag_result("lf_hitag_hts_rdbl_original_pages_0_7.txt"),
+            )
+        ),
+        template_dir=tmp_path / "templates",
+        backup_dir=tmp_path / "backups",
+    )
+
+    operation_id = bridge.start_scan("auto")["operation_id"]
+    operation = wait_for_operation(bridge, operation_id)
+
+    assert operation["state"] == "succeeded"
+    assert operation["progress_keys"] == [
+        "operation.pm3ConnectionChecking",
+        "operation.scanSearchAuto",
+        "operation.firstReadRunning",
+        "operation.secondReadRunning",
+        "operation.scanCompare",
+    ]
+
+
+def test_current_chip_scan_reports_full_read_and_backup_steps(tmp_path):
+    bridge = WebDesktopBridge(
+        FakeService(reads=(hitag_result("lf_hitag_hts_rdbl_blank_pages_0_7.txt"),)),
+        template_dir=tmp_path / "templates",
+        backup_dir=tmp_path / "backups",
+    )
+
+    operation_id = bridge.start_current_chip_scan()["operation_id"]
+    operation = wait_for_operation(bridge, operation_id)
+
+    assert operation["state"] == "succeeded"
+    assert operation["progress_keys"] == [
+        "operation.pm3ConnectionChecking",
+        "operation.currentChipFullRead",
+        "operation.backupSaving",
+    ]
+    assert operation["message_key"] == "operation.backupCreated"
+
+
+def test_compare_current_to_target_uses_latest_template_target(tmp_path):
+    blank_profile = profile_from_fixture("lf_hitag_hts_rdbl_blank_pages_0_7.txt")
+    original_profile = profile_from_fixture("lf_hitag_hts_rdbl_original_pages_0_7.txt")
+    bridge = WebDesktopBridge(
+        FakeService(reads=(hitag_result_from_profile(blank_profile),)),
+        template_dir=tmp_path / "templates",
+        backup_dir=tmp_path / "backups",
+    )
+    matching_template = TemplateRecord.from_hitag_s256_profile("Blank", "", blank_profile)
+    changed_template = TemplateRecord.from_hitag_s256_profile("Original", "", original_profile)
+    save_template_record(matching_template, tmp_path / "templates")
+    save_template_record(changed_template, tmp_path / "templates")
+
+    wait_for_operation(bridge, bridge.start_current_chip_scan()["operation_id"])
+    bridge.set_target_template(matching_template.template_id)
+    matching = bridge.compare_current_to_target()["comparison"]
+    bridge.set_target_template(changed_template.template_id)
+    changed = bridge.compare_current_to_target()["comparison"]
+
+    assert matching["actions"] == []
+    assert changed["actions"] != []
+    assert changed["writable_difference_count"] > 0
 
 
 def test_scan_after_template_save_starts_fresh_operation_and_replaces_result(tmp_path):

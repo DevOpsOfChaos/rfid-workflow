@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import traceback
 from typing import Any
 
 from pm3_workflow_gui.pm3.compatibility import classify_pm3_compatibility
@@ -88,12 +89,36 @@ class WebDesktopBridge:
         return {"ok": True, "path": clean}
 
     def refresh_connection(self) -> dict:
-        check = self.service.startup_check()
-        snapshot = _connection_from_startup(check)
-        self.state.set_connection(snapshot)
-        if check.connected and getattr(self.service, "client_dir", None):
-            update_settings({"last_known_pm3_path": str(self.service.client_dir)})
-        return self.get_connection_state()
+        _debug_log(
+            "refresh_connection.start",
+            {
+                "client_dir": str(getattr(self.service, "client_dir", "")),
+                "proxmark_exe": str(getattr(self.service, "proxmark_exe", "")),
+            },
+        )
+        try:
+            check = self.service.startup_check()
+            snapshot = _connection_from_startup(check)
+            self.state.set_connection(snapshot)
+            if check.connected and getattr(self.service, "client_dir", None):
+                update_settings({"last_known_pm3_path": str(self.service.client_dir)})
+            payload = self.get_connection_state()
+            _debug_log("refresh_connection.result", payload)
+            return payload
+        except Exception as exc:
+            message = f"Verbindungsprüfung fehlgeschlagen: {exc}"
+            self.state.set_connection(ConnectionSnapshot("disconnected", False, message))
+            payload = self.get_connection_state()
+            _debug_log(
+                "refresh_connection.error",
+                {
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "traceback": traceback.format_exc(),
+                    "payload": payload,
+                },
+            )
+            return payload
 
     def get_connection_state(self) -> dict:
         return _connection_to_payload(self.state.connection)
@@ -296,7 +321,13 @@ class WebDesktopBridge:
     def _scan_operation(self, mode: str, progress) -> dict:
         mode = _normalize_mode(mode)
         check = self._verify_connection(progress)
-        progress("Suche HF ..." if mode == "hf" else "Suche LF ..." if mode == "lf" else "Suche HF/LF ...")
+        progress(
+            {
+                "message": "HF-Suche laeuft ..." if mode == "hf" else "LF-Suche laeuft ..." if mode == "lf" else "HF/LF-Suche laeuft ...",
+                "message_key": "operation.scanSearchHf" if mode == "hf" else "operation.scanSearchLf" if mode == "lf" else "operation.scanSearchAuto",
+            }
+        )
+        progress({"message": "Erster Chip-Read laeuft ...", "message_key": "operation.firstReadRunning"})
         first_result = self._read_chip_for_mode(mode, check.port)
         self._raise_if_device_lost(first_result)
         first = chip_read_view_model_from_live_result(first_result)
@@ -304,10 +335,11 @@ class WebDesktopBridge:
             self.state.set_last_scan(first, confirmed=False, second_status="nicht bestaetigt")
             return _scan_payload(first, confirmed=False, second_status="nicht bestaetigt")
 
-        progress("Zweiter Scan wird geprueft ...")
+        progress({"message": "Zweiter Chip-Read laeuft ...", "message_key": "operation.secondReadRunning"})
         second_result = self._read_chip_for_mode(mode, check.port)
         self._raise_if_device_lost(second_result)
         second = chip_read_view_model_from_live_result(second_result)
+        progress({"message": "Scans werden verglichen ...", "message_key": "operation.scanCompare"})
         validation = validate_second_scan(first, second)
         confirmed = validation.can_save
         self.state.set_last_scan(first, confirmed=confirmed, second_status=validation.status)
@@ -317,19 +349,20 @@ class WebDesktopBridge:
 
     def _current_chip_scan_operation(self, progress) -> dict:
         check = self._verify_connection(progress)
-        progress("Aktueller Chip wird gelesen ...")
+        progress({"message": "Aktueller Chip wird vollstaendig gelesen ...", "message_key": "operation.currentChipFullRead"})
         result = self.service.read_chip(check.port)
         self._raise_if_device_lost(result)
         model = chip_read_view_model_from_live_result(result)
         backup = None
         if model.profile is not None:
-            progress("Backup wird gespeichert ...")
+            progress({"message": "Backup wird erstellt ...", "message_key": "operation.backupSaving"})
             backup = BackupRecord.from_hitag_s256_profile(model.profile, "Vor dem Schreiben")
             save_backup_record(backup, self.backup_dir)
         self.state.set_current_chip(model, backup)
         payload = {
             "ok": True,
             "message": "Backup erstellt" if backup else model.message,
+            "message_key": "operation.backupCreated" if backup else None,
             "chip": _chip_payload(model),
             "backup": _backup_payload_from_record(backup) if backup else None,
         }
@@ -359,7 +392,13 @@ class WebDesktopBridge:
 
         check = self._verify_connection(progress)
         label = "Konfiguration" if page == 1 else f"Block {page}"
-        progress(f"{label} wird uebernommen ...")
+        progress(
+            {
+                "message": f"{label} wird uebernommen ...",
+                "message_key": "write.regionApplyingSingle",
+                "message_args": {"label": label},
+            }
+        )
         result = self.service.write_hitag_s256_page(
             page,
             current.profile.pages[page],
@@ -373,7 +412,13 @@ class WebDesktopBridge:
             raise VerificationFailedError(result.message)
         verified = chip_read_view_model_from_live_result(result.verify_result)
         self.state.set_current_chip(verified, snapshot["current_backup"])
-        progress(f"{label} verifiziert")
+        progress(
+            {
+                "message": f"{label} verifiziert",
+                "message_key": "write.regionVerifiedSingle",
+                "message_args": {"label": label},
+            }
+        )
         return {
             "ok": True,
             "message": "Änderung erfolgreich geprüft.",
@@ -430,6 +475,8 @@ class WebDesktopBridge:
             progress(
                 {
                     "message": f"{index - 1} / {total} Bereiche uebernommen · {label} wird geschrieben ...",
+                    "message_key": "write.regionApplyingProgress",
+                    "message_args": {"done": index - 1, "total": total, "label": label},
                     "active_region": region_id,
                     "completed_regions": list(completed),
                     "completed_steps": index - 1,
@@ -455,6 +502,8 @@ class WebDesktopBridge:
                 progress(
                     {
                         "message": f"{label} konnte nicht verifiziert werden. Ablauf angehalten.",
+                        "message_key": "write.regionVerifyFailed",
+                        "message_args": {"label": label},
                         "active_region": None,
                         "failed_region": region_id,
                         "completed_regions": list(completed),
@@ -467,6 +516,8 @@ class WebDesktopBridge:
             progress(
                 {
                     "message": f"{index} / {total} Bereiche uebernommen · {label} verifiziert",
+                    "message_key": "write.regionVerifiedProgress",
+                    "message_args": {"done": index, "total": total, "label": label},
                     "active_region": None,
                     "completed_regions": list(completed),
                     "completed_steps": index,
@@ -544,7 +595,7 @@ class WebDesktopBridge:
         }
 
     def _verify_connection(self, progress) -> Pm3StartupCheck:
-        progress("PM3 wird geprueft ...")
+        progress({"message": "PM3-Verbindung wird geprueft ...", "message_key": "operation.pm3ConnectionChecking"})
         check = self.service.startup_check()
         snapshot = _connection_from_startup(check)
         self.state.set_connection(snapshot)
@@ -693,6 +744,22 @@ def _compatibility_from_startup(check: Pm3StartupCheck) -> dict[str, str | None]
     payload["status"] = compatibility.status
     payload["label"] = compatibility.label
     return payload
+
+
+def _debug_log(event: str, payload: dict[str, Any]) -> None:
+    try:
+        base = os.environ.get("LOCALAPPDATA")
+        log_dir = Path(base) / "PM3Workflow" if base else Path.home() / ".pm3-workflow"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event": event,
+            "payload": payload,
+        }
+        with (log_dir / "gui-debug.log").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    except Exception:
+        pass
 
 
 def _scan_payload(

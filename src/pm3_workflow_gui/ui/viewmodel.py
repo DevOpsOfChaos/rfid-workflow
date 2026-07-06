@@ -408,7 +408,7 @@ def chip_read_view_model_from_hitag_read(read: HitagSRead) -> ChipReadViewModel:
         return ChipReadViewModel(
             status="unsupported",
             title="Chip erkannt",
-            message="Dieser Chiptyp wird erkannt, aber ein vollständiger Vorlagen-Read ist in V1 noch nicht verfügbar.",
+            message="Dieser Chiptyp wurde erkannt, liefert aber keinen vollständigen Vorlagen-Read.",
             raw_read=read,
         )
     return _chip_read_view_model_from_adapter_result(detection, read)
@@ -424,6 +424,33 @@ def chip_read_view_model_from_live_result(result) -> ChipReadViewModel:
         )
     if result.success and result.hitag_read and detection:
         return _chip_read_view_model_from_adapter_result(detection, result.hitag_read)
+    if result.status == "unsupported_hitag" and detection:
+        fields = _lf_search_fields(getattr(result, "lf_search", None))
+        if not fields and getattr(detection, "uid", None):
+            fields = (
+                ChipFieldViewModel("Bereich", detection.frequency.upper()),
+                ChipFieldViewModel("UID", detection.uid),
+            )
+        warnings = tuple(
+            warning
+            for warning in (
+                "Detailread nicht abgeschlossen: Select UID fehlgeschlagen.",
+                "Keine vollständige Vorlage möglich; Speicherbereiche wurden nicht gelesen.",
+            )
+            if warning
+        )
+        return ChipReadViewModel(
+            "identity_read",
+            "Chip gelesen",
+            result.message or "Hitag-S UID stabil gelesen; vollständiger Speicher-Read ist nicht verfügbar.",
+            fields=fields,
+            warnings=warnings,
+            next_step="Chipposition leicht verändern und erneut scannen, wenn ein vollständiger Speicher-Read benötigt wird.",
+            read_status="identity_read",
+            support_level="identity_read",
+            technology=detection,
+            capabilities=adapter_for(detection).capabilities,
+        )
     if result.status in {"signal_unstable", "hitag_candidate_unstable", "reader_failed", "detail_read_unstable", "uid_request_failed"}:
         fields = _unstable_signal_fields(result)
         return ChipReadViewModel(

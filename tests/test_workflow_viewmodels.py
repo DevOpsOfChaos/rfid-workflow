@@ -2,10 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from pm3_workflow_gui.pm3.parsers import parse_hitag_s_rdbl
+from pm3_workflow_gui.pm3.parsers import parse_hitag_s_rdbl, parse_lf_search
 from pm3_workflow_gui.profiles.schema import HitagS256Profile
 from pm3_workflow_gui.profiles.storage import load_template_record
-from pm3_workflow_gui.services.live_pm3_readonly import LiveCommandResult, LivePm3ReadonlyService
+from pm3_workflow_gui.services.live_pm3_readonly import HitagS256LiveReadResult, LiveCommandResult, LivePm3ReadonlyService
+from pm3_workflow_gui.technologies.registry import detect_technology
 from pm3_workflow_gui.ui.viewmodel import (
     build_write_plan_view_model,
     capability_matrix_view_model,
@@ -153,6 +154,35 @@ def test_unstable_live_candidate_view_model_prompts_retry():
     assert model.status == "signal_unstable"
     assert "nicht stabil" in model.message
     assert any(field.label == "Signal" and field.value == "vorhanden" for field in model.fields)
+
+
+def test_stable_hitag_uid_with_failed_detail_read_is_identity_read_not_unstable():
+    lf_search = parse_lf_search(
+        "[+] UID....... 927C9C8E\n"
+        "[+] TYPE...... n/a\n"
+        "[+] Chipset... Hitag 1/S / 82xx\n"
+        "[?] Hint: Try `lf hitag hts` commands\n"
+    )
+    result = HitagS256LiveReadResult(
+        "unsupported_hitag",
+        "COM16",
+        lf_search=lf_search,
+        message="Dieser Chiptyp wurde erkannt, liefert aber keinen vollständigen Vorlagen-Read.",
+        detected_technology=detect_technology(lf_search=lf_search),
+    )
+
+    model = chip_read_view_model_from_live_result(result)
+    plan = unavailable_write_plan_view_model(model)
+
+    assert model.status == "identity_read"
+    assert model.title == "Chip gelesen"
+    assert model.read_status == "identity_read"
+    assert model.profile is None
+    assert model.is_complete_template_read is False
+    assert any(field.label == "UID" and field.value == "927C9C8E" for field in model.fields)
+    assert model.memory_sections == ()
+    assert "vollständige Vorlage" in " ".join(model.warnings)
+    assert plan.disabled_actions == ()
 
 
 def test_generic_hf_chip_view_model_blocks_template_and_write_plan():

@@ -10,8 +10,8 @@ from pm3_workflow_gui.pm3.parsers import parse_hw_version
 from pm3_workflow_gui.profiles.settings import load_settings
 from pm3_workflow_gui.services.discovery_facade import default_launch_config
 from pm3_workflow_gui.services.live_pm3_readonly import (
-    LiveCommandResult,
     LivePm3ReadonlyService,
+    _command_failure_reason as _live_command_failure_reason,
     _combined_output,
     _hw_version_is_meaningful,
 )
@@ -85,7 +85,7 @@ def build_pm3_doctor_report(client_dir: str | Path | None = None, service: LiveP
             True,
             port,
             False,
-            _command_failure_reason(hw_version),
+            _sanitize_reason(_live_command_failure_reason(hw_version)),
             None,
             None,
             "unknown",
@@ -120,29 +120,12 @@ def _configured_client_dir() -> Path:
     return default_launch_config().client_dir
 
 
-def _command_failure_reason(result: LiveCommandResult) -> str:
-    if result.timed_out:
-        return "read-only hw version command timed out"
-    output = _combined_output(result)
-    if output:
-        return _sanitize_reason(_first_nonempty_line(output))
-    return f"read-only hw version returned exit code {result.returncode} without parseable version output"
-
-
 def _sanitize_reason(value: str | None) -> str:
     if not value:
         return "unknown"
     sanitized = re.sub(r"(?i)\b[A-Z]:\\[^\s]+", "<local-path>", value)
     sanitized = re.sub(r"(?i)/(?:Users|home)/[^\s]+", "<local-path>", sanitized)
     return sanitized.strip()
-
-
-def _first_nonempty_line(value: str) -> str:
-    for line in value.splitlines():
-        stripped = line.strip()
-        if stripped:
-            return stripped
-    return "no command output"
 
 
 def _state(value: bool) -> str:

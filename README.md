@@ -126,18 +126,45 @@ terminal and it does not accept arbitrary command text.
 The GUI is a read-only viewer over the same capture providers and facade:
 
 ```powershell
-python -m pm3_workflow_gui.ui.app
+.\Start-RFID-GUI.ps1
 ```
 
-Install PySide6 only in a local GUI venv, not globally:
+Install the app dependencies only in the local GUI venv, not globally:
 
 ```powershell
-py -3.14 -m venv .venv-gui
-.\.venv-gui\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install PySide6
-python -m pm3_workflow_gui.ui.app
+.\scripts\install-windows.ps1
+.\Start-RFID-GUI.ps1
 ```
+
+For double-click startup, use `Start-RFID-GUI.bat` from the repository root.
+
+### Logo einsetzen
+
+Das Web-Desktop-UI liegt unter
+`src/pm3_workflow_gui/web_desktop/assets/`.
+
+Empfohlenes Vorgehen:
+
+1. Lege dein Logo als `brand-logo.png` oder `brand-logo.svg` in
+   `src/pm3_workflow_gui/web_desktop/assets/` ab.
+2. Ersetze in
+   `src/pm3_workflow_gui/web_desktop/assets/index.html` den Inhalt von
+   `<div class="sidebar-logo" aria-hidden="true">...</div>` durch:
+
+   ```html
+   <img src="brand-logo.png" alt="" />
+   ```
+
+3. Wenn das Logo auch im großen Logo-Feld der Übersicht erscheinen soll,
+   ersetze in `src/pm3_workflow_gui/web_desktop/assets/app.js` den aktuellen
+   `overview.logoPlaceholder`-Block in `renderOverview()` durch ein Bild:
+
+   ```html
+   <img src="brand-logo.png" alt="Logo" style="max-width:100%;max-height:100%;object-fit:contain;" />
+   ```
+
+4. Für ein helles Logo auf dunklem Hintergrund funktioniert SVG am besten.
+   Für PNG sollte die Datei transparent sein und mindestens 256x256 px haben.
 
 The GUI can load demo scenarios, open an existing PM3 log, load the latest PM3
 log, or run `Scan NFC/RFID tag` through the live read service. Normal mode keeps

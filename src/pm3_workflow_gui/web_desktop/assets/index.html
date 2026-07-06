@@ -4,7 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PM3 Studio</title>
-    <link rel="stylesheet" href="styles.css?v=20260625" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css?v=20260627-text-overview2" />
   </head>
   <body>
     <div class="app-shell" data-app-shell>
@@ -33,7 +36,11 @@
         </div>
 
         <nav class="sidebar-nav" aria-label="Hauptnavigation">
-          <button class="nav-item is-active" type="button" data-view="read">
+          <button class="nav-item is-active" type="button" data-view="overview">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>
+            <span data-i18n="nav.overview">Übersicht</span>
+          </button>
+          <button class="nav-item" type="button" data-view="read">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="8" cy="8" r="2.5"/><path d="M1 8 A7 7 0 0 1 15 8 A7 7 0 0 1 1 8" fill="none"/></svg>
             <span data-i18n="nav.read">Lesen</span>
             <span class="nav-dot" data-read-dot hidden></span>
@@ -55,6 +62,7 @@
           <button class="nav-item" type="button" data-view="backups">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 13 L3 8 Q3 3 8 3 Q13 3 13 8 L13 13"/><path d="M1 10 L3 13 L5 10"/><line x1="8" y1="8" x2="8" y2="11.5"/><line x1="6" y1="10" x2="10" y2="10"/></svg>
             <span data-i18n="nav.backups">Backups</span>
+            <span class="nav-badge" data-backup-count>0</span>
           </button>
         </nav>
 
@@ -72,7 +80,7 @@
           </div>
           <!-- Settings trigger -->
           <button class="settings-btn" type="button" data-settings-toggle style="margin-top:8px;">
-            ⚙ Einstellungen
+            Einstellungen
           </button>
           <div class="settings-panel" data-settings-panel hidden style="position:absolute;bottom:60px;left:10px;right:10px;width:auto;">
             <label class="settings-field">
@@ -87,10 +95,10 @@
               <span data-i18n="settings.showStartup">Startprüfung beim Start</span>
             </label>
             <label class="settings-field" style="margin-top:6px;">
-              <span class="settings-label">PM3-Pfad</span>
-              <input type="text" data-pm3-path-input placeholder="z.B. C:\Tools\proxmark3\client" style="width:100%;box-sizing:border-box;background:#111D30;border:1px solid #1E3050;color:#CBD5E1;border-radius:6px;padding:5px 8px;font-size:11px;font-family:var(--mono);" />
+              <span class="settings-label" data-i18n="settings.pm3Path">PM3-Pfad</span>
+              <input type="text" data-pm3-path-input data-i18n-placeholder="settings.pm3PathPlaceholder" placeholder="z.B. C:\Tools\proxmark3\client" style="width:100%;box-sizing:border-box;background:#111D30;border:1px solid #1E3050;color:#CBD5E1;border-radius:6px;padding:5px 8px;font-size:11px;font-family:var(--mono);" />
             </label>
-            <button class="settings-btn" type="button" data-save-pm3-path>Pfad speichern &amp; neu verbinden</button>
+            <button class="settings-btn" type="button" data-save-pm3-path data-i18n="settings.savePathReconnect">Pfad speichern &amp; neu verbinden</button>
             <button class="settings-btn" type="button" data-run-startup-check data-i18n="action.runStartupCheck">Startprüfung ausführen</button>
             <button class="settings-btn" type="button" data-refresh-connection data-i18n="settings.refresh">Verbindung prüfen</button>
             <button class="settings-btn" type="button" data-import-templates data-i18n="settings.importTemplates">Vorlagen importieren</button>
@@ -125,6 +133,6 @@
 
     <div id="modalRoot" class="modal-root" hidden></div>
     <div id="toastRoot" class="toast-root" hidden></div>
-    <script src="app.js?v=20260624"></script>
+    <script src="app.js?v=20260627-text-overview2"></script>
   </body>
 </html>
