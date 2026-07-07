@@ -7,8 +7,8 @@ This is the non-developer installation path.
 1. Copy the project folder to the Windows computer.
 2. Double-click `Install-RFID-GUI.bat`.
 3. If Windows asks for permission to run PowerShell, allow it.
-4. If Python is missing, install Python 3.12 or newer from the page that opens.
-   Enable `Add python.exe to PATH`, then run `Install-RFID-GUI.bat` again.
+4. If Python 3.12 or newer is missing, the installer installs it automatically
+   for the current Windows user. Internet access is required for this fallback.
 5. Start the app from the desktop shortcut `RFID GUI starten`.
 
 The installer creates a local `.venv-gui` folder inside the project. It does not

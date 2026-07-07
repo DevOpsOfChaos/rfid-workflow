@@ -43,6 +43,31 @@ function Find-PythonLauncher {
     if ($LASTEXITCODE -eq 0) {
         return "python ($required required)"
     }
+    if (Get-Command python3 -ErrorAction SilentlyContinue) {
+        & python3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)" *> $null
+    } else {
+        $global:LASTEXITCODE = 1
+    }
+    if ($LASTEXITCODE -eq 0) {
+        return "python3 ($required required)"
+    }
+    $versions = @("314", "313", "312")
+    $roots = @(
+        (Join-Path $env:LOCALAPPDATA "Programs\Python"),
+        $env:ProgramFiles,
+        ${env:ProgramFiles(x86)}
+    ) | Where-Object { $_ }
+    foreach ($rootPath in $roots) {
+        foreach ($version in $versions) {
+            $path = Join-Path $rootPath "Python$version\python.exe"
+            if (Test-Path -LiteralPath $path) {
+                & $path -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)" *> $null
+                if ($LASTEXITCODE -eq 0) {
+                    return "$path ($required required)"
+                }
+            }
+        }
+    }
     return $null
 }
 

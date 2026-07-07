@@ -19,13 +19,13 @@ environment if it is missing.
 Requirements:
 
 - Windows 10/11
-- Python 3.12 or newer
+- Internet access for first install if Python 3.12 or newer is not already installed
 - Separately installed Proxmark3/Iceman client
 - Working Proxmark USB driver / COM port
 
-If Python is missing, the installer opens the official Python download page.
-Install Python, enable `Add python.exe to PATH`, then run
-`Install-RFID-GUI.bat` again.
+If Python is missing, the installer first tries `winget`, then downloads and
+silently installs the official Python 3.12 Windows installer for the current
+user. You should not need to install Python manually.
 
 Detailed user instructions: [docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md)
 Proxmark setup and driver notes: [docs/PROXMARK_SETUP.md](docs/PROXMARK_SETUP.md)
