@@ -26,12 +26,20 @@ function Find-PythonLauncher {
     $required = Read-RequiredPython
     $candidates = @("3.14", "3.13", "3.12")
     foreach ($version in $candidates) {
-        & py "-$version" --version *> $null
+        if (Get-Command py -ErrorAction SilentlyContinue) {
+            & py "-$version" -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)" *> $null
+        } else {
+            $global:LASTEXITCODE = 1
+        }
         if ($LASTEXITCODE -eq 0) {
             return "py -$version ($required required)"
         }
     }
-    & python --version *> $null
+    if (Get-Command python -ErrorAction SilentlyContinue) {
+        & python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)" *> $null
+    } else {
+        $global:LASTEXITCODE = 1
+    }
     if ($LASTEXITCODE -eq 0) {
         return "python ($required required)"
     }
@@ -49,7 +57,7 @@ if ($launcher) {
 
 Write-Check "Virtual environment" (Test-Path -LiteralPath $Python) $Python
 if (-not (Test-Path -LiteralPath $Python)) {
-    Write-Host "Run .\scripts\install-windows.ps1 to create the local GUI environment."
+    Write-Host "Run .\Install-RFID-GUI.bat to create the local GUI environment."
     exit 1
 }
 

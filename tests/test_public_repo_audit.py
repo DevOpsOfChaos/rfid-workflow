@@ -101,6 +101,16 @@ def test_public_audit_flags_forbidden_media_and_windows_paths(tmp_path):
     assert "local user or repository path" in reasons
 
 
+def test_public_audit_flags_common_key_and_certificate_files(tmp_path):
+    for name in ("secret.pem", "signing.pfx", "client.p12", "ca.crt", "id_ed25519"):
+        (tmp_path / name).write_text("private", encoding="utf-8")
+
+    findings = audit(tmp_path, Namespace(staged_only=False, tracked=False, git_ref=None, expected_files=None, export_list=None, denylist=None, private_patterns="missing.txt"))
+    flagged = {finding.path for finding in findings}
+
+    assert {"secret.pem", "signing.pfx", "client.p12", "ca.crt", "id_ed25519"} <= flagged
+
+
 def test_public_audit_accepts_generalized_example_paths(tmp_path):
     (tmp_path / "notes.md").write_text(
         "Examples: <PROJECT_ROOT> %USERPROFILE% %LOCALAPPDATA% C:\\Tools\\proxmark3 D:\\Projects\\rfid-workflow",

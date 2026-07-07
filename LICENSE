@@ -1,22 +1,28 @@
-MIT License
+RFID Workflow GUI Source-Available Use License
 
-Copyright (c) 2026
+Copyright (c) 2026. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Permission is granted to use this software as provided for personal, internal,
+or business operations.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+You may download, install, and keep backup copies of this software only as
+needed for that permitted use.
+
+You may not:
+
+- modify, adapt, translate, or create derivative works from this software;
+- redistribute, publish, sublicense, lend, rent, host, or otherwise provide
+  copies of this software to third parties;
+- sell this software or include it in a paid product or service;
+- remove copyright, license, or attribution notices;
+- use this software for unauthorized access, unlawful RFID workflows, or any
+  activity you are not legally authorized to perform.
+
+Proxmark3/Iceman is not included in this repository and remains subject to its
+own license terms.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
+IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. THE AUTHORS AND COPYRIGHT
+HOLDERS ARE NOT LIABLE FOR ANY CLAIM, DAMAGE, LOSS, OR OTHER LIABILITY ARISING
+FROM OR RELATED TO THE SOFTWARE OR ITS USE.

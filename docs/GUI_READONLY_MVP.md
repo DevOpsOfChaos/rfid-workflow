@@ -11,15 +11,15 @@ Install the GUI only in the local project virtual environment:
 
 ```powershell
 cd <PROJECT_ROOT>
-.\scripts\install-windows.ps1
-.\Start-RFID-GUI.ps1
+.\Install-RFID-GUI.bat
+.\Start-RFID-GUI.bat
 ```
 
 Alternatively, after activating `.venv-gui`, install the optional GUI extra:
 
 ```powershell
 python -m pip install -e .[gui]
-.\Start-RFID-GUI.ps1
+.\Start-RFID-GUI.bat
 ```
 
 If pywebview is missing, the app exits with:

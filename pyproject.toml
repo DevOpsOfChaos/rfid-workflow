@@ -8,13 +8,13 @@ version = "0.1.0"
 description = "Authorized Proxmark3/Iceman workflow GUI scaffold"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = { text = "Source-available use-only; see LICENSE" }
 authors = [{ name = "Internal tooling" }]
 dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-gui = ["PySide6>=6.8", "pywebview>=6.2"]
+gui = ["pywebview>=6.2"]
 
 [project.scripts]
 pm3-workflow-gui = "pm3_workflow_gui.main:main"

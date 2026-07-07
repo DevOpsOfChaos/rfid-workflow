@@ -12,6 +12,9 @@ import sys
 FORBIDDEN_GLOBS = (
     "*.bin",
     "*.bundle",
+    "*.cer",
+    "*.crt",
+    "*.der",
     "*.dump",
     "*.eml",
     "*.gif",
@@ -20,11 +23,18 @@ FORBIDDEN_GLOBS = (
     "*.key",
     "*.log",
     "*.mp4",
+    "*.p12",
+    "*.pem",
+    "*.pfx",
     "*.png",
     "*.zip",
     "*.webp",
     ".env",
     ".env.*",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "id_rsa",
 )
 FORBIDDEN_DIRS = (
     ".git",
@@ -50,7 +60,7 @@ FORBIDDEN_DIRS = (
 )
 SECRET_PATTERNS = (
     re.compile(r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*['\"]?[A-Za-z0-9_\-./+=]{12,}"),
-    re.compile(r"(?i)-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    re.compile(r"(?i)-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
 )
 LOCAL_PATH_PATTERNS = (
     re.compile(r"(?i)\b[A-Z]:\\(?:Users|LocalRepos|Repos|ProxSpace)\\"),

@@ -69,6 +69,6 @@ def test_load_demo_view_model_uses_services():
     assert model.tag_type == "Hitag S256"
 
 
-def test_main_window_can_be_imported_when_pyside_is_available():
-    pytest.importorskip("PySide6")
-    __import__("pm3_workflow_gui.ui.main_window")
+def test_web_desktop_app_can_be_imported_when_pywebview_is_available():
+    pytest.importorskip("webview")
+    __import__("pm3_workflow_gui.web_desktop.app")

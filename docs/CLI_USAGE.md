@@ -163,14 +163,14 @@ deliberately blocked.
 The GUI MVP uses the same read-only services:
 
 ```powershell
-.\Start-RFID-GUI.ps1
+.\Start-RFID-GUI.bat
 ```
 
 The GUI dependencies are optional for core development and should be installed
 only in `.venv-gui`:
 
 ```powershell
-.\scripts\install-windows.ps1
+.\Install-RFID-GUI.bat
 ```
 
 If pywebview is missing, the launcher prints a clear setup message. See

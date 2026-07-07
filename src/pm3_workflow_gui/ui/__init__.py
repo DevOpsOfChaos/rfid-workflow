@@ -1,2 +1,1 @@
-"""Future PySide6 UI package."""
-
+"""UI view-model package."""

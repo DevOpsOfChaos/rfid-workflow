@@ -1,3 +1,9 @@
+param(
+    [switch]$CreateShortcut,
+    [switch]$Dev,
+    [string]$Pm3ClientDir
+)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -14,21 +20,53 @@ function Read-RequiredPython {
     return ">=3.12"
 }
 
+function Test-PythonLauncher([string]$Exe, [string[]]$Args) {
+    if (-not (Get-Command $Exe -ErrorAction SilentlyContinue)) {
+        return $false
+    }
+    & $Exe @Args -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)" *> $null
+    return $LASTEXITCODE -eq 0
+}
+
 function Find-PythonLauncher {
     $required = Read-RequiredPython
     Write-Host "Python requirement from pyproject.toml: $required"
     $candidates = @("3.14", "3.13", "3.12")
     foreach ($version in $candidates) {
-        & py "-$version" --version *> $null
-        if ($LASTEXITCODE -eq 0) {
-            return @("py", "-$version")
+        if (Test-PythonLauncher "py" @("-$version")) {
+            return ,@("py", "-$version")
         }
     }
-    & python --version *> $null
-    if ($LASTEXITCODE -eq 0) {
-        return @("python")
+    if (Test-PythonLauncher "python" @()) {
+        return ,@("python")
     }
-    throw "Python was not found. Install Python 3.12 or newer and rerun this script."
+    Start-Process "https://www.python.org/downloads/windows/"
+    throw "Python 3.12 or newer was not found. Install Python from the opened page, enable 'Add python.exe to PATH', then rerun Install-RFID-GUI.bat."
+}
+
+function Save-Pm3ClientDir([string]$ClientDir) {
+    $resolved = Resolve-Path -LiteralPath $ClientDir -ErrorAction Stop
+    $env:RFID_GUI_ROOT = $Root
+    $env:RFID_GUI_PM3_CLIENT_DIR = $resolved.Path
+    try {
+        & $Python -c "import os, sys; from pathlib import Path; sys.path.insert(0, str(Path(os.environ['RFID_GUI_ROOT']) / 'src')); from pm3_workflow_gui.profiles.settings import update_settings; update_settings({'last_known_pm3_path': os.environ['RFID_GUI_PM3_CLIENT_DIR']}); print('Saved PM3 path locally.')"
+    } finally {
+        Remove-Item Env:\RFID_GUI_ROOT -ErrorAction SilentlyContinue
+        Remove-Item Env:\RFID_GUI_PM3_CLIENT_DIR -ErrorAction SilentlyContinue
+    }
+}
+
+function New-DesktopShortcut {
+    $target = Join-Path $Root "Start-RFID-GUI.bat"
+    $desktop = [Environment]::GetFolderPath("Desktop")
+    $shortcutPath = Join-Path $desktop "RFID GUI starten.lnk"
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = $target
+    $shortcut.WorkingDirectory = $Root
+    $shortcut.Description = "RFID Workflow GUI starten"
+    $shortcut.Save()
+    Write-Host "Desktop shortcut created: $shortcutPath"
 }
 
 Set-Location -LiteralPath $Root
@@ -43,24 +81,30 @@ if (-not (Test-Path -LiteralPath $Python)) {
 
 Write-Host "Installing project dependencies into local virtual environment ..."
 & $Python -m pip install --upgrade pip
-& $Python -m pip install -e ".[gui,dev]"
+if ($Dev) {
+    & $Python -m pip install -e ".[gui,dev]"
+} else {
+    & $Python -m pip install -e ".[gui]"
+}
 
 Write-Host "Checking pywebview/WebView import ..."
 & $Python -c "import webview; print('pywebview import OK')"
 
-$pm3Path = Read-Host "Optional: enter local PM3/ProxSpace client directory, or press Enter to skip"
-if ($pm3Path.Trim()) {
-    $resolved = Resolve-Path -LiteralPath $pm3Path -ErrorAction Stop
-    $code = @"
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(r"$Root") / "src"))
-from pm3_workflow_gui.profiles.settings import update_settings
-update_settings({"last_known_pm3_path": r"$($resolved.Path)"})
-print("Saved PM3 path locally.")
-"@
-    & $Python -c $code
+if (-not $Pm3ClientDir) {
+    $defaultPm3ClientDir = "C:\Tools\proxmark3\client"
+    if (Test-Path -LiteralPath $defaultPm3ClientDir) {
+        $Pm3ClientDir = $defaultPm3ClientDir
+    }
+}
+if ($Pm3ClientDir) {
+    Save-Pm3ClientDir $Pm3ClientDir
+} else {
+    Write-Host "PM3 client path not configured. You can set it later in the app."
+}
+
+if ($CreateShortcut) {
+    New-DesktopShortcut
 }
 
 Write-Host "Installation complete. This script did not flash firmware and did not require administrator rights."
-Write-Host "Start the app with: .\scripts\run.ps1"
+Write-Host "Start the app with: .\Start-RFID-GUI.bat"
